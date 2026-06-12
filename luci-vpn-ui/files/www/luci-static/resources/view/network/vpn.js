@@ -17,6 +17,12 @@ var css = '\
 .vpn-ui .vpn-muted { opacity:.72; font-size:.92em; }\
 .vpn-ui .vpn-ping-ok { color:#66d489; font-weight:700; }\
 .vpn-ui .vpn-ping-bad { color:#d46a6a; font-weight:700; }\
+.vpn-ui .vpn-rule-search { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:.5rem 0 1rem; }\
+.vpn-ui .vpn-rule-search input { flex:1 1 24rem; min-width:14rem; }\
+.vpn-ui .vpn-rule-search-summary { min-width:7rem; }\
+.vpn-ui .vpn-rule-results { margin:0 0 1rem; max-height:14rem; overflow:auto; }\
+.vpn-ui .vpn-rule-result-button { width:100%; text-align:left; font-family:monospace; overflow-wrap:anywhere; }\
+.vpn-ui .vpn-rule-result-button mark { background:#2f6f3d; color:inherit; padding:0 .15rem; }\
 .vpn-ui .vpn-rules-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; }\
 .vpn-ui .vpn-rules-grid textarea { width:100%; min-height:18rem; box-sizing:border-box; font-family:monospace; white-space:pre; }\
 .vpn-ui .vpn-actions { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }\
@@ -46,6 +52,32 @@ function parseResponse(res) {
 
 function lines(values) {
 	return (values || []).join('\n');
+}
+
+function ruleLines(id) {
+	var node = document.querySelector('#' + id);
+	var value = node ? node.value : '';
+
+	return value ? value.split(/\n/) : [];
+}
+
+function trimLine(value) {
+	return (value || '').replace(/\r$/, '').replace(/^\s+/, '').replace(/\s+$/, '');
+}
+
+function highlightRuleMatch(value, query) {
+	var lower = value.toLowerCase();
+	var needle = query.toLowerCase();
+	var pos = lower.indexOf(needle);
+
+	if (!needle || pos < 0)
+		return [ value ];
+
+	return [
+		value.slice(0, pos),
+		E('mark', {}, value.slice(pos, pos + query.length)),
+		value.slice(pos + query.length)
+	];
 }
 
 return view.extend({
@@ -131,6 +163,114 @@ return view.extend({
 			domains ? domains.value : '',
 			ips ? ips.value : ''
 		], _('Applying direct routing rules'));
+	},
+
+	searchRuleLines: function(query) {
+		var needle = (query || '').toLowerCase();
+		var sources = [
+			{ id: 'vpn-direct-domains', label: _('Domains') },
+			{ id: 'vpn-direct-ips', label: _('IP addresses') }
+		];
+		var matches = [];
+
+		if (!needle)
+			return matches;
+
+		sources.forEach(function(source) {
+			ruleLines(source.id).forEach(function(line, index) {
+				var value = trimLine(line);
+
+				if (!value)
+					return;
+
+				if (value.toLowerCase().indexOf(needle) < 0)
+					return;
+
+				matches.push({
+					source: source.label,
+					textarea: source.id,
+					line: index + 1,
+					value: value
+				});
+			});
+		});
+
+		return matches;
+	},
+
+	selectRuleLine: function(textareaId, lineNumber) {
+		var textarea = document.querySelector('#' + textareaId);
+		var lines, start = 0, i, end;
+
+		if (!textarea)
+			return;
+
+		lines = textarea.value.split(/\n/);
+		for (i = 0; i < lineNumber - 1 && i < lines.length; i++)
+			start += lines[i].length + 1;
+
+		end = start + (lines[lineNumber - 1] || '').replace(/\r$/, '').length;
+		textarea.focus();
+		textarea.setSelectionRange(start, end);
+
+		if (lines.length > 1)
+			textarea.scrollTop = Math.max(0, (textarea.scrollHeight - textarea.clientHeight) * ((lineNumber - 1) / (lines.length - 1)));
+	},
+
+	renderRuleSearchResults: function(matches, query) {
+		var rows;
+
+		if (!query)
+			return [];
+
+		if (!matches.length)
+			return E('div', { 'class': 'vpn-rule-results vpn-muted' }, _('No matching rules.'));
+
+		rows = matches.map(function(match) {
+			return E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td left' }, match.source),
+				E('td', { 'class': 'td left' }, match.line),
+				E('td', { 'class': 'td left' }, [
+					E('button', {
+						'class': 'cbi-button cbi-button-neutral vpn-rule-result-button',
+						'click': L.bind(this.selectRuleLine, this, match.textarea, match.line)
+					}, highlightRuleMatch(match.value, query))
+				])
+			]);
+		}, this);
+
+		return E('div', { 'class': 'vpn-rule-results' }, [
+			E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [
+					E('th', { 'class': 'th left' }, _('List')),
+					E('th', { 'class': 'th left' }, _('Line')),
+					E('th', { 'class': 'th left' }, _('Rule'))
+				])
+			].concat(rows))
+		]);
+	},
+
+	handleRuleSearch: function() {
+		var input = document.querySelector('#vpn-rule-search');
+		var results = document.querySelector('#vpn-rule-search-results');
+		var summary = document.querySelector('#vpn-rule-search-summary');
+		var query = input ? input.value.trim() : '';
+		var matches = this.searchRuleLines(query);
+
+		if (summary)
+			dom.content(summary, query ? (matches.length == 1 ? _('1 match') : _('%s matches').format(matches.length)) : '');
+
+		if (results)
+			dom.content(results, this.renderRuleSearchResults(matches, query));
+	},
+
+	handleClearRuleSearch: function() {
+		var input = document.querySelector('#vpn-rule-search');
+
+		if (input)
+			input.value = '';
+
+		this.handleRuleSearch();
 	},
 
 	handleToggleXray: function(enabled) {
@@ -278,6 +418,20 @@ return view.extend({
 	renderRules: function(data) {
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
+			E('div', { 'class': 'vpn-rule-search' }, [
+				E('input', {
+					'id': 'vpn-rule-search',
+					'type': 'search',
+					'placeholder': _('Search rules'),
+					'input': ui.createHandlerFn(this, 'handleRuleSearch')
+				}),
+				E('button', {
+					'class': 'cbi-button cbi-button-neutral',
+					'click': ui.createHandlerFn(this, 'handleClearRuleSearch')
+				}, _('Clear')),
+				E('span', { 'id': 'vpn-rule-search-summary', 'class': 'vpn-muted vpn-rule-search-summary' }, '')
+			]),
+			E('div', { 'id': 'vpn-rule-search-results' }),
 			E('div', { 'class': 'vpn-rules-grid' }, [
 				E('div', {}, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'vpn-direct-domains' }, _('Domains')),
@@ -285,7 +439,8 @@ return view.extend({
 						'id': 'vpn-direct-domains',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView,
+						'input': ui.createHandlerFn(this, 'handleRuleSearch')
 					}, lines(data.domains))
 				]),
 				E('div', {}, [
@@ -294,7 +449,8 @@ return view.extend({
 						'id': 'vpn-direct-ips',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView,
+						'input': ui.createHandlerFn(this, 'handleRuleSearch')
 					}, lines(data.ips))
 				])
 			]),
