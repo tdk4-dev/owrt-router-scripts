@@ -21,6 +21,11 @@ var css = '\
 .vpn-ui .vpn-rules-grid textarea { width:100%; min-height:18rem; box-sizing:border-box; font-family:monospace; white-space:pre; }\
 .vpn-ui .vpn-actions { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }\
 .vpn-ui .vpn-service-row { display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem; }\
+.vpn-ui .vpn-global-row { display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:center; margin:.75rem 0 1rem; }\
+.vpn-ui .vpn-global-state { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }\
+.vpn-ui .vpn-device-row.vpn-device-direct { background:#173d25 !important; }\
+.vpn-ui .vpn-device-row.vpn-device-direct > .td { background:transparent !important; }\
+.vpn-ui .vpn-device-row.vpn-device-direct { box-shadow: inset 3px 0 0 #2fb35d; }\
 ';
 
 function parseResponse(res) {
@@ -128,8 +133,64 @@ return view.extend({
 		], _('Applying direct routing rules'));
 	},
 
+	handleToggleXray: function(enabled) {
+		var next = enabled ? 'off' : 'on';
+		var title = enabled ? _('Disable VPN globally') : _('Enable VPN globally');
+		var message = enabled
+			? _('Stop transparent proxying and Xray for all devices?')
+			: _('Start Xray and transparent proxying for all devices?');
+
+		ui.showModal(title, [
+			E('p', {}, message),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				E('button', {
+					'class': 'btn ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
+					'disabled': isReadonlyView,
+					'click': L.bind(function() {
+						this.runAction(['xray', next], title);
+					}, this)
+				}, enabled ? _('Disable') : _('Enable'))
+			])
+		]);
+	},
+
+	handleToggleDevice: function(device) {
+		var next = device.vpn_disabled ? 'enable' : 'disable';
+		var title = device.vpn_disabled ? _('Enable VPN for device') : _('Disable VPN for device');
+
+		return this.runAction([
+			'device',
+			next,
+			device.mac,
+			device.ip
+		], title);
+	},
+
 	load: function() {
 		return this.callHelper(['status']);
+	},
+
+	renderGlobal: function(data) {
+		var services = data.services || {};
+		var enabled = !!services.vpn_enabled;
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Global VPN')),
+			E('div', { 'class': 'vpn-global-row' }, [
+				E('div', { 'class': 'vpn-global-state' }, [
+					E('span', { 'class': 'label ' + (enabled ? 'notice' : 'warning') }, enabled ? _('Enabled') : _('Disabled')),
+					E('span', { 'class': 'label' }, 'Xray: %s'.format(services.xray || '-')),
+					E('span', { 'class': 'label' }, 'TProxy: %s'.format(services.transparent || '-'))
+				]),
+				E('button', {
+					'class': 'cbi-button ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
+					'disabled': isReadonlyView,
+					'click': L.bind(this.handleToggleXray, this, enabled)
+				}, enabled ? _('Disable') : _('Enable'))
+			])
+		]);
 	},
 
 	renderProfileTable: function(data) {
@@ -247,10 +308,54 @@ return view.extend({
 		]);
 	},
 
+	renderDevices: function(data) {
+		var devices = data.devices || [];
+		var rows = devices.map(function(device) {
+			var disabled = !!device.vpn_disabled;
+
+			return E('tr', { 'class': 'tr vpn-device-row' + (disabled ? ' vpn-device-direct' : '') }, [
+				E('td', { 'class': 'td left' }, device.hostname || '-'),
+				E('td', { 'class': 'td left' }, device.ip || '-'),
+				E('td', { 'class': 'td left' }, device.mac || '-'),
+				E('td', { 'class': 'td left' }, device.lease_remaining || '-'),
+				E('td', { 'class': 'td left' }, [
+					E('span', { 'class': 'label ' + (disabled ? 'notice' : '') }, disabled ? _('Direct') : _('VPN'))
+				]),
+				E('td', { 'class': 'td right' }, [
+					E('button', {
+						'class': 'cbi-button ' + (disabled ? 'cbi-button-positive' : 'cbi-button-negative'),
+						'disabled': isReadonlyView,
+						'click': L.bind(this.handleToggleDevice, this, device)
+					}, disabled ? _('Enable') : _('Disable'))
+				])
+			]);
+		}, this);
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Device VPN status')),
+			E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [
+					E('th', { 'class': 'th left' }, _('Hostname')),
+					E('th', { 'class': 'th left' }, _('IPv4 address')),
+					E('th', { 'class': 'th left' }, _('MAC address')),
+					E('th', { 'class': 'th left' }, _('Lease time remaining')),
+					E('th', { 'class': 'th left' }, _('Status')),
+					E('th', { 'class': 'th right' }, '')
+				])
+			].concat(rows.length ? rows : [
+				E('tr', { 'class': 'tr placeholder' }, [
+					E('td', { 'class': 'td', 'colspan': '6' }, _('There are no active DHCP leases.'))
+				])
+			]))
+		]);
+	},
+
 	renderBody: function(data) {
 		return [
+			this.renderGlobal(data),
 			this.renderProfiles(data),
-			this.renderRules(data)
+			this.renderRules(data),
+			this.renderDevices(data)
 		];
 	},
 

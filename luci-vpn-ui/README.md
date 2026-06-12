@@ -18,9 +18,23 @@ direct routing lists:
 - `/etc/xray/direct-domains.txt`
 - `/etc/xray/direct-ips.txt`
 
+It also manages per-device VPN bypass state in:
+
+- `/etc/xray/vpn-ui-device-bypass-macs.txt`
+
+Active DHCP leases are read from `/tmp/dhcp.leases`. Devices marked disabled
+are resolved from MAC address to their current IPv4 lease and placed in the
+`vpn_ui_device_bypass4` nft set under `inet xray_transparent`, with an early
+source-address accept rule in each prerouting chain.
+
 Switching profiles or applying rules renders a temporary Xray JSON config,
 runs `xray run -test -config ...`, then replaces `/etc/xray/exit-st-cf.json`
 only after validation succeeds.
+
+The global VPN toggle stops `xray-transparent` before stopping Xray, so clients
+fall back to direct routing instead of being redirected into a stopped proxy.
+Enabling starts Xray, restarts transparent routing, and reapplies device bypass
+state.
 
 ## Install to a Running Router
 

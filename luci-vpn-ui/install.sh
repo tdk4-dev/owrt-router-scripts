@@ -15,6 +15,7 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /etc/xray/vless-selected
 /etc/xray/direct-domains.txt
 /etc/xray/direct-ips.txt
+/etc/xray/vpn-ui-device-bypass-macs.txt
 /etc/xray/exit-st-cf.json
 /etc/init.d/xray-transparent"
 
