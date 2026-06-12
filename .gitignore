@@ -1,0 +1,18 @@
+.DS_Store
+*.log
+*.tmp
+*.bak
+*.tgz
+*.tar.gz
+*.zip
+
+# Local secrets/configs. Keep checked-in examples only.
+*.env
+!.env.example
+!rd23.env.example
+
+# Generated diagnostic archives/directories.
+home-net-audit-*/
+owrt-iperf-variants-*/
+owrt-raw-wan-iperf-*/
+owrt-upload-latency-probe-*/
