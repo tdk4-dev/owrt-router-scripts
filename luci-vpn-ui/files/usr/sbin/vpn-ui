@@ -1,0 +1,927 @@
+#!/bin/ash
+set -u
+
+XRAY_CONFIG="/etc/xray/exit-st-cf.json"
+PROFILE_DIR="/etc/xray/vless-profiles.d"
+SELECTED_FILE="/etc/xray/vless-selected"
+DOMAINS_FILE="/etc/xray/direct-domains.txt"
+IPS_FILE="/etc/xray/direct-ips.txt"
+TRANSPARENT_INIT="/etc/init.d/xray-transparent"
+
+XRAY_SERVICE=""
+XRAY_BIN=""
+LAN_IP=""
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g'
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+one_line() {
+  printf '%s' "$1" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g' | cut -c 1-500
+}
+
+die_json() {
+  printf '{"ok":false,"error":'
+  json_string "$(one_line "$*")"
+  printf '}\n'
+  exit 0
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+json_config_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+is_ipv4() {
+  printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
+}
+
+valid_port() {
+  printf '%s' "$1" | grep -Eq '^[0-9]+$' || return 1
+  [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+url_decode() {
+  local value
+  value="$(printf '%s' "$1" | sed 's/+/ /g; s/%/\\x/g')"
+  printf '%b' "$value"
+}
+
+qs_value() {
+  local query="$1"
+  local key="$2"
+  local pair name value
+
+  printf '%s' "$query" | tr '&' '\n' | while IFS= read -r pair; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    [ "$name" = "$key" ] || continue
+    url_decode "$value"
+    exit 0
+  done
+}
+
+detect_xray_paths() {
+  if [ -z "$XRAY_SERVICE" ]; then
+    if [ -x /etc/init.d/xray-exit-st ]; then
+      XRAY_SERVICE="xray-exit-st"
+    else
+      XRAY_SERVICE="xray"
+    fi
+  fi
+
+  if [ -z "$XRAY_BIN" ] && [ -x /usr/local/bin/xray-latest ]; then
+    XRAY_BIN="/usr/local/bin/xray-latest"
+  fi
+  if [ -z "$XRAY_BIN" ] && command -v xray >/dev/null 2>&1; then
+    XRAY_BIN="$(command -v xray)"
+  fi
+  [ -n "$XRAY_BIN" ] && [ -x "$XRAY_BIN" ] ||
+    die_json "could not find xray binary"
+
+  if [ -z "$LAN_IP" ]; then
+    LAN_IP="$(uci -q get network.lan.ipaddr 2>/dev/null || true)"
+  fi
+  if [ -z "$LAN_IP" ] && [ -f "$XRAY_CONFIG" ]; then
+    LAN_IP="$(json_string_value listen "$XRAY_CONFIG")"
+  fi
+  [ -n "$LAN_IP" ] || LAN_IP="0.0.0.0"
+}
+
+json_string_value() {
+  local key="$1"
+  local file="$2"
+  sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" |
+    sed -n '1p' |
+    sed 's/\\\\/\\/g; s/\\"/"/g'
+}
+
+json_vnext_string_value() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    /"vnext"[[:space:]]*:/ { seen=1 }
+    seen && $0 ~ "\"" key "\"" {
+      print
+      exit
+    }
+  ' "$file" |
+    sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+    sed 's/\\\\/\\/g; s/\\"/"/g'
+}
+
+json_vnext_number_value() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    /"vnext"[[:space:]]*:/ { seen=1 }
+    seen && $0 ~ "\"" key "\"" {
+      gsub(/[^0-9]/, "", $0)
+      print
+      exit
+    }
+  ' "$file"
+}
+
+detect_vps_ip_from_transparent() {
+  [ -f "$TRANSPARENT_INIT" ] || return 0
+  sed -n \
+    -e 's/^[[:space:]]*FIN0_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
+    -e 's/^[[:space:]]*VPS_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
+    "$TRANSPARENT_INIT" |
+    sed -n '1p'
+}
+
+resolve_vps_ip() {
+  local host="$1"
+  local found
+
+  if is_ipv4 "$host"; then
+    printf '%s' "$host"
+    return 0
+  fi
+
+  found="$(nslookup "$host" 2>/dev/null |
+    awk '
+      /^Address [0-9]+: [0-9]/ { print $3; exit }
+      /^Address: [0-9]/ { print $2; exit }
+    ')"
+  printf '%s' "$found"
+}
+
+extract_direct_array() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    function reset() {
+      in_array = 0
+      waiting = 0
+      count = 0
+      delete vals
+    }
+    function value_from_line(line, s) {
+      s = line
+      sub(/^[^\"]*\"/, "", s)
+      sub(/\".*$/, "", s)
+      gsub(/\\\\/, "\\", s)
+      gsub(/\\"/, "\"", s)
+      return s
+    }
+    $0 ~ "\"" key "\"[[:space:]]*:[[:space:]]*\\[" {
+      in_array = 1
+      count = 0
+      next
+    }
+    in_array && $0 ~ "\\]" {
+      in_array = 0
+      waiting = 1
+      next
+    }
+    in_array {
+      if ($0 ~ /\"/) {
+        count++
+        vals[count] = value_from_line($0)
+      }
+      next
+    }
+    waiting && $0 ~ /"outboundTag"[[:space:]]*:[[:space:]]*"direct"/ {
+      for (i = 1; i <= count; i++) print vals[i]
+      reset()
+      next
+    }
+    waiting && $0 ~ /"outboundTag"[[:space:]]*:/ {
+      reset()
+      next
+    }
+  ' "$file" | awk 'NF && !seen[$0]++'
+}
+
+is_builtin_direct_ip() {
+  local item="$1"
+  local vps_ip="$2"
+  case "$item" in
+    0.0.0.0/8|10.0.0.0/8|100.64.0.0/10|127.0.0.0/8|169.254.0.0/16|172.16.0.0/12|192.168.0.0/16|224.0.0.0/4|240.0.0.0/4)
+      return 0
+      ;;
+    "$vps_ip"|"$vps_ip/32")
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+normalize_file() {
+  local src="$1"
+  local dst="$2"
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$src" > "$dst"
+}
+
+normalize_text_to_file() {
+  local text="$1"
+  local dst="$2"
+  local tmp="/tmp/vpn-ui-text.$$"
+  printf '%s\n' "$text" > "$tmp"
+  normalize_file "$tmp" "$dst"
+  rm -f "$tmp"
+}
+
+json_list_from_file() {
+  local file="$1"
+  local item esc first
+  first=1
+  [ -f "$file" ] || return 0
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    esc="$(json_config_escape "$item")"
+    if [ "$first" = "1" ]; then
+      printf '\n          "%s"' "$esc"
+      first=0
+    else
+      printf ',\n          "%s"' "$esc"
+    fi
+  done
+}
+
+json_tail_from_file() {
+  local file="$1"
+  local item esc
+  [ -f "$file" ] || return 0
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    esc="$(json_config_escape "$item")"
+    printf ',\n          "%s"' "$esc"
+  done
+}
+
+profile_id_from_url() {
+  printf '%s' "$1" | sha256sum | awk '{ print substr($1, 1, 16) }'
+}
+
+profile_id_from_current() {
+  printf '%s:%s:%s' "$P_HOST" "$P_PORT" "$P_UUID" | sha256sum | awk '{ print substr($1, 1, 16) }'
+}
+
+write_profile_file() {
+  local file="$PROFILE_DIR/$P_ID.conf"
+  mkdir -p "$PROFILE_DIR"
+  {
+    printf 'P_ID=%s\n' "$(shell_quote "$P_ID")"
+    printf 'P_NAME=%s\n' "$(shell_quote "$P_NAME")"
+    printf 'P_URL=%s\n' "$(shell_quote "$P_URL")"
+    printf 'P_UUID=%s\n' "$(shell_quote "$P_UUID")"
+    printf 'P_HOST=%s\n' "$(shell_quote "$P_HOST")"
+    printf 'P_PORT=%s\n' "$(shell_quote "$P_PORT")"
+    printf 'P_VPS_IP=%s\n' "$(shell_quote "$P_VPS_IP")"
+    printf 'P_NETWORK=%s\n' "$(shell_quote "$P_NETWORK")"
+    printf 'P_SECURITY=%s\n' "$(shell_quote "$P_SECURITY")"
+    printf 'P_FLOW=%s\n' "$(shell_quote "$P_FLOW")"
+    printf 'P_PUBLIC_KEY=%s\n' "$(shell_quote "$P_PUBLIC_KEY")"
+    printf 'P_SHORT_ID=%s\n' "$(shell_quote "$P_SHORT_ID")"
+    printf 'P_SNI=%s\n' "$(shell_quote "$P_SNI")"
+    printf 'P_FINGERPRINT=%s\n' "$(shell_quote "$P_FINGERPRINT")"
+    printf 'P_SPIDERX=%s\n' "$(shell_quote "$P_SPIDERX")"
+  } > "$file"
+  chmod 600 "$file"
+}
+
+reset_profile_vars() {
+  P_ID=""
+  P_NAME=""
+  P_URL=""
+  P_UUID=""
+  P_HOST=""
+  P_PORT=""
+  P_VPS_IP=""
+  P_NETWORK="tcp"
+  P_SECURITY="reality"
+  P_FLOW="xtls-rprx-vision"
+  P_PUBLIC_KEY=""
+  P_SHORT_ID=""
+  P_SNI=""
+  P_FINGERPRINT="firefox"
+  P_SPIDERX="/"
+}
+
+load_profile_file() {
+  local file="$1"
+  reset_profile_vars
+  # shellcheck disable=SC1090
+  . "$file"
+  [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
+  [ -n "$P_SECURITY" ] || P_SECURITY="reality"
+  [ -n "$P_FLOW" ] || P_FLOW="xtls-rprx-vision"
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+}
+
+load_profile_id() {
+  local id="$1"
+  local file="$PROFILE_DIR/$id.conf"
+  [ -f "$file" ] || die_json "unknown VLESS profile: $id"
+  load_profile_file "$file"
+}
+
+parse_vless_url() {
+  local url="$1"
+  local nofrag body rest hostport query fragment parsed
+
+  reset_profile_vars
+  P_URL="$url"
+
+  case "$url" in
+    vless://*) ;;
+    *) die_json "VLESS link must start with vless://" ;;
+  esac
+
+  nofrag="${url%%#*}"
+  fragment=""
+  case "$url" in
+    *#*) fragment="${url#*#}" ;;
+  esac
+
+  body="${nofrag#vless://}"
+  P_UUID="${body%%@*}"
+  rest="${body#*@}"
+  [ "$rest" != "$body" ] || die_json "VLESS link is missing endpoint"
+
+  hostport="${rest%%\?*}"
+  query=""
+  case "$rest" in
+    *\?*) query="${rest#*\?}" ;;
+  esac
+
+  P_HOST="${hostport%:*}"
+  parsed="${hostport##*:}"
+  [ "$parsed" != "$hostport" ] && P_PORT="$parsed"
+
+  P_PUBLIC_KEY="$(qs_value "$query" pbk)"
+  P_SHORT_ID="$(qs_value "$query" sid)"
+  P_SNI="$(qs_value "$query" sni)"
+  P_FINGERPRINT="$(qs_value "$query" fp)"
+  P_SPIDERX="$(qs_value "$query" spx)"
+  P_FLOW="$(qs_value "$query" flow)"
+  P_NETWORK="$(qs_value "$query" type)"
+  P_SECURITY="$(qs_value "$query" security)"
+
+  P_UUID="$(url_decode "$P_UUID")"
+  P_HOST="$(url_decode "$P_HOST")"
+  [ -n "$P_NAME" ] || P_NAME="$(url_decode "$fragment")"
+  [ -n "$P_NAME" ] || P_NAME="$P_HOST:$P_PORT"
+  [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
+  [ -n "$P_SECURITY" ] || P_SECURITY="reality"
+  [ -n "$P_FLOW" ] || P_FLOW="xtls-rprx-vision"
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+  [ -n "$P_SNI" ] || P_SNI="$P_HOST"
+
+  [ -n "$P_UUID" ] || die_json "VLESS UUID is missing"
+  [ -n "$P_HOST" ] || die_json "VLESS endpoint host is missing"
+  valid_port "$P_PORT" || die_json "VLESS endpoint port is invalid"
+  [ "$P_NETWORK" = "tcp" ] || die_json "only VLESS Reality TCP links are supported by this router renderer"
+  [ "$P_SECURITY" = "reality" ] || die_json "only VLESS Reality links are supported by this router renderer"
+  [ -n "$P_PUBLIC_KEY" ] || die_json "VLESS Reality public key is missing"
+  [ -n "$P_SHORT_ID" ] || die_json "VLESS Reality short id is missing"
+
+  P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
+  is_ipv4 "$P_VPS_IP" || die_json "could not resolve endpoint IPv4 for $P_HOST"
+  P_ID="$(profile_id_from_url "$url")"
+}
+
+import_current_profile() {
+  reset_profile_vars
+  P_URL=""
+  P_HOST="$(json_vnext_string_value address "$XRAY_CONFIG")"
+  P_PORT="$(json_vnext_number_value port "$XRAY_CONFIG")"
+  P_UUID="$(json_string_value id "$XRAY_CONFIG")"
+  P_PUBLIC_KEY="$(json_string_value publicKey "$XRAY_CONFIG")"
+  P_SHORT_ID="$(json_string_value shortId "$XRAY_CONFIG")"
+  P_SNI="$(json_string_value serverName "$XRAY_CONFIG")"
+  P_FINGERPRINT="$(json_string_value fingerprint "$XRAY_CONFIG")"
+  P_SPIDERX="$(json_string_value spiderX "$XRAY_CONFIG")"
+  P_NETWORK="tcp"
+  P_SECURITY="reality"
+  P_FLOW="xtls-rprx-vision"
+  P_VPS_IP="$(detect_vps_ip_from_transparent)"
+  [ -n "$P_VPS_IP" ] || P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+  [ -n "$P_SNI" ] || P_SNI="$P_HOST"
+
+  [ -n "$P_HOST" ] || die_json "could not import current Xray endpoint"
+  valid_port "$P_PORT" || die_json "could not import current Xray port"
+  [ -n "$P_UUID" ] || die_json "could not import current VLESS UUID"
+  [ -n "$P_PUBLIC_KEY" ] || die_json "could not import current Reality public key"
+  [ -n "$P_SHORT_ID" ] || die_json "could not import current Reality short id"
+  is_ipv4 "$P_VPS_IP" || die_json "could not import current endpoint bypass IP"
+
+  P_NAME="Current $P_HOST:$P_PORT"
+  P_ID="$(profile_id_from_current)"
+  write_profile_file
+  printf '%s\n' "$P_ID" > "$SELECTED_FILE"
+}
+
+init_route_files() {
+  local tmp item selected_ip
+
+  mkdir -p /etc/xray
+  selected_ip="$(detect_vps_ip_from_transparent)"
+
+  if [ ! -f "$DOMAINS_FILE" ]; then
+    {
+      printf '# One Xray domain matcher per line. Blank lines and comments are ignored.\n'
+      extract_direct_array domain "$XRAY_CONFIG"
+    } > "$DOMAINS_FILE"
+  fi
+
+  if [ ! -f "$IPS_FILE" ]; then
+    tmp="/tmp/vpn-ui-ips.$$"
+    extract_direct_array ip "$XRAY_CONFIG" > "$tmp"
+    {
+      printf '# Extra public IPv4/CIDR bypasses, one per line.\n'
+      while IFS= read -r item || [ -n "$item" ]; do
+        [ -n "$item" ] || continue
+        is_builtin_direct_ip "$item" "$selected_ip" && continue
+        printf '%s\n' "$item"
+      done < "$tmp"
+    } > "$IPS_FILE"
+    rm -f "$tmp"
+  fi
+}
+
+init_state() {
+  local first
+  detect_xray_paths
+  mkdir -p "$PROFILE_DIR"
+  init_route_files
+
+  first="$(find "$PROFILE_DIR" -type f -name '*.conf' 2>/dev/null | sed -n '1p')"
+  if [ -z "$first" ]; then
+    import_current_profile
+  elif [ ! -s "$SELECTED_FILE" ]; then
+    basename "$first" .conf > "$SELECTED_FILE"
+  fi
+}
+
+render_xray_config() {
+  local out="$1"
+  local domains_src="$2"
+  local ips_src="$3"
+  local host_json sni_json fp_json pbk_json sid_json spx_json uuid_json
+  local extra_direct_ip_json direct_domain_json
+
+  host_json="$(json_config_escape "$P_HOST")"
+  sni_json="$(json_config_escape "$P_SNI")"
+  fp_json="$(json_config_escape "$P_FINGERPRINT")"
+  pbk_json="$(json_config_escape "$P_PUBLIC_KEY")"
+  sid_json="$(json_config_escape "$P_SHORT_ID")"
+  spx_json="$(json_config_escape "$P_SPIDERX")"
+  uuid_json="$(json_config_escape "$P_UUID")"
+  extra_direct_ip_json="$(json_tail_from_file "$ips_src")"
+  direct_domain_json="$(json_list_from_file "$domains_src")"
+
+  cat > "$out" <<EOF
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/tmp/xray-access.log",
+    "error": "/tmp/xray-error.log"
+  },
+  "dns": {
+    "servers": ["1.1.1.1", "1.0.0.1", "8.8.8.8"],
+    "queryStrategy": "UseIPv4"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "$LAN_IP",
+      "port": 11808,
+      "protocol": "socks",
+      "settings": {"auth": "noauth", "udp": true},
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
+      }
+    },
+    {
+      "tag": "http-in",
+      "listen": "$LAN_IP",
+      "port": 11809,
+      "protocol": "http",
+      "settings": {},
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "routeOnly": false
+      }
+    },
+    {
+      "tag": "transparent-in",
+      "listen": "0.0.0.0",
+      "port": 12345,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "$host_json",
+            "port": $P_PORT,
+            "users": [
+              {
+                "id": "$uuid_json",
+                "encryption": "none",
+                "flow": "$P_FLOW"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "$sni_json",
+          "fingerprint": "$fp_json",
+          "publicKey": "$pbk_json",
+          "shortId": "$sid_json",
+          "spiderX": "$spx_json"
+        },
+        "tcpSettings": {}
+      }
+    },
+    {"tag": "direct", "protocol": "freedom"},
+    {"tag": "block", "protocol": "blackhole"}
+  ],
+  "routing": {
+    "domainMatcher": "hybrid",
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4",
+          "$P_VPS_IP/32"$extra_direct_ip_json
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "ipify.org",
+          "api.ipify.org",
+          "api4.ipify.org",
+          "checkip.amazonaws.com",
+          "ifconfig.me",
+          "2ip.ru"
+        ],
+        "outboundTag": "proxy"
+      },
+      {
+        "type": "field",
+        "domain": [$direct_domain_json
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["socks-in", "http-in", "transparent-in"],
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}
+EOF
+}
+
+xray_test() {
+  local config="$1"
+  "$XRAY_BIN" run -test -config "$config" >/tmp/vpn-ui-xray-test.log 2>&1
+}
+
+restart_xray() {
+  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
+    /etc/init.d/"$XRAY_SERVICE" restart >/tmp/vpn-ui-xray-restart.log 2>&1
+  elif [ -x /etc/init.d/xray ]; then
+    /etc/init.d/xray restart >/tmp/vpn-ui-xray-restart.log 2>&1
+  else
+    return 1
+  fi
+}
+
+update_transparent_endpoint() {
+  local ip="$1"
+  local ts="$2"
+  local tmp="/tmp/vpn-ui-transparent.$$"
+
+  [ -f "$TRANSPARENT_INIT" ] || return 0
+  grep -q '^[[:space:]]*FIN0_IP=' "$TRANSPARENT_INIT" || return 0
+  cp "$TRANSPARENT_INIT" "$TRANSPARENT_INIT.bak.vpn-ui.$ts" 2>/dev/null || true
+  sed 's/^[[:space:]]*FIN0_IP=.*/FIN0_IP="'"$ip"'"/' "$TRANSPARENT_INIT" > "$tmp" ||
+    return 1
+  mv "$tmp" "$TRANSPARENT_INIT"
+  chmod 755 "$TRANSPARENT_INIT"
+  /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-restart.log 2>&1 || true
+}
+
+render_and_apply() {
+  local id="$1"
+  local domains_src="$2"
+  local ips_src="$3"
+  local commit_routes="$4"
+  local ts tmpcfg backup_config backup_domains backup_ips test_out restart_out
+
+  init_state
+  load_profile_id "$id"
+  ts="$(date +%Y%m%d-%H%M%S)"
+  tmpcfg="/tmp/vpn-ui-xray-$ts.$$.json"
+  backup_config="$XRAY_CONFIG.bak.vpn-ui.$ts"
+  backup_domains="$DOMAINS_FILE.bak.vpn-ui.$ts"
+  backup_ips="$IPS_FILE.bak.vpn-ui.$ts"
+
+  render_xray_config "$tmpcfg" "$domains_src" "$ips_src"
+  if ! xray_test "$tmpcfg"; then
+    test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
+    rm -f "$tmpcfg"
+    die_json "Xray validation failed: $(one_line "$test_out")"
+  fi
+
+  cp "$XRAY_CONFIG" "$backup_config" 2>/dev/null || true
+  if [ "$commit_routes" = "1" ]; then
+    cp "$DOMAINS_FILE" "$backup_domains" 2>/dev/null || true
+    cp "$IPS_FILE" "$backup_ips" 2>/dev/null || true
+    cp "$domains_src" "$DOMAINS_FILE"
+    cp "$ips_src" "$IPS_FILE"
+  fi
+  cp "$tmpcfg" "$XRAY_CONFIG"
+  rm -f "$tmpcfg"
+
+  if ! restart_xray; then
+    restart_out="$(cat /tmp/vpn-ui-xray-restart.log 2>/dev/null || true)"
+    [ -f "$backup_config" ] && cp "$backup_config" "$XRAY_CONFIG"
+    if [ "$commit_routes" = "1" ]; then
+      [ -f "$backup_domains" ] && cp "$backup_domains" "$DOMAINS_FILE"
+      [ -f "$backup_ips" ] && cp "$backup_ips" "$IPS_FILE"
+    fi
+    restart_xray >/dev/null 2>&1 || true
+    die_json "Xray restart failed; previous config restored: $(one_line "$restart_out")"
+  fi
+
+  update_transparent_endpoint "$P_VPS_IP" "$ts" || true
+  printf '%s\n' "$id" > "$SELECTED_FILE"
+}
+
+ping_ms() {
+  local host="$1"
+  local ip="$2"
+  local target out ms
+
+  target="$ip"
+  [ -n "$target" ] || target="$host"
+  out="$(ping -4 -c 1 -W 1 "$target" 2>/dev/null || true)"
+  ms="$(printf '%s\n' "$out" | sed -n 's/.*time=\([0-9.][0-9.]*\).*/\1/p' | sed -n '1p')"
+  [ -n "$ms" ] && printf '%s ms' "$ms" || printf 'timeout'
+}
+
+service_state() {
+  local xray_state transparent_state
+  xray_state="stopped"
+  transparent_state="inactive"
+  pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1
+  [ "$?" = "0" ] && xray_state="running"
+  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
+  printf '"services":{"xray":'
+  json_string "$xray_state"
+  printf ',"transparent":'
+  json_string "$transparent_state"
+  printf '}'
+}
+
+json_array_from_file() {
+  local file="$1"
+  local first item
+
+  first=1
+  printf '['
+  [ -f "$file" ] || {
+    printf ']'
+    return 0
+  }
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      printf ','
+    fi
+    json_string "$item"
+  done
+  printf ']'
+}
+
+status_json() {
+  local selected first f id active ping protocol
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+
+  printf '{"ok":true,'
+  printf '"selected":'
+  json_string "$selected"
+  printf ',"profiles":['
+  first=1
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    id="$(basename "$f" .conf)"
+    active="false"
+    [ "$id" = "$selected" ] && active="true"
+    ping="$(ping_ms "$P_HOST" "$P_VPS_IP")"
+    protocol="vless $P_NETWORK $P_SECURITY"
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      printf ','
+    fi
+    printf '{"id":'
+    json_string "$id"
+    printf ',"name":'
+    json_string "$P_NAME"
+    printf ',"host":'
+    json_string "$P_HOST"
+    printf ',"port":'
+    json_string "$P_PORT"
+    printf ',"vps_ip":'
+    json_string "$P_VPS_IP"
+    printf ',"protocol":'
+    json_string "$protocol"
+    printf ',"ping":'
+    json_string "$ping"
+    printf ',"selected":%s}' "$active"
+  done
+  printf '],"domains":'
+  json_array_from_file "$DOMAINS_FILE"
+  printf ',"ips":'
+  json_array_from_file "$IPS_FILE"
+  printf ','
+  service_state
+  printf '}\n'
+}
+
+cmd_add() {
+  local url="$1"
+  init_state
+  parse_vless_url "$url"
+  write_profile_file
+  status_json
+}
+
+cmd_select() {
+  local id="$1"
+  render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+  status_json
+}
+
+cmd_delete() {
+  local id="$1"
+  local selected
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ "$id" != "$selected" ] || die_json "refusing to delete the selected profile"
+  [ -f "$PROFILE_DIR/$id.conf" ] || die_json "unknown VLESS profile: $id"
+  rm -f "$PROFILE_DIR/$id.conf"
+  status_json
+}
+
+cmd_apply_rules() {
+  local selected domains_text ips_text tmp_domains tmp_ips
+
+  domains_text="${1:-}"
+  ips_text="${2:-}"
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ -n "$selected" ] || die_json "no selected VLESS profile"
+  tmp_domains="/tmp/vpn-ui-domains.$$"
+  tmp_ips="/tmp/vpn-ui-ips.$$"
+  normalize_text_to_file "$domains_text" "$tmp_domains"
+  normalize_text_to_file "$ips_text" "$tmp_ips"
+  render_and_apply "$selected" "$tmp_domains" "$tmp_ips" "1"
+  rm -f "$tmp_domains" "$tmp_ips"
+  status_json
+}
+
+cmd_check() {
+  local selected tmpcfg test_out
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ -n "$selected" ] || die_json "no selected VLESS profile"
+  load_profile_id "$selected"
+  tmpcfg="/tmp/vpn-ui-check.$$.json"
+  render_xray_config "$tmpcfg" "$DOMAINS_FILE" "$IPS_FILE"
+  if ! xray_test "$tmpcfg"; then
+    test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
+    rm -f "$tmpcfg"
+    die_json "Xray validation failed: $(one_line "$test_out")"
+  fi
+  rm -f "$tmpcfg"
+  printf '{"ok":true,"message":"configuration validates"}\n'
+}
+
+case "${1:-status}" in
+  init)
+    init_state
+    status_json
+    ;;
+  status)
+    status_json
+    ;;
+  add)
+    [ -n "${2:-}" ] || die_json "add requires a VLESS link"
+    cmd_add "$2"
+    ;;
+  select)
+    [ -n "${2:-}" ] || die_json "select requires a profile id"
+    cmd_select "$2"
+    ;;
+  delete)
+    [ -n "${2:-}" ] || die_json "delete requires a profile id"
+    cmd_delete "$2"
+    ;;
+  apply-rules)
+    cmd_apply_rules "${2:-}" "${3:-}"
+    ;;
+  check)
+    cmd_check
+    ;;
+  *)
+    die_json "unknown command: ${1:-}"
+    ;;
+esac

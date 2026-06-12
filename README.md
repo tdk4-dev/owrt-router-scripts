@@ -2,6 +2,27 @@
 
 For the new x86/64 router-PC setup, use [README-x86-fin0.md](README-x86-fin0.md) and [setup-openwrt-x86-fin0.sh](setup-openwrt-x86-fin0.sh).
 
+## LuCI VPN Panel
+
+Install the graphical VPN panel onto an already running OpenWrt router:
+
+```sh
+./install-openwrt-vpn-ui.sh
+```
+
+By default it connects to the `owrt` SSH alias, creates a full `sysupgrade -b`
+backup, uploads `luci-vpn-ui/` over `ssh` + `tar`, runs the router-side
+installer, and validates the rendered Xray config without changing the selected
+profile.
+
+Use Tailscale SSH:
+
+```sh
+ROUTER_HOST=owrt-ts ./install-openwrt-vpn-ui.sh
+```
+
+The panel source and image-overlay notes live in [luci-vpn-ui/README.md](luci-vpn-ui/README.md).
+
 # Xiaomi RD23 VPN AP Setup
 
 This repo contains a Mac-side setup script for Xiaomi RD23 / Xiaomi Mi Router AX3000T routers running OpenWrt.

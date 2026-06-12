@@ -16,6 +16,16 @@ It mirrors the main behavior of the current `openwrt-fin0` setup:
 
 The script does not clone personal DHCP reservations or WAN port forwards from the existing router. It has prompts for optional local DNS rewrites and extra direct IP/domain bypasses.
 
+For an already running router, the LuCI VPN panel can be installed separately:
+
+```sh
+./install-openwrt-vpn-ui.sh
+```
+
+For a custom x86 image, use `luci-vpn-ui/files/` as an overlay and run
+`/usr/sbin/vpn-ui init` after `/etc/xray/exit-st-cf.json` exists. See
+[luci-vpn-ui/README.md](luci-vpn-ui/README.md).
+
 ## Script
 
 Use:

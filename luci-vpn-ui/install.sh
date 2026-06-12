@@ -1,0 +1,138 @@
+#!/bin/ash
+set -eu
+
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)/files"
+TS="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="/root/vpn-ui-preinstall-$TS"
+ROLLBACK="/root/rollback-vpn-ui-$TS.sh"
+LATEST_ROLLBACK="/root/rollback-vpn-ui.sh"
+
+TOUCHED_PATHS="/usr/sbin/vpn-ui
+/www/luci-static/resources/view/network/vpn.js
+/usr/share/luci/menu.d/luci-app-vpn-ui.json
+/usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+/etc/xray/vless-profiles.d
+/etc/xray/vless-selected
+/etc/xray/direct-domains.txt
+/etc/xray/direct-ips.txt
+/etc/xray/exit-st-cf.json
+/etc/init.d/xray-transparent"
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+copy_file() {
+  local src="$1"
+  local dst="$2"
+  local mode="$3"
+
+  [ -f "$src" ] || die "missing installer file $src"
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst"
+  chmod "$mode" "$dst"
+}
+
+backup_path() {
+  local path="$1"
+  local target="$BACKUP_DIR/files$path"
+
+  if [ -e "$path" ]; then
+    mkdir -p "$(dirname "$target")"
+    cp -pR "$path" "$target"
+  else
+    printf '%s\n' "$path" >> "$BACKUP_DIR/missing"
+  fi
+}
+
+mkdir -p "$BACKUP_DIR/files"
+: > "$BACKUP_DIR/missing"
+
+printf '%s\n' "$TOUCHED_PATHS" | while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  backup_path "$path"
+done
+
+cat > "$BACKUP_DIR/README" <<EOF
+OpenWrt VPN UI preinstall backup.
+Created: $TS
+
+Rollback:
+  sh $ROLLBACK
+EOF
+
+cat > "$ROLLBACK" <<EOF
+#!/bin/ash
+set -eu
+
+BACKUP_DIR="$BACKUP_DIR"
+TOUCHED_PATHS="$TOUCHED_PATHS"
+
+restore_path() {
+  local path="\$1"
+  local source="\$BACKUP_DIR/files\$path"
+
+  rm -rf "\$path"
+  if [ -e "\$source" ]; then
+    mkdir -p "\$(dirname "\$path")"
+    cp -pR "\$source" "\$path"
+  fi
+}
+
+printf '%s\n' "\$TOUCHED_PATHS" | while IFS= read -r path; do
+  [ -n "\$path" ] || continue
+  restore_path "\$path"
+done
+
+if [ -f "\$BACKUP_DIR/missing" ]; then
+  while IFS= read -r path; do
+    [ -n "\$path" ] || continue
+    rm -rf "\$path"
+  done < "\$BACKUP_DIR/missing"
+fi
+
+rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
+/etc/init.d/rpcd restart >/tmp/vpn-ui-rollback-rpcd.log 2>&1 || true
+/etc/init.d/uhttpd restart >/tmp/vpn-ui-rollback-uhttpd.log 2>&1 || true
+
+if [ -f /etc/xray/exit-st-cf.json ]; then
+  XRAY_BIN=""
+  [ -x /usr/local/bin/xray-latest ] && XRAY_BIN="/usr/local/bin/xray-latest"
+  [ -n "\$XRAY_BIN" ] || XRAY_BIN="\$(command -v xray 2>/dev/null || true)"
+  if [ -n "\$XRAY_BIN" ]; then
+    "\$XRAY_BIN" run -test -config /etc/xray/exit-st-cf.json >/tmp/vpn-ui-rollback-xray-test.log 2>&1 &&
+      /etc/init.d/xray-exit-st restart >/tmp/vpn-ui-rollback-xray-restart.log 2>&1 || true
+  fi
+fi
+
+[ -x /etc/init.d/xray-transparent ] &&
+  /etc/init.d/xray-transparent restart >/tmp/vpn-ui-rollback-transparent.log 2>&1 || true
+
+printf 'Rolled back VPN UI install from %s\n' "\$BACKUP_DIR"
+EOF
+chmod 700 "$ROLLBACK"
+cp "$ROLLBACK" "$LATEST_ROLLBACK"
+chmod 700 "$LATEST_ROLLBACK"
+
+copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
+copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
+copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
+
+INIT_OUT="$(/usr/sbin/vpn-ui init)"
+printf '%s\n' "$INIT_OUT" > /tmp/vpn-ui-init.json
+printf '%s\n' "$INIT_OUT" | grep -q '"ok":true' || {
+  printf '%s\n' "$INIT_OUT" >&2
+  die "vpn-ui init failed; rollback with sh $ROLLBACK"
+}
+
+rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
+/etc/init.d/rpcd restart >/tmp/vpn-ui-install-rpcd.log 2>&1 || true
+/etc/init.d/uhttpd restart >/tmp/vpn-ui-install-uhttpd.log 2>&1 || true
+
+tar -czf "$BACKUP_DIR.tar.gz" -C /root "$(basename "$BACKUP_DIR")" 2>/dev/null || true
+
+printf 'Installed VPN UI.\n'
+printf 'Rollback command: sh %s\n' "$ROLLBACK"
+printf 'Latest rollback alias: sh %s\n' "$LATEST_ROLLBACK"
