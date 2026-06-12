@@ -971,6 +971,216 @@ service_state() {
   printf '}'
 }
 
+normalize_domain_input() {
+  local value="$1"
+
+  value="$(printf '%s' "$value" | tr 'A-Z' 'a-z')"
+  case "$value" in
+    *://*) value="${value#*://}" ;;
+  esac
+  value="${value%%/*}"
+  value="${value%%\?*}"
+  value="${value%%#*}"
+  value="${value##*@}"
+  case "$value" in
+    *:*) value="${value%%:*}" ;;
+  esac
+  value="${value%.}"
+  printf '%s' "$value" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+valid_domain_name() {
+  local domain="$1"
+
+  [ ${#domain} -le 253 ] || return 1
+  printf '%s' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+}
+
+dns_ips_json() {
+  local domain="$1"
+  local first ip
+
+  first=1
+  printf '['
+  nslookup "$domain" 2>/dev/null |
+    awk '
+      /^Address [0-9]+: [0-9]/ { print $3 }
+      /^Address: [0-9]/ { print $2 }
+    ' |
+    grep -E '^[0-9]+(\.[0-9]+){3}$' |
+    awk '!seen[$0]++' |
+    while IFS= read -r ip; do
+      if [ "$first" = "1" ]; then
+        first=0
+      else
+        printf ','
+      fi
+      json_string "$ip"
+    done
+  printf ']'
+}
+
+file_line_count() {
+  local file="$1"
+  [ -f "$file" ] || {
+    printf '0'
+    return
+  }
+  wc -l < "$file" | tr -d ' '
+}
+
+access_log_since() {
+  local start="$1"
+  local begin
+
+  [ -f /tmp/xray-access.log ] || return 0
+  begin=$((start + 1))
+  sed -n "${begin},\$p" /tmp/xray-access.log 2>/dev/null
+}
+
+extract_outbound_tag() {
+  sed -n 's/.*\[socks-in -> \([^]]*\)\].*/\1/p' | sed -n '1p'
+}
+
+run_domain_probe() {
+  local domain="$1"
+  local scheme="$2"
+  local before metrics err rc line
+
+  before="$(file_line_count /tmp/xray-access.log)"
+  err="/tmp/vpn-ui-domain-test-err.$$"
+  metrics="$(curl -4 -k -sS --connect-timeout 5 --max-time 12 \
+    -o /dev/null \
+    -w 'http_code=%{http_code}\ntime_total=%{time_total}\n' \
+    -x "socks5h://$LAN_IP:11808" \
+    "$scheme://$domain/" 2>"$err")"
+  rc=$?
+
+  TEST_SCHEME="$scheme"
+  TEST_CURL_EXIT="$rc"
+  TEST_HTTP_CODE="$(printf '%s\n' "$metrics" | sed -n 's/^http_code=//p' | sed -n '1p')"
+  TEST_TIME_TOTAL="$(printf '%s\n' "$metrics" | sed -n 's/^time_total=//p' | sed -n '1p')"
+  TEST_CURL_ERROR="$(one_line "$(cat "$err" 2>/dev/null || true)")"
+  rm -f "$err"
+
+  line="$(access_log_since "$before" | grep -F "accepted tcp:$domain:" | grep -F '[socks-in ->' | tail -n 1)"
+  [ -n "$line" ] || line="$(access_log_since "$before" | grep -F '[socks-in ->' | tail -n 1)"
+  TEST_ACCESS_LINE="$line"
+  TEST_OUTBOUND="$(printf '%s\n' "$line" | extract_outbound_tag)"
+}
+
+public_ip_probe() {
+  local mode="$1"
+  local url value
+
+  for url in \
+    https://api.ipify.org \
+    https://ifconfig.me/ip \
+    https://icanhazip.com \
+    https://checkip.amazonaws.com
+  do
+    case "$mode" in
+      proxy)
+        value="$(curl -4 -k -sS --connect-timeout 4 --max-time 10 \
+          -x "socks5h://$LAN_IP:11808" "$url" 2>/dev/null || true)"
+        ;;
+      *)
+        value="$(curl -4 -k -sS --connect-timeout 4 --max-time 8 \
+          "$url" 2>/dev/null || true)"
+        ;;
+    esac
+
+    value="$(one_line "$value")"
+    if is_ipv4 "$value"; then
+      printf '%s' "$value"
+      return
+    fi
+  done
+
+  printf 'unavailable'
+}
+
+cmd_test_domain() {
+  local raw="$1"
+  local domain route selected direct_ip proxy_ip
+
+  init_state
+  ensure_domain_rule_data "$DOMAINS_FILE"
+
+  domain="$(normalize_domain_input "$raw")"
+  [ -n "$domain" ] || die_json "enter a domain to test"
+  case "$domain" in
+    geosite:*|regexp:*) die_json "enter a concrete domain, not a matcher" ;;
+  esac
+  valid_domain_name "$domain" || die_json "invalid domain: $domain"
+
+  TEST_SCHEME=""
+  TEST_CURL_EXIT=""
+  TEST_HTTP_CODE=""
+  TEST_TIME_TOTAL=""
+  TEST_CURL_ERROR=""
+  TEST_ACCESS_LINE=""
+  TEST_OUTBOUND=""
+
+  run_domain_probe "$domain" https
+  if [ -z "$TEST_OUTBOUND" ] && [ "$TEST_CURL_EXIT" != "0" ]; then
+    run_domain_probe "$domain" http
+  fi
+
+  route="unknown"
+  case "$TEST_OUTBOUND" in
+    direct) route="direct" ;;
+    proxy) route="vpn" ;;
+    "") route="unknown" ;;
+    *) route="$TEST_OUTBOUND" ;;
+  esac
+
+  direct_ip="$(public_ip_probe direct)"
+  proxy_ip="$(public_ip_probe proxy)"
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  if [ -n "$selected" ]; then
+    load_profile_id "$selected"
+  else
+    reset_profile_vars
+  fi
+
+  printf '{"ok":true,"test":{"domain":'
+  json_string "$domain"
+  printf ',"route":'
+  json_string "$route"
+  printf ',"outbound":'
+  json_string "${TEST_OUTBOUND:-unknown}"
+  printf ',"scheme":'
+  json_string "$TEST_SCHEME"
+  printf ',"http_code":'
+  json_string "$TEST_HTTP_CODE"
+  printf ',"time_total":'
+  json_string "$TEST_TIME_TOTAL"
+  printf ',"curl_exit":'
+  json_string "$TEST_CURL_EXIT"
+  printf ',"curl_error":'
+  json_string "$TEST_CURL_ERROR"
+  printf ',"access_log":'
+  json_string "$TEST_ACCESS_LINE"
+  printf ',"resolved_ips":'
+  dns_ips_json "$domain"
+  printf ',"public_ips":{"direct":'
+  json_string "$direct_ip"
+  printf ',"vpn":'
+  json_string "$proxy_ip"
+  printf '},"profile":{"id":'
+  json_string "$selected"
+  printf ',"name":'
+  json_string "$P_NAME"
+  printf ',"endpoint":'
+  json_string "$P_HOST:$P_PORT"
+  printf ',"vps_ip":'
+  json_string "$P_VPS_IP"
+  printf '},'
+  service_state
+  printf '}}\n'
+}
+
 json_array_from_file() {
   local file="$1"
   local first item
@@ -1224,6 +1434,10 @@ case "${1:-status}" in
   xray)
     [ -n "${2:-}" ] || die_json "xray requires on or off"
     cmd_xray "$2"
+    ;;
+  test-domain)
+    [ -n "${2:-}" ] || die_json "test-domain requires a domain"
+    cmd_test_domain "$2"
     ;;
   *)
     die_json "unknown command: ${1:-}"

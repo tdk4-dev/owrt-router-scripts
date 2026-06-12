@@ -17,6 +17,11 @@ var css = '\
 .vpn-ui .vpn-muted { opacity:.72; font-size:.92em; }\
 .vpn-ui .vpn-ping-ok { color:#66d489; font-weight:700; }\
 .vpn-ui .vpn-ping-bad { color:#d46a6a; font-weight:700; }\
+.vpn-ui .vpn-domain-test { margin:.5rem 0 1rem; }\
+.vpn-ui .vpn-domain-test-row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:.5rem 0 1rem; }\
+.vpn-ui .vpn-domain-test-row input { flex:1 1 24rem; min-width:14rem; }\
+.vpn-ui .vpn-test-result { margin:0 0 1rem; }\
+.vpn-ui .vpn-test-log { font-family:monospace; overflow-wrap:anywhere; }\
 .vpn-ui .vpn-rule-search { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:.5rem 0 1rem; }\
 .vpn-ui .vpn-rule-search input { flex:1 1 24rem; min-width:14rem; }\
 .vpn-ui .vpn-rule-search-summary { min-width:7rem; }\
@@ -78,6 +83,14 @@ function highlightRuleMatch(value, query) {
 		E('mark', {}, value.slice(pos, pos + query.length)),
 		value.slice(pos + query.length)
 	];
+}
+
+function valueOrDash(value) {
+	return value ? value : '-';
+}
+
+function upperLabel(value) {
+	return value ? value.toUpperCase() : '-';
 }
 
 return view.extend({
@@ -273,6 +286,38 @@ return view.extend({
 		this.handleRuleSearch();
 	},
 
+	handleTestDomain: function() {
+		var input = document.querySelector('#vpn-test-domain');
+		var result = document.querySelector('#vpn-domain-test-result');
+		var value = input ? input.value.trim() : '';
+
+		if (!value) {
+			ui.addNotification(null, E('p', {}, _('Enter a domain to test.')));
+			return;
+		}
+
+		if (result)
+			dom.content(result, E('p', { 'class': 'spinning' }, _('Testing route...')));
+
+		return this.callHelper(['test-domain', value]).then(L.bind(function(data) {
+			this.domainTest = data.test || null;
+			if (result)
+				dom.content(result, this.renderDomainTestResult(this.domainTest));
+		}, this)).catch(function(err) {
+			if (result)
+				dom.content(result, E('div', { 'class': 'alert-message warning' }, err.message || err));
+			else
+				ui.addNotification(null, E('p', {}, err.message || err));
+		});
+	},
+
+	handleTestDomainKeydown: function(ev) {
+		if (ev.keyCode == 13) {
+			ev.preventDefault();
+			this.handleTestDomain();
+		}
+	},
+
 	handleToggleXray: function(enabled) {
 		var next = enabled ? 'off' : 'on';
 		var title = enabled ? _('Disable VPN globally') : _('Enable VPN globally');
@@ -330,6 +375,102 @@ return view.extend({
 					'click': L.bind(this.handleToggleXray, this, enabled)
 				}, enabled ? _('Disable') : _('Enable'))
 			])
+		]);
+	},
+
+	renderDomainTestResult: function(test) {
+		var route, routeClass, publicIps, profile, services, httpResult, ips;
+
+		if (!test)
+			return [];
+
+		route = test.route || 'unknown';
+		routeClass = route == 'direct' ? 'notice' : (route == 'vpn' ? 'warning' : '');
+		publicIps = test.public_ips || {};
+		profile = test.profile || {};
+		services = test.services || {};
+		ips = (test.resolved_ips || []).join(', ');
+		httpResult = '%s %s in %ss'.format(
+			(test.scheme || '').toUpperCase(),
+			valueOrDash(test.http_code),
+			valueOrDash(test.time_total)
+		);
+
+		return E('div', { 'class': 'vpn-test-result' }, [
+			E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Route')),
+					E('td', { 'class': 'td left' }, [
+						E('span', { 'class': 'label ' + routeClass }, upperLabel(route)),
+						' ',
+						E('span', { 'class': 'vpn-muted' }, 'Xray: %s'.format(valueOrDash(test.outbound)))
+					])
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Domain')),
+					E('td', { 'class': 'td left' }, valueOrDash(test.domain))
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('HTTP test')),
+					E('td', { 'class': 'td left' }, [
+						httpResult,
+						test.curl_error ? E('div', { 'class': 'vpn-muted' }, test.curl_error) : ''
+					])
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Resolved IPv4')),
+					E('td', { 'class': 'td left' }, valueOrDash(ips))
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Public IPv4')),
+					E('td', { 'class': 'td left' }, [
+						E('span', { 'class': 'label' }, 'Direct'),
+						' ',
+						valueOrDash(publicIps.direct),
+						' ',
+						E('span', { 'class': 'label' }, 'VPN'),
+						' ',
+						valueOrDash(publicIps.vpn)
+					])
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Selected profile')),
+					E('td', { 'class': 'td left' }, '%s (%s, %s)'.format(
+						valueOrDash(profile.name),
+						valueOrDash(profile.endpoint),
+						valueOrDash(profile.vps_ip)
+					))
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Services')),
+					E('td', { 'class': 'td left' }, 'Xray: %s, TProxy: %s'.format(
+						valueOrDash(services.xray),
+						valueOrDash(services.transparent)
+					))
+				]),
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left' }, _('Access log')),
+					E('td', { 'class': 'td left vpn-test-log' }, valueOrDash(test.access_log))
+				])
+			])
+		]);
+	},
+
+	renderDomainTester: function() {
+		return E('div', { 'class': 'vpn-domain-test' }, [
+			E('div', { 'class': 'vpn-domain-test-row' }, [
+				E('input', {
+					'id': 'vpn-test-domain',
+					'type': 'text',
+					'placeholder': 'example.com',
+					'keydown': L.bind(this.handleTestDomainKeydown, this)
+				}),
+				E('button', {
+					'class': 'cbi-button cbi-button-action',
+					'click': ui.createHandlerFn(this, 'handleTestDomain')
+				}, _('Test route'))
+			]),
+			E('div', { 'id': 'vpn-domain-test-result' }, this.renderDomainTestResult(this.domainTest))
 		]);
 	},
 
@@ -418,6 +559,7 @@ return view.extend({
 	renderRules: function(data) {
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
+			this.renderDomainTester(),
 			E('div', { 'class': 'vpn-rule-search' }, [
 				E('input', {
 					'id': 'vpn-rule-search',
