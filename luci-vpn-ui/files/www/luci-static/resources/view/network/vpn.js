@@ -423,7 +423,7 @@ return view.extend({
 					'id': 'vpn-rule-search',
 					'type': 'search',
 					'placeholder': _('Search rules'),
-					'input': ui.createHandlerFn(this, 'handleRuleSearch')
+					'input': L.bind(this.handleRuleSearch, this)
 				}),
 				E('button', {
 					'class': 'cbi-button cbi-button-neutral',
@@ -440,7 +440,7 @@ return view.extend({
 						'spellcheck': 'false',
 						'wrap': 'off',
 						'disabled': isReadonlyView,
-						'input': ui.createHandlerFn(this, 'handleRuleSearch')
+						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.domains))
 				]),
 				E('div', {}, [
@@ -450,7 +450,7 @@ return view.extend({
 						'spellcheck': 'false',
 						'wrap': 'off',
 						'disabled': isReadonlyView,
-						'input': ui.createHandlerFn(this, 'handleRuleSearch')
+						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.ips))
 				])
 			]),
