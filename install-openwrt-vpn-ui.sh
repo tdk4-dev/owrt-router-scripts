@@ -14,6 +14,10 @@ set -eu
 # Optional environment:
 #   ROUTER_HOST=owrt              SSH host alias or root@host
 #   REMOTE_DIR=/tmp/luci-vpn-ui   Router temp directory for upload
+#   PANEL_SOURCE=github           github or local
+#   GITHUB_REPO=tdk4-dev/owrt-router-scripts
+#   GITHUB_BRANCH=codex/vpn-panel-installer
+#   GITHUB_REF=refs/heads/...     Override raw GitHub ref path if needed
 #   LOCAL_BACKUP_DIR=router-backups
 #   MAKE_SYSUPGRADE_BACKUP=1      Set to 0 to skip full OpenWrt config backup
 #   KEEP_REMOTE_DIR=0             Set to 1 to leave uploaded installer in /tmp
@@ -21,6 +25,10 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PANEL_DIR="$SCRIPT_DIR/luci-vpn-ui"
 ROUTER_HOST="${ROUTER_HOST:-owrt}"
+PANEL_SOURCE="${PANEL_SOURCE:-github}"
+GITHUB_REPO="${GITHUB_REPO:-tdk4-dev/owrt-router-scripts}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-codex/vpn-panel-installer}"
+GITHUB_REF="${GITHUB_REF:-refs/heads/$GITHUB_BRANCH}"
 LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-$SCRIPT_DIR/router-backups}"
 MAKE_SYSUPGRADE_BACKUP="${MAKE_SYSUPGRADE_BACKUP:-1}"
 KEEP_REMOTE_DIR="${KEEP_REMOTE_DIR:-0}"
@@ -49,16 +57,30 @@ sha256_file() {
   fi
 }
 
+github_luci_raw_base() {
+  printf 'https://raw.githubusercontent.com/%s/%s/luci-vpn-ui' "$GITHUB_REPO" "$GITHUB_REF"
+}
+
 ssh_router() {
   ssh "$ROUTER_HOST" "$@"
 }
 
-require_local_files() {
-  [ -d "$PANEL_DIR/files" ] || die "missing $PANEL_DIR/files"
-  [ -f "$PANEL_DIR/install.sh" ] || die "missing $PANEL_DIR/install.sh"
-  [ -f "$PANEL_DIR/files/usr/sbin/vpn-ui" ] || die "missing vpn-ui helper"
+require_tools_and_source() {
   command -v ssh >/dev/null 2>&1 || die "ssh is required"
-  command -v tar >/dev/null 2>&1 || die "tar is required"
+
+  case "$PANEL_SOURCE" in
+    github)
+      ;;
+    local)
+      [ -d "$PANEL_DIR/files" ] || die "missing $PANEL_DIR/files"
+      [ -f "$PANEL_DIR/install.sh" ] || die "missing $PANEL_DIR/install.sh"
+      [ -f "$PANEL_DIR/files/usr/sbin/vpn-ui" ] || die "missing vpn-ui helper"
+      command -v tar >/dev/null 2>&1 || die "tar is required for PANEL_SOURCE=local"
+      ;;
+    *)
+      die "PANEL_SOURCE must be github or local"
+      ;;
+  esac
 }
 
 validate_remote_dir() {
@@ -72,17 +94,27 @@ validate_remote_dir() {
 }
 
 preflight_router() {
-  ssh_router '
+  local fetch_check=""
+  local tar_check=""
+
+  if [ "$PANEL_SOURCE" = "github" ]; then
+    fetch_check='command -v curl >/dev/null || command -v wget >/dev/null || command -v uclient-fetch >/dev/null'
+  else
+    tar_check='command -v tar >/dev/null'
+  fi
+
+  ssh_router "
     set -eu
     [ -f /etc/openwrt_release ]
-    [ "$(id -u)" = "0" ]
-    command -v tar >/dev/null
+    [ \"\$(id -u)\" = \"0\" ]
     command -v sysupgrade >/dev/null
     command -v xray >/dev/null || [ -x /usr/local/bin/xray-latest ]
     [ -d /www/luci-static/resources/view/network ]
     [ -d /usr/share/luci/menu.d ]
     [ -d /usr/share/rpcd/acl.d ]
-  ' || die "router preflight failed; verify SSH root access and OpenWrt/LuCI/Xray installation"
+    $tar_check
+    $fetch_check
+  " || die "router preflight failed; verify SSH root access and OpenWrt/LuCI/Xray installation"
 }
 
 make_sysupgrade_backup() {
@@ -122,12 +154,41 @@ make_sysupgrade_backup() {
 }
 
 upload_and_install() {
-  local quoted_remote_dir
+  local quoted_remote_dir raw_base install_url raw_files_base
 
   quoted_remote_dir="$(remote_quote "$REMOTE_DIR")"
-  info "Uploading panel bundle to $ROUTER_HOST:$REMOTE_DIR"
-  tar -C "$PANEL_DIR" -cf - . |
-    ssh_router "set -eu; rm -rf $quoted_remote_dir; mkdir -p $quoted_remote_dir; tar -C $quoted_remote_dir -xf -; sh $quoted_remote_dir/install.sh"
+
+  if [ "$PANEL_SOURCE" = "local" ]; then
+    info "Uploading local panel bundle to $ROUTER_HOST:$REMOTE_DIR"
+    tar -C "$PANEL_DIR" -cf - . |
+      ssh_router "set -eu; rm -rf $quoted_remote_dir; mkdir -p $quoted_remote_dir; tar -C $quoted_remote_dir -xf -; sh $quoted_remote_dir/install.sh"
+  else
+    raw_base="$(github_luci_raw_base)"
+    install_url="$raw_base/install.sh"
+    raw_files_base="$raw_base/files"
+    info "Installing panel from GitHub branch $GITHUB_REPO@$GITHUB_BRANCH"
+    ssh_router "set -eu
+      rm -rf $quoted_remote_dir
+      mkdir -p $quoted_remote_dir
+      download_file() {
+        url=\"\$1\"
+        dst=\"\$2\"
+        if command -v curl >/dev/null 2>&1; then
+          curl -fsSL \"\$url\" -o \"\$dst\"
+        elif command -v wget >/dev/null 2>&1; then
+          wget -qO \"\$dst\" \"\$url\"
+        else
+          uclient-fetch -q -O \"\$dst\" \"\$url\"
+        fi
+      }
+      download_file $(remote_quote "$install_url") $quoted_remote_dir/install.sh
+      chmod 700 $quoted_remote_dir/install.sh
+      VPN_UI_REPO=$(remote_quote "$GITHUB_REPO") \
+      VPN_UI_BRANCH=$(remote_quote "$GITHUB_BRANCH") \
+      VPN_UI_REF=$(remote_quote "$GITHUB_REF") \
+      VPN_UI_RAW_BASE=$(remote_quote "$raw_files_base") \
+        sh $quoted_remote_dir/install.sh"
+  fi
 
   if [ "$KEEP_REMOTE_DIR" != "1" ]; then
     ssh_router "rm -rf $quoted_remote_dir" || true
@@ -157,7 +218,7 @@ verify_install() {
   printf "  ssh %s 'sh /root/rollback-vpn-ui.sh'\n" "$ROUTER_HOST"
 }
 
-require_local_files
+require_tools_and_source
 validate_remote_dir
 preflight_router
 make_sysupgrade_backup

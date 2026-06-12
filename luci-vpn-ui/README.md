@@ -18,6 +18,11 @@ direct routing lists:
 - `/etc/xray/direct-domains.txt`
 - `/etc/xray/direct-ips.txt`
 
+Domain rules are passed to Xray as domain matchers, so plain domains,
+`regexp:*`, and `geosite:*` entries such as `geosite:alibaba` are supported.
+`geosite:*` rules require `geosite.dat` in the Xray datadir, normally
+`/usr/share/xray/geosite.dat`.
+
 It also manages per-device VPN bypass state in:
 
 - `/etc/xray/vpn-ui-device-bypass-macs.txt`
@@ -44,21 +49,38 @@ From the repo root:
 ./install-openwrt-vpn-ui.sh
 ```
 
+The host-side installer defaults to the configured GitHub branch, so routers
+fetch the tracked panel files directly instead of needing a regenerated zip
+bundle for every update. Use local checkout files for development:
+
+```sh
+PANEL_SOURCE=local ./install-openwrt-vpn-ui.sh
+```
+
 Use another SSH alias:
 
 ```sh
 ROUTER_HOST=owrt-ts ./install-openwrt-vpn-ui.sh
 ```
 
-The host-side installer uses `ssh` and `tar` instead of `scp`, because the
-target router may not have an SFTP server. It creates a full OpenWrt
-`sysupgrade -b` backup before installing unless `MAKE_SYSUPGRADE_BACKUP=0` is
-set.
+The host-side installer uses `ssh` and avoids SFTP `scp`, because the target
+router may not have an SFTP server. It creates a full OpenWrt `sysupgrade -b`
+backup before installing unless `MAKE_SYSUPGRADE_BACKUP=0` is set.
+
+The router-side installer can also bootstrap itself from the branch when run
+without a bundled `files/` directory:
+
+```sh
+wget -qO /tmp/install-vpn-ui.sh \
+  https://raw.githubusercontent.com/tdk4-dev/owrt-router-scripts/refs/heads/codex/vpn-panel-installer/luci-vpn-ui/install.sh
+sh /tmp/install-vpn-ui.sh
+```
 
 ## Router-Side Installer
 
-`install.sh` is intended to run on the router after the directory is uploaded.
-It creates `/root/vpn-ui-preinstall-<timestamp>/` and:
+`install.sh` is intended to run on the router either from an uploaded directory
+or as the raw branch bootstrap above. It creates
+`/root/vpn-ui-preinstall-<timestamp>/` and:
 
 ```sh
 /root/rollback-vpn-ui.sh

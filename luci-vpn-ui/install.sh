@@ -1,11 +1,16 @@
 #!/bin/ash
 set -eu
 
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)/files"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$SCRIPT_DIR/files"
 TS="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/root/vpn-ui-preinstall-$TS"
 ROLLBACK="/root/rollback-vpn-ui-$TS.sh"
 LATEST_ROLLBACK="/root/rollback-vpn-ui.sh"
+VPN_UI_REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
+VPN_UI_BRANCH="${VPN_UI_BRANCH:-codex/vpn-panel-installer}"
+VPN_UI_REF="${VPN_UI_REF:-refs/heads/$VPN_UI_BRANCH}"
+VPN_UI_RAW_BASE="${VPN_UI_RAW_BASE:-https://raw.githubusercontent.com/$VPN_UI_REPO/$VPN_UI_REF/luci-vpn-ui/files}"
 
 TOUCHED_PATHS="/usr/sbin/vpn-ui
 /www/luci-static/resources/view/network/vpn.js
@@ -22,6 +27,51 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+download_file() {
+  local url="$1"
+  local dst="$2"
+
+  mkdir -p "$(dirname "$dst")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$dst"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dst" "$url"
+  elif command -v uclient-fetch >/dev/null 2>&1; then
+    uclient-fetch -q -O "$dst" "$url"
+  else
+    die "curl, wget, or uclient-fetch is required to fetch VPN UI files from GitHub"
+  fi
+}
+
+fetch_branch_files() {
+  local dst="/tmp/luci-vpn-ui-files-$TS"
+  local path
+
+  rm -rf "$dst"
+  mkdir -p "$dst"
+  for path in \
+    usr/sbin/vpn-ui \
+    www/luci-static/resources/view/network/vpn.js \
+    usr/share/luci/menu.d/luci-app-vpn-ui.json \
+    usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+  do
+    download_file "${VPN_UI_RAW_BASE%/}/$path" "$dst/$path"
+  done
+  SRC_DIR="$dst"
+}
+
+ensure_source_files() {
+  if [ -f "$SRC_DIR/usr/sbin/vpn-ui" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" ] &&
+    [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
+    [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]; then
+    return 0
+  fi
+
+  printf 'Fetching VPN UI files from %s\n' "$VPN_UI_RAW_BASE"
+  fetch_branch_files
 }
 
 copy_file() {
@@ -46,6 +96,8 @@ backup_path() {
     printf '%s\n' "$path" >> "$BACKUP_DIR/missing"
   fi
 }
+
+ensure_source_files
 
 mkdir -p "$BACKUP_DIR/files"
 : > "$BACKUP_DIR/missing"

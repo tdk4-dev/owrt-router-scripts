@@ -22,15 +22,25 @@ Install the graphical VPN panel onto an already running OpenWrt router:
 ```
 
 By default it connects to the `owrt` SSH alias, creates a full `sysupgrade -b`
-backup, uploads `luci-vpn-ui/` over `ssh` + `tar`, runs the router-side
-installer, and validates the rendered Xray config without changing the selected
-profile.
+backup, downloads the panel files from the configured GitHub branch on the
+router, runs the router-side installer, and validates the rendered Xray config
+without changing the selected profile.
 
 Use another SSH target:
 
 ```sh
 ROUTER_HOST=root@192.168.1.1 ./install-openwrt-vpn-ui.sh
 ```
+
+Install unpushed local edits instead of the branch copy:
+
+```sh
+PANEL_SOURCE=local ./install-openwrt-vpn-ui.sh
+```
+
+The default branch source is
+`tdk4-dev/owrt-router-scripts@codex/vpn-panel-installer`. Override with
+`GITHUB_REPO`, `GITHUB_BRANCH`, or `GITHUB_REF`.
 
 The panel source and image-overlay notes live in
 [luci-vpn-ui/README.md](luci-vpn-ui/README.md).

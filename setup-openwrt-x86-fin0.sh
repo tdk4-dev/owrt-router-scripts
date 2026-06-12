@@ -66,6 +66,7 @@ OVERWRITE_ADGUARD="${OVERWRITE_ADGUARD:-1}"
 BLOCK_QUIC="${BLOCK_QUIC:-0}"
 ALLOW_LOW_SPACE="${ALLOW_LOW_SPACE:-0}"
 MIN_FREE_MB="${MIN_FREE_MB:-250}"
+XRAY_DATADIR="${XRAY_DATADIR:-/usr/share/xray}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -236,6 +237,31 @@ json_list_from_file() {
       printf ',\n          "%s"' "$esc"
     fi
   done < "$file"
+}
+
+file_has_rule_prefix() {
+  local file="$1"
+  local prefix="$2"
+  local item
+
+  [ -f "$file" ] || return 1
+  while IFS= read -r item || [ -n "$item" ]; do
+    item="$(printf '%s' "$item" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$item" ] || continue
+    case "$item" in
+      "$prefix"*) return 0 ;;
+    esac
+  done < "$file"
+  return 1
+}
+
+ensure_domain_rule_data() {
+  local file="$1"
+
+  if file_has_rule_prefix "$file" "geosite:"; then
+    [ -s "$XRAY_DATADIR/geosite.dat" ] ||
+      die "geosite rules require $XRAY_DATADIR/geosite.dat; install or copy Xray geosite data, then apply routes again"
+  fi
 }
 
 append_unique_line() {
@@ -1074,6 +1100,7 @@ write_xray_route_files() {
 # Examples:
 #   example.ru
 #   regexp:^.*\.example\.ru$
+#   geosite:alibaba
 regexp:^.*\.ru$
 regexp:^.*\.su$
 regexp:^.*\.xn--p1ai$
@@ -1260,6 +1287,7 @@ REALITY_SPIDERX=$(shell_quote "$REALITY_SPIDERX")
 TORRENT_DIRECT_CLIENTS=$(shell_quote "$TORRENT_DIRECT_CLIENTS")
 TORRENT_DIRECT_PORTS=$(shell_quote "$TORRENT_DIRECT_PORTS")
 BLOCK_QUIC=$(shell_quote "$BLOCK_QUIC")
+XRAY_DATADIR=$(shell_quote "$XRAY_DATADIR")
 EOF
   chmod 600 /etc/xray/exit-st-cf.vars
 }
@@ -1301,6 +1329,7 @@ Usage:
 Domain matcher examples:
   gosuslugi.ru
   regexp:^.*\\.gosuslugi\\.ru$
+  geosite:alibaba
 
 After editing, run:
   vpn-routes apply
@@ -1396,6 +1425,7 @@ write_xray_config() {
   spx_json="$(json_escape "$REALITY_SPIDERX")"
   uuid_json="$(json_escape "$VLESS_UUID")"
   extra_direct_ip_json="$(json_tail_from_file /etc/xray/direct-ips.txt)"
+  ensure_domain_rule_data /etc/xray/direct-domains.txt
   direct_domain_json="$(json_list_from_file /etc/xray/direct-domains.txt)"
 
   mkdir -p /etc/xray
@@ -1634,7 +1664,7 @@ configure_xray() {
   uci set xray.enabled.enabled='1'
   uci set xray.config='xray'
   uci set xray.config.conffiles='/etc/xray/exit-st-cf.json'
-  uci set xray.config.datadir='/usr/share/xray'
+  uci set xray.config.datadir="$XRAY_DATADIR"
   uci set xray.config.format='json'
   uci -q delete xray.config.confdir
   uci commit xray

@@ -133,6 +133,7 @@ Common edits:
 vpn-routes list
 vpn-routes add-domain example.ru
 vpn-routes add-domain 'regexp:^.*\.example\.ru$'
+vpn-routes add-domain geosite:alibaba
 vpn-routes del-domain example.ru
 vpn-routes edit domains
 vpn-routes add-ip 203.0.113.10/32
@@ -141,6 +142,7 @@ vpn-routes apply
 ```
 
 `add-*`, `del-*`, and `edit` automatically run `vpn-routes apply`. `apply` regenerates `/etc/xray/exit-st-cf.json`, runs `xray run -test`, then restarts Xray and the transparent nft service only if the config is valid.
+`geosite:*` domain rules require `geosite.dat` in the configured Xray datadir.
 
 ## Expected Checks
 

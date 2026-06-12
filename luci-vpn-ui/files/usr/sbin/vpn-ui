@@ -12,6 +12,7 @@ DHCP_LEASES_FILE="/tmp/dhcp.leases"
 NFT_FAMILY="inet"
 NFT_TABLE="xray_transparent"
 NFT_DEVICE_BYPASS_SET="vpn_ui_device_bypass4"
+DEFAULT_XRAY_DATADIR="/usr/share/xray"
 
 XRAY_SERVICE=""
 XRAY_BIN=""
@@ -295,6 +296,41 @@ json_tail_from_file() {
   done
 }
 
+file_has_rule_prefix() {
+  local file="$1"
+  local prefix="$2"
+
+  [ -f "$file" ] || return 1
+  awk -v prefix="$prefix" '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (index($0, prefix) == 1) found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$file"
+}
+
+xray_datadir() {
+  local datadir
+  datadir="$(uci -q get xray.config.datadir 2>/dev/null || true)"
+  [ -n "$datadir" ] || datadir="$DEFAULT_XRAY_DATADIR"
+  printf '%s' "$datadir"
+}
+
+ensure_domain_rule_data() {
+  local file="$1"
+  local datadir
+
+  if file_has_rule_prefix "$file" "geosite:"; then
+    datadir="$(xray_datadir)"
+    [ -s "$datadir/geosite.dat" ] ||
+      die_json "geosite rules require $datadir/geosite.dat; install or copy Xray geosite data, then apply rules again"
+  fi
+}
+
 profile_id_from_url() {
   printf '%s' "$1" | sha256sum | awk '{ print substr($1, 1, 16) }'
 }
@@ -471,6 +507,7 @@ init_route_files() {
   if [ ! -f "$DOMAINS_FILE" ]; then
     {
       printf '# One Xray domain matcher per line. Blank lines and comments are ignored.\n'
+      printf '# Examples: example.com, regexp:^.*\\.example\\.com$, geosite:alibaba\n'
       extract_direct_array domain "$XRAY_CONFIG"
     } > "$DOMAINS_FILE"
   fi
@@ -724,6 +761,7 @@ render_and_apply() {
   backup_domains="$DOMAINS_FILE.bak.vpn-ui.$ts"
   backup_ips="$IPS_FILE.bak.vpn-ui.$ts"
 
+  ensure_domain_rule_data "$domains_src"
   render_xray_config "$tmpcfg" "$domains_src" "$ips_src"
   if ! xray_test "$tmpcfg"; then
     test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
@@ -1114,6 +1152,7 @@ cmd_check() {
   [ -n "$selected" ] || die_json "no selected VLESS profile"
   load_profile_id "$selected"
   tmpcfg="/tmp/vpn-ui-check.$$.json"
+  ensure_domain_rule_data "$DOMAINS_FILE"
   render_xray_config "$tmpcfg" "$DOMAINS_FILE" "$IPS_FILE"
   if ! xray_test "$tmpcfg"; then
     test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
