@@ -1,15 +1,72 @@
+# macOS / filesystem noise
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Editor / local workspace files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Logs, temporary files, and patch leftovers
 *.log
 *.tmp
+*.temp
 *.bak
+*.orig
+*.rej
+*.pid
+run.log
+
+# Archives, OpenWrt images, and generated bundles
+*.tar
 *.tgz
 *.tar.gz
 *.zip
+*.7z
+*.gz
+*.img
+*.img.gz
+*.iso
+*.qcow2
+*.vmdk
 
 # Local secrets/configs. Keep checked-in examples only.
+.env
+.env.*
 *.env
+*.env.*
 !.env.example
+!*.env.example
 !rd23.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.ovpn
+*.mobileconfig
+known_hosts
+authorized_keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_ecdsa
+id_ecdsa.pub
+
+# Router backups/checkpoints copied from OpenWrt
+LAST_*
+state-dump.txt
+openwrt-*-backup*/
+openwrt-x86-fin0-pre-setup-*/
+vpn-routes-migration-backup-*/
+sysupgrade-*.tar.gz
+openwrt-sysupgrade-config-backup.tar.gz
 
 # Generated diagnostic archives/directories.
 home-net-audit-*/
