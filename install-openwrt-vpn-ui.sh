@@ -18,6 +18,9 @@ set -eu
 #   GITHUB_REPO=tdk4-dev/owrt-router-scripts
 #   GITHUB_BRANCH=codex/vpn-panel-installer
 #   GITHUB_REF=refs/heads/...     Override raw GitHub ref path if needed
+#   INSTALL_GEOSITE=1             Install /usr/share/xray/geosite.dat if missing
+#   UPDATE_GEOSITE=0              Set to 1 to refresh an existing geosite.dat
+#   GEOSITE_URL=https://...       Override geosite data source
 #   LOCAL_BACKUP_DIR=router-backups
 #   MAKE_SYSUPGRADE_BACKUP=1      Set to 0 to skip full OpenWrt config backup
 #   KEEP_REMOTE_DIR=0             Set to 1 to leave uploaded installer in /tmp
@@ -29,6 +32,11 @@ PANEL_SOURCE="${PANEL_SOURCE:-github}"
 GITHUB_REPO="${GITHUB_REPO:-tdk4-dev/owrt-router-scripts}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-codex/vpn-panel-installer}"
 GITHUB_REF="${GITHUB_REF:-refs/heads/$GITHUB_BRANCH}"
+INSTALL_GEOSITE="${INSTALL_GEOSITE:-1}"
+UPDATE_GEOSITE="${UPDATE_GEOSITE:-0}"
+GEOSITE_FILE="${GEOSITE_FILE:-/usr/share/xray/geosite.dat}"
+GEOSITE_URL="${GEOSITE_URL:-https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat}"
+GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-$SCRIPT_DIR/router-backups}"
 MAKE_SYSUPGRADE_BACKUP="${MAKE_SYSUPGRADE_BACKUP:-1}"
 KEEP_REMOTE_DIR="${KEEP_REMOTE_DIR:-0}"
@@ -97,9 +105,10 @@ preflight_router() {
   local fetch_check=""
   local tar_check=""
 
-  if [ "$PANEL_SOURCE" = "github" ]; then
+  if [ "$PANEL_SOURCE" = "github" ] || [ "$INSTALL_GEOSITE" = "1" ]; then
     fetch_check='command -v curl >/dev/null || command -v wget >/dev/null || command -v uclient-fetch >/dev/null'
-  else
+  fi
+  if [ "$PANEL_SOURCE" = "local" ]; then
     tar_check='command -v tar >/dev/null'
   fi
 
@@ -161,7 +170,13 @@ upload_and_install() {
   if [ "$PANEL_SOURCE" = "local" ]; then
     info "Uploading local panel bundle to $ROUTER_HOST:$REMOTE_DIR"
     tar -C "$PANEL_DIR" -cf - . |
-      ssh_router "set -eu; rm -rf $quoted_remote_dir; mkdir -p $quoted_remote_dir; tar -C $quoted_remote_dir -xf -; sh $quoted_remote_dir/install.sh"
+      ssh_router "set -eu; rm -rf $quoted_remote_dir; mkdir -p $quoted_remote_dir; tar -C $quoted_remote_dir -xf -; \
+        INSTALL_GEOSITE=$(remote_quote "$INSTALL_GEOSITE") \
+        UPDATE_GEOSITE=$(remote_quote "$UPDATE_GEOSITE") \
+        GEOSITE_FILE=$(remote_quote "$GEOSITE_FILE") \
+        GEOSITE_URL=$(remote_quote "$GEOSITE_URL") \
+        GEOSITE_MIN_BYTES=$(remote_quote "$GEOSITE_MIN_BYTES") \
+          sh $quoted_remote_dir/install.sh"
   else
     raw_base="$(github_luci_raw_base)"
     install_url="$raw_base/install.sh"
@@ -187,6 +202,11 @@ upload_and_install() {
       VPN_UI_BRANCH=$(remote_quote "$GITHUB_BRANCH") \
       VPN_UI_REF=$(remote_quote "$GITHUB_REF") \
       VPN_UI_RAW_BASE=$(remote_quote "$raw_files_base") \
+      INSTALL_GEOSITE=$(remote_quote "$INSTALL_GEOSITE") \
+      UPDATE_GEOSITE=$(remote_quote "$UPDATE_GEOSITE") \
+      GEOSITE_FILE=$(remote_quote "$GEOSITE_FILE") \
+      GEOSITE_URL=$(remote_quote "$GEOSITE_URL") \
+      GEOSITE_MIN_BYTES=$(remote_quote "$GEOSITE_MIN_BYTES") \
         sh $quoted_remote_dir/install.sh"
   fi
 

@@ -21,7 +21,8 @@ direct routing lists:
 Domain rules are passed to Xray as domain matchers, so plain domains,
 `regexp:*`, and `geosite:*` entries such as `geosite:alibaba` are supported.
 `geosite:*` rules require `geosite.dat` in the Xray datadir, normally
-`/usr/share/xray/geosite.dat`.
+`/usr/share/xray/geosite.dat`. The installer creates this file from the
+v2fly/domain-list-community release `dlc.dat` when it is missing.
 
 It also manages per-device VPN bypass state in:
 
@@ -66,6 +67,12 @@ ROUTER_HOST=owrt-ts ./install-openwrt-vpn-ui.sh
 The host-side installer uses `ssh` and avoids SFTP `scp`, because the target
 router may not have an SFTP server. It creates a full OpenWrt `sysupgrade -b`
 backup before installing unless `MAKE_SYSUPGRADE_BACKUP=0` is set.
+
+Geosite data is installed only when missing. To refresh an existing database:
+
+```sh
+UPDATE_GEOSITE=1 ./install-openwrt-vpn-ui.sh
+```
 
 The router-side installer can also bootstrap itself from the branch when run
 without a bundled `files/` directory:

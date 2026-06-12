@@ -142,7 +142,8 @@ vpn-routes apply
 ```
 
 `add-*`, `del-*`, and `edit` automatically run `vpn-routes apply`. `apply` regenerates `/etc/xray/exit-st-cf.json`, runs `xray run -test`, then restarts Xray and the transparent nft service only if the config is valid.
-`geosite:*` domain rules require `geosite.dat` in the configured Xray datadir.
+`geosite:*` domain rules require `geosite.dat` in the configured Xray datadir;
+the setup installs it by default when missing.
 
 ## Expected Checks
 

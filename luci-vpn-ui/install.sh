@@ -11,6 +11,11 @@ VPN_UI_REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 VPN_UI_BRANCH="${VPN_UI_BRANCH:-codex/vpn-panel-installer}"
 VPN_UI_REF="${VPN_UI_REF:-refs/heads/$VPN_UI_BRANCH}"
 VPN_UI_RAW_BASE="${VPN_UI_RAW_BASE:-https://raw.githubusercontent.com/$VPN_UI_REPO/$VPN_UI_REF/luci-vpn-ui/files}"
+INSTALL_GEOSITE="${INSTALL_GEOSITE:-1}"
+UPDATE_GEOSITE="${UPDATE_GEOSITE:-0}"
+GEOSITE_FILE="${GEOSITE_FILE:-/usr/share/xray/geosite.dat}"
+GEOSITE_URL="${GEOSITE_URL:-https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat}"
+GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 
 TOUCHED_PATHS="/usr/sbin/vpn-ui
 /www/luci-static/resources/view/network/vpn.js
@@ -22,7 +27,8 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /etc/xray/direct-ips.txt
 /etc/xray/vpn-ui-device-bypass-macs.txt
 /etc/xray/exit-st-cf.json
-/etc/init.d/xray-transparent"
+/etc/init.d/xray-transparent
+$GEOSITE_FILE"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -43,6 +49,32 @@ download_file() {
   else
     die "curl, wget, or uclient-fetch is required to fetch VPN UI files from GitHub"
   fi
+}
+
+file_size() {
+  wc -c < "$1" | tr -d ' '
+}
+
+ensure_geosite_data() {
+  local tmp bytes
+
+  [ "$INSTALL_GEOSITE" = "1" ] || return 0
+  if [ -s "$GEOSITE_FILE" ] && [ "$UPDATE_GEOSITE" != "1" ]; then
+    printf 'Using existing Xray geosite data: %s\n' "$GEOSITE_FILE"
+    return 0
+  fi
+
+  printf 'Installing Xray geosite data from %s\n' "$GEOSITE_URL"
+  tmp="/tmp/vpn-ui-geosite-$TS.dat"
+  rm -f "$tmp"
+  download_file "$GEOSITE_URL" "$tmp"
+  bytes="$(file_size "$tmp")"
+  [ "$bytes" -ge "$GEOSITE_MIN_BYTES" ] ||
+    die "downloaded geosite data is too small: $bytes bytes"
+
+  mkdir -p "$(dirname "$GEOSITE_FILE")"
+  mv "$tmp" "$GEOSITE_FILE"
+  chmod 644 "$GEOSITE_FILE"
 }
 
 fetch_branch_files() {
@@ -172,6 +204,7 @@ copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
+ensure_geosite_data
 
 INIT_OUT="$(/usr/sbin/vpn-ui init)"
 printf '%s\n' "$INIT_OUT" > /tmp/vpn-ui-init.json

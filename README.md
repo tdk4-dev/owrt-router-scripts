@@ -42,6 +42,10 @@ The default branch source is
 `tdk4-dev/owrt-router-scripts@codex/vpn-panel-installer`. Override with
 `GITHUB_REPO`, `GITHUB_BRANCH`, or `GITHUB_REF`.
 
+The installer also installs Xray geosite data at `/usr/share/xray/geosite.dat`
+when it is missing, so `geosite:*` direct routing rules work by default. It
+does not refresh an existing geosite database unless `UPDATE_GEOSITE=1` is set.
+
 The panel source and image-overlay notes live in
 [luci-vpn-ui/README.md](luci-vpn-ui/README.md).
 
