@@ -78,6 +78,10 @@ The Update button downloads one versioned release bundle, verifies its
 SHA-256, rejects unsafe archive paths, and runs the regular transactional
 installer. The installer still creates `/root/rollback-vpn-ui.sh`.
 
+Publishing a tag matching `vpn-panel-v<VERSION>` runs the repository release
+workflow and attaches the bundle, checksum, and version file required by the
+updater.
+
 ## Install to a Running Router
 
 From the repo root:
