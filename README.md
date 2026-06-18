@@ -13,6 +13,21 @@ For the x86/64 router-PC setup, use:
 `openwrt-fin0` is the default example hostname used by that flow. Override it
 with `HOSTNAME` or `TAILSCALE_HOSTNAME` for your own deployment.
 
+### Custom Installation Image
+
+The custom x86/64 image includes LuCI, AdGuardHome, Xray, Tailscale, the VPN
+panel, and the dark first-boot setup assistant. It boots its LAN at
+`10.77.0.1`.
+
+Build it on an x86_64 Linux host:
+
+```sh
+./build-openwrt-x86-fin0-image-linux.sh
+```
+
+The script uses the official OpenWrt 24.10.5 ImageBuilder and writes BIOS and
+EFI ext4 combined images to `dist/`.
+
 ## LuCI VPN Panel
 
 Install the graphical VPN panel onto an already running OpenWrt router:
@@ -22,9 +37,8 @@ Install the graphical VPN panel onto an already running OpenWrt router:
 ```
 
 By default it connects to the `owrt` SSH alias, creates a full `sysupgrade -b`
-backup, downloads the panel files from the configured GitHub branch on the
-router, runs the router-side installer, and validates the rendered Xray config
-without changing the selected profile.
+backup, uploads the local panel bundle, runs the router-side installer, and
+validates the rendered Xray config without changing the selected profile.
 
 Use another SSH target:
 
@@ -32,15 +46,8 @@ Use another SSH target:
 ROUTER_HOST=root@192.168.1.1 ./install-openwrt-vpn-ui.sh
 ```
 
-Install unpushed local edits instead of the branch copy:
-
-```sh
-PANEL_SOURCE=local ./install-openwrt-vpn-ui.sh
-```
-
-The default branch source is
-`tdk4-dev/owrt-router-scripts@codex/vpn-panel-installer`. Override with
-`GITHUB_REPO`, `GITHUB_BRANCH`, or `GITHUB_REF`.
+The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
+but normal installs and updates use bundles.
 
 The installer also installs Xray geosite data at `/usr/share/xray/geosite.dat`
 when it is missing, so `geosite:*` direct routing rules work by default. It

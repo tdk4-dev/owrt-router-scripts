@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+LAN_IP="10.77.0.1"
+HOSTNAME="openwrt-fin0"
+
+uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
+uci commit system 2>/dev/null || true
+
+uci set network.lan.ipaddr="$LAN_IP"
+uci set network.lan.netmask="255.255.255.0"
+uci set network.lan.proto="static"
+uci commit network
+
+uci set dhcp.lan.start="100"
+uci set dhcp.lan.limit="150"
+uci set dhcp.lan.leasetime="12h"
+uci commit dhcp
+
+uci -q delete firewall.lan_wan_forward
+uci set firewall.lan_wan_forward="forwarding"
+uci set firewall.lan_wan_forward.src="lan"
+uci set firewall.lan_wan_forward.dest="wan"
+uci commit firewall
+
+mkdir -p /etc/firstboot-wizard /etc/xray /etc/crontabs
+touch /etc/crontabs/root
+sed -i '\|/usr/sbin/vpn-ui auto-tick|d' /etc/crontabs/root
+printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> /etc/crontabs/root
+
+chmod 0755 /www/cgi-bin/firstboot-setup /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
+
+/etc/init.d/rpcd enable >/dev/null 2>&1 || true
+/etc/init.d/uhttpd enable >/dev/null 2>&1 || true
+/etc/init.d/cron enable >/dev/null 2>&1 || true
+/etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+/etc/init.d/xray disable >/dev/null 2>&1 || true
+/etc/init.d/tailscale disable >/dev/null 2>&1 || true
+rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
+
+exit 0

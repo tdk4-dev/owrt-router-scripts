@@ -42,6 +42,42 @@ fall back to direct routing instead of being redirected into a stopped proxy.
 Enabling starts Xray, restarts transparent routing, and reapplies device bypass
 state.
 
+## Subscriptions
+
+The panel accepts HTTPS subscription URLs containing either plain newline
+separated VLESS links or the common base64-encoded list format. Subscription
+URLs are stored under `/etc/xray/subscriptions.d/` with mode `0600` and are
+never returned to the browser after import.
+
+Unsupported entries are skipped. Compatible VLESS Reality TCP profiles are
+reconciled on refresh, while the currently selected profile is retained if a
+provider temporarily removes it.
+
+## Automatic Switching
+
+Profiles can be selected for an explicit auto-switch pool.
+
+- Failover mode checks the current endpoint over TCP once per minute and
+  switches only after three consecutive failures.
+- Periodic optimization defaults to every 12 hours and switches only when
+  another pool member is at least 35% faster and improves latency by at least
+  30 ms.
+
+Both modes are disabled by default.
+
+## Tailscale
+
+The panel displays the current Tailscale/Headscale login state and can connect,
+stop, restart, or log out. Stopping preserves the current login state. Preauth
+keys are passed directly to `tailscale up`, are not displayed again, and are
+not stored by the panel.
+
+## Updates
+
+The Update button downloads one versioned release bundle, verifies its
+SHA-256, rejects unsafe archive paths, and runs the regular transactional
+installer. The installer still creates `/root/rollback-vpn-ui.sh`.
+
 ## Install to a Running Router
 
 From the repo root:
@@ -50,13 +86,8 @@ From the repo root:
 ./install-openwrt-vpn-ui.sh
 ```
 
-The host-side installer defaults to the configured GitHub branch, so routers
-fetch the tracked panel files directly instead of needing a regenerated zip
-bundle for every update. Use local checkout files for development:
-
-```sh
-PANEL_SOURCE=local ./install-openwrt-vpn-ui.sh
-```
+The host-side installer uploads local checkout files by default, avoiding
+several separate raw GitHub downloads on the router.
 
 Use another SSH alias:
 

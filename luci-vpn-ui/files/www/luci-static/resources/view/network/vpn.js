@@ -10,6 +10,12 @@ var isReadonlyView = !L.hasViewPermission() || null;
 var css = '\
 .vpn-ui .vpn-add-row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:.75rem 0 1rem; }\
 .vpn-ui .vpn-add-row input { flex:1 1 36rem; min-width:18rem; }\
+.vpn-ui .vpn-table-wrap { overflow-x:auto; }\
+.vpn-ui .vpn-settings-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; align-items:end; }\
+.vpn-ui .vpn-setting label { display:block; margin-bottom:.35rem; }\
+.vpn-ui .vpn-setting input[type="text"], .vpn-ui .vpn-setting input[type="password"], .vpn-ui .vpn-setting input[type="number"] { width:100%; box-sizing:border-box; }\
+.vpn-ui .vpn-check-row { display:flex; gap:.5rem; align-items:center; min-height:2.2rem; }\
+.vpn-ui .vpn-section-note { margin:.35rem 0 1rem; }\
 .vpn-ui .vpn-profile-row.vpn-selected { background:#173d25 !important; }\
 .vpn-ui .vpn-profile-row.vpn-selected > .td { background:transparent !important; }\
 .vpn-ui .vpn-profile-row.vpn-selected { box-shadow: inset 3px 0 0 #2fb35d; }\
@@ -119,7 +125,7 @@ return view.extend({
 	},
 
 	handleRefresh: function() {
-		return this.runAction(['status'], _('Refreshing VPN status'));
+		return this.runAction(['refresh-pings'], _('Refreshing VPN status'));
 	},
 
 	handleAdd: function() {
@@ -134,6 +140,120 @@ return view.extend({
 		return this.runAction(['add', value], _('Saving VLESS profile')).then(function() {
 			if (input)
 				input.value = '';
+		});
+	},
+
+	handleAddSubscription: function() {
+		var input = document.querySelector('#vpn-subscription-url');
+		var value = input ? input.value.trim() : '';
+
+		if (!value) {
+			ui.addNotification(null, E('p', {}, _('Paste an HTTPS subscription link first.')));
+			return;
+		}
+
+		return this.runAction(['subscription-add', value], _('Importing subscription')).then(function() {
+			if (input)
+				input.value = '';
+		});
+	},
+
+	handleSyncSubscription: function(id) {
+		return this.runAction(['subscription-sync', id], _('Refreshing subscription'));
+	},
+
+	handleDeleteSubscription: function(id) {
+		if (!confirm(_('Remove this subscription and its unused profiles?')))
+			return;
+		return this.runAction(['subscription-delete', id], _('Removing subscription'));
+	},
+
+	handleApplyAuto: function() {
+		var failover = document.querySelector('#vpn-auto-failover');
+		var periodic = document.querySelector('#vpn-auto-periodic');
+		var hours = document.querySelector('#vpn-auto-hours');
+		var pool = Array.prototype.slice.call(document.querySelectorAll('input[data-auto-profile]:checked'))
+			.map(function(node) { return node.getAttribute('data-auto-profile'); })
+			.join('\n');
+
+		return this.runAction([
+			'auto-config',
+			failover && failover.checked ? '1' : '0',
+			periodic && periodic.checked ? '1' : '0',
+			hours ? hours.value : '12',
+			pool
+		], _('Saving automatic switching settings'));
+	},
+
+	handleTailscaleApply: function() {
+		var server = document.querySelector('#vpn-tailscale-server');
+		var hostname = document.querySelector('#vpn-tailscale-hostname');
+		var key = document.querySelector('#vpn-tailscale-key');
+		var routes = document.querySelector('#vpn-tailscale-routes');
+		var exitNode = document.querySelector('#vpn-tailscale-exit');
+
+		return this.runAction([
+			'tailscale-up',
+			server ? server.value.trim() : '',
+			hostname ? hostname.value.trim() : '',
+			key ? key.value.trim() : '',
+			routes ? routes.value.trim() : '',
+			exitNode && exitNode.checked ? '1' : '0'
+		], _('Applying Tailscale settings'));
+	},
+
+	handleTailscaleRestart: function() {
+		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'));
+	},
+
+	handleTailscaleStop: function() {
+		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'));
+	},
+
+	handleTailscaleLogout: function() {
+		if (!confirm(_('Log this router out of its current tailnet?')))
+			return;
+		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'));
+	},
+
+	handleUpdateCheck: function() {
+		ui.showModal(_('Checking for updates'), [
+			E('p', { 'class': 'spinning' }, _('Contacting the release server...'))
+		]);
+		return this.callHelper(['update-check']).then(function(data) {
+			ui.hideModal();
+			ui.showModal(_('VPN panel update'), [
+				E('p', {}, data.available
+					? _('Version %s is available. Installed: %s.').format(data.latest, data.current)
+					: _('The VPN panel is up to date (%s).').format(data.current)),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close')),
+					data.available ? ' ' : '',
+					data.available ? E('button', {
+						'class': 'btn cbi-button-positive',
+						'disabled': isReadonlyView,
+						'click': L.bind(this.handleUpdateApply, this)
+					}, _('Install update')) : ''
+				])
+			]);
+		}.bind(this)).catch(function(err) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, err.message || err));
+		});
+	},
+
+	handleUpdateApply: function() {
+		ui.hideModal();
+		ui.showModal(_('Installing VPN panel update'), [
+			E('p', { 'class': 'spinning' }, _('Downloading, verifying, and installing the release bundle...'))
+		]);
+		return this.callHelper(['update-apply']).then(function(data) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, _('VPN panel updated to %s. Reloading...').format(data.current || '-')));
+			window.setTimeout(function() { window.location.reload(); }, 1200);
+		}).catch(function(err) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, err.message || err));
 		});
 	},
 
@@ -476,11 +596,23 @@ return view.extend({
 
 	renderProfileTable: function(data) {
 		var profiles = data.profiles || [];
+		var subscriptionNames = {};
+		(data.subscriptions || []).forEach(function(subscription) {
+			subscriptionNames[subscription.id] = subscription.name;
+		});
 		var rows = profiles.map(function(profile) {
 			var selected = !!profile.selected;
-			var pingClass = profile.ping == 'timeout' ? 'vpn-ping-bad' : 'vpn-ping-ok';
+			var pingClass = profile.ping == 'timeout' ? 'vpn-ping-bad' : (profile.ping == 'not tested' ? 'vpn-muted' : 'vpn-ping-ok');
 
 			return E('tr', { 'class': 'tr vpn-profile-row' + (selected ? ' vpn-selected' : '') }, [
+				E('td', { 'class': 'td left' }, [
+					E('input', {
+						'type': 'checkbox',
+						'data-auto-profile': profile.id,
+						'checked': profile.auto_pool ? '' : null,
+						'disabled': isReadonlyView
+					})
+				]),
 				E('td', { 'class': 'td left' }, [
 					E('button', {
 						'class': 'cbi-button ' + (selected ? 'cbi-button-positive' : 'cbi-button-action'),
@@ -494,7 +626,8 @@ return view.extend({
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('div', {}, profile.protocol || 'vless'),
-					E('div', { 'class': 'vpn-muted' }, profile.vps_ip || '-')
+					E('div', { 'class': 'vpn-muted' }, profile.vps_ip || '-'),
+					profile.source_id ? E('div', { 'class': 'vpn-muted' }, subscriptionNames[profile.source_id] || _('Subscription')) : ''
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('span', { 'class': pingClass }, profile.ping || '-')
@@ -512,8 +645,9 @@ return view.extend({
 			]);
 		}, this);
 
-		return E('table', { 'class': 'table' }, [
+		return E('div', { 'class': 'vpn-table-wrap' }, E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
+				E('th', { 'class': 'th left' }, _('Auto')),
 				E('th', { 'class': 'th left' }, _('Use')),
 				E('th', { 'class': 'th left' }, _('Node')),
 				E('th', { 'class': 'th left' }, _('Protocol')),
@@ -523,9 +657,9 @@ return view.extend({
 			])
 		].concat(rows.length ? rows : [
 			E('tr', { 'class': 'tr placeholder' }, [
-				E('td', { 'class': 'td', 'colspan': '6' }, _('No VLESS profiles saved.'))
+				E('td', { 'class': 'td', 'colspan': '7' }, _('No VLESS profiles saved.'))
 			])
-		]));
+		])));
 	},
 
 	renderProfiles: function(data) {
@@ -553,6 +687,206 @@ return view.extend({
 				}, _('Refresh pings'))
 			]),
 			this.renderProfileTable(data)
+		]);
+	},
+
+	renderSubscriptions: function(data) {
+		var subscriptions = data.subscriptions || [];
+		var rows = subscriptions.map(function(subscription) {
+			return E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td left' }, subscription.name || '-'),
+				E('td', { 'class': 'td left' }, subscription.count || 0),
+				E('td', { 'class': 'td left' }, subscription.updated || '-'),
+				E('td', { 'class': 'td right' }, [
+					E('button', {
+						'class': 'cbi-button cbi-button-action',
+						'disabled': isReadonlyView,
+						'click': L.bind(this.handleSyncSubscription, this, subscription.id)
+					}, _('Refresh')),
+					' ',
+					E('button', {
+						'class': 'cbi-button cbi-button-remove',
+						'disabled': isReadonlyView,
+						'click': L.bind(this.handleDeleteSubscription, this, subscription.id)
+					}, _('Remove'))
+				])
+			]);
+		}, this);
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Subscriptions')),
+			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Subscription URLs are stored with restricted permissions and are never displayed again.')),
+			E('div', { 'class': 'vpn-add-row' }, [
+				E('input', {
+					'id': 'vpn-subscription-url',
+					'type': 'password',
+					'autocomplete': 'off',
+					'placeholder': 'https://provider.example/sub/...',
+					'disabled': isReadonlyView
+				}),
+				E('button', {
+					'class': 'cbi-button cbi-button-action',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleAddSubscription')
+				}, _('Import'))
+			]),
+			E('div', { 'class': 'vpn-table-wrap' }, E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [
+					E('th', { 'class': 'th left' }, _('Provider')),
+					E('th', { 'class': 'th left' }, _('Profiles')),
+					E('th', { 'class': 'th left' }, _('Last refresh')),
+					E('th', { 'class': 'th right' }, '')
+				])
+			].concat(rows.length ? rows : [
+				E('tr', { 'class': 'tr placeholder' }, [
+					E('td', { 'class': 'td', 'colspan': '4' }, _('No subscriptions configured.'))
+				])
+			])))
+		]);
+	},
+
+	renderAutoSwitch: function(data) {
+		var auto = data.auto || {};
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Automatic server switching')),
+			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute TCP checks. Periodic optimization switches only for a substantial latency improvement.')),
+			E('div', { 'class': 'vpn-settings-grid' }, [
+				E('label', { 'class': 'vpn-check-row' }, [
+					E('input', {
+						'id': 'vpn-auto-failover',
+						'type': 'checkbox',
+						'checked': auto.failover ? '' : null,
+						'disabled': isReadonlyView
+					}),
+					_('Fail over when the current server is unreachable')
+				]),
+				E('label', { 'class': 'vpn-check-row' }, [
+					E('input', {
+						'id': 'vpn-auto-periodic',
+						'type': 'checkbox',
+						'checked': auto.periodic ? '' : null,
+						'disabled': isReadonlyView
+					}),
+					_('Periodically prefer a materially faster server')
+				]),
+				E('div', { 'class': 'vpn-setting' }, [
+					E('label', { 'for': 'vpn-auto-hours' }, _('Optimization interval (hours)')),
+					E('input', {
+						'id': 'vpn-auto-hours',
+						'type': 'number',
+						'min': '6',
+						'max': '168',
+						'value': auto.periodic_hours || 12,
+						'disabled': isReadonlyView
+					})
+				])
+			]),
+			E('div', { 'class': 'vpn-actions' }, [
+				E('button', {
+					'class': 'cbi-button cbi-button-positive',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleApplyAuto')
+				}, _('Apply switching settings'))
+			])
+		]);
+	},
+
+	renderTailscale: function(data) {
+		var tailscale = data.tailscale || {};
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Tailscale / Headscale')),
+			E('div', { 'class': 'vpn-service-row' }, [
+				E('span', { 'class': 'label ' + (tailscale.connected ? 'notice' : 'warning') }, tailscale.connected ? _('Connected') : _('Disconnected')),
+				E('span', { 'class': 'label' }, 'IP: %s'.format(tailscale.ip || '-')),
+				E('span', { 'class': 'label' }, 'Control: %s'.format(tailscale.control_url || '-'))
+			]),
+			E('div', { 'class': 'vpn-settings-grid' }, [
+				E('div', { 'class': 'vpn-setting' }, [
+					E('label', { 'for': 'vpn-tailscale-server' }, _('Login server')),
+					E('input', {
+						'id': 'vpn-tailscale-server',
+						'type': 'text',
+						'value': tailscale.control_url || 'https://login.tailscale.com',
+						'disabled': isReadonlyView
+					})
+				]),
+				E('div', { 'class': 'vpn-setting' }, [
+					E('label', { 'for': 'vpn-tailscale-hostname' }, _('Node hostname')),
+					E('input', {
+						'id': 'vpn-tailscale-hostname',
+						'type': 'text',
+						'value': tailscale.hostname || '',
+						'disabled': isReadonlyView
+					})
+				]),
+				E('div', { 'class': 'vpn-setting' }, [
+					E('label', { 'for': 'vpn-tailscale-key' }, _('Preauth key')),
+					E('input', {
+						'id': 'vpn-tailscale-key',
+						'type': 'password',
+						'autocomplete': 'off',
+						'placeholder': tailscale.connected ? _('Optional while connected') : _('Required for first login'),
+						'disabled': isReadonlyView
+					})
+				]),
+				E('div', { 'class': 'vpn-setting' }, [
+					E('label', { 'for': 'vpn-tailscale-routes' }, _('Advertise routes')),
+					E('input', {
+						'id': 'vpn-tailscale-routes',
+						'type': 'text',
+						'placeholder': '10.77.0.0/24',
+						'disabled': isReadonlyView
+					})
+				]),
+				E('label', { 'class': 'vpn-check-row' }, [
+					E('input', {
+						'id': 'vpn-tailscale-exit',
+						'type': 'checkbox',
+						'disabled': isReadonlyView
+					}),
+					_('Advertise this router as an exit node')
+				])
+			]),
+			E('div', { 'class': 'vpn-actions' }, [
+				E('button', {
+					'class': 'cbi-button cbi-button-neutral',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleTailscaleRestart')
+				}, _('Restart')),
+				E('button', {
+					'class': 'cbi-button cbi-button-negative',
+					'disabled': isReadonlyView || !tailscale.running,
+					'click': ui.createHandlerFn(this, 'handleTailscaleStop')
+				}, _('Stop service')),
+				E('button', {
+					'class': 'cbi-button cbi-button-negative',
+					'disabled': isReadonlyView || !tailscale.connected,
+					'click': ui.createHandlerFn(this, 'handleTailscaleLogout')
+				}, _('Log out')),
+				E('button', {
+					'class': 'cbi-button cbi-button-positive',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleTailscaleApply')
+				}, _('Apply / connect'))
+			])
+		]);
+	},
+
+	renderUpdate: function(data) {
+		var update = data.update || {};
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Panel update')),
+			E('div', { 'class': 'vpn-global-row' }, [
+				E('div', { 'class': 'vpn-global-state' }, [
+					E('span', { 'class': 'label' }, _('Installed version: %s').format(update.current || 'development')),
+					E('span', { 'class': 'vpn-muted' }, _('Updates are downloaded as one release bundle and verified with SHA-256 before installation.'))
+				]),
+				E('button', {
+					'class': 'cbi-button cbi-button-action',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleUpdateCheck')
+				}, _('Check for updates'))
+			])
 		]);
 	},
 
@@ -651,7 +985,11 @@ return view.extend({
 	renderBody: function(data) {
 		return [
 			this.renderGlobal(data),
+			this.renderUpdate(data),
+			this.renderSubscriptions(data),
 			this.renderProfiles(data),
+			this.renderAutoSwitch(data),
+			this.renderTailscale(data),
 			this.renderRules(data),
 			this.renderDevices(data)
 		];

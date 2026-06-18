@@ -14,7 +14,7 @@ set -eu
 # Optional environment:
 #   ROUTER_HOST=owrt              SSH host alias or root@host
 #   REMOTE_DIR=/tmp/luci-vpn-ui   Router temp directory for upload
-#   PANEL_SOURCE=github           github or local
+#   PANEL_SOURCE=local            local (default) or github
 #   GITHUB_REPO=tdk4-dev/owrt-router-scripts
 #   GITHUB_BRANCH=codex/vpn-panel-installer
 #   GITHUB_REF=refs/heads/...     Override raw GitHub ref path if needed
@@ -28,7 +28,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PANEL_DIR="$SCRIPT_DIR/luci-vpn-ui"
 ROUTER_HOST="${ROUTER_HOST:-owrt}"
-PANEL_SOURCE="${PANEL_SOURCE:-github}"
+PANEL_SOURCE="${PANEL_SOURCE:-local}"
 GITHUB_REPO="${GITHUB_REPO:-tdk4-dev/owrt-router-scripts}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-codex/vpn-panel-installer}"
 GITHUB_REF="${GITHUB_REF:-refs/heads/$GITHUB_BRANCH}"
@@ -189,11 +189,11 @@ upload_and_install() {
         url=\"\$1\"
         dst=\"\$2\"
         if command -v curl >/dev/null 2>&1; then
-          curl -fsSL \"\$url\" -o \"\$dst\"
+          curl -fsSL --connect-timeout 10 --max-time 60 \"\$url\" -o \"\$dst\"
         elif command -v wget >/dev/null 2>&1; then
-          wget -qO \"\$dst\" \"\$url\"
+          wget -T 60 -qO \"\$dst\" \"\$url\"
         else
-          uclient-fetch -q -O \"\$dst\" \"\$url\"
+          uclient-fetch -T 60 -q -O \"\$dst\" \"\$url\"
         fi
       }
       download_file $(remote_quote "$install_url") $quoted_remote_dir/install.sh

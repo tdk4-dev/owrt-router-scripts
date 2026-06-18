@@ -18,9 +18,12 @@ GEOSITE_URL="${GEOSITE_URL:-https://github.com/v2fly/domain-list-community/relea
 GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 
 TOUCHED_PATHS="/usr/sbin/vpn-ui
+/usr/sbin/vpn-ui-update
 /www/luci-static/resources/view/network/vpn.js
 /usr/share/luci/menu.d/luci-app-vpn-ui.json
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+/usr/share/vpn-ui/version
+/etc/crontabs/root
 /etc/xray/vless-profiles.d
 /etc/xray/vless-selected
 /etc/xray/direct-domains.txt
@@ -41,11 +44,11 @@ download_file() {
 
   mkdir -p "$(dirname "$dst")"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$dst"
+    curl -fsSL --connect-timeout 10 --max-time 120 "$url" -o "$dst"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$dst" "$url"
+    wget -T 120 -qO "$dst" "$url"
   elif command -v uclient-fetch >/dev/null 2>&1; then
-    uclient-fetch -q -O "$dst" "$url"
+    uclient-fetch -T 120 -q -O "$dst" "$url"
   else
     die "curl, wget, or uclient-fetch is required to fetch VPN UI files from GitHub"
   fi
@@ -85,9 +88,11 @@ fetch_branch_files() {
   mkdir -p "$dst"
   for path in \
     usr/sbin/vpn-ui \
+    usr/sbin/vpn-ui-update \
     www/luci-static/resources/view/network/vpn.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
-    usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+    usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
+    usr/share/vpn-ui/version
   do
     download_file "${VPN_UI_RAW_BASE%/}/$path" "$dst/$path"
   done
@@ -96,9 +101,11 @@ fetch_branch_files() {
 
 ensure_source_files() {
   if [ -f "$SRC_DIR/usr/sbin/vpn-ui" ] &&
+    [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
-    [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]; then
+    [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
+    [ -f "$SRC_DIR/usr/share/vpn-ui/version" ]; then
     return 0
   fi
 
@@ -201,10 +208,19 @@ cp "$ROLLBACK" "$LATEST_ROLLBACK"
 chmod 700 "$LATEST_ROLLBACK"
 
 copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
+copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
+copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
 ensure_geosite_data
+
+mkdir -p /etc/crontabs
+touch /etc/crontabs/root
+sed -i '\|/usr/sbin/vpn-ui auto-tick|d' /etc/crontabs/root
+printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> /etc/crontabs/root
+/etc/init.d/cron enable >/dev/null 2>&1 || true
+/etc/init.d/cron restart >/dev/null 2>&1 || true
 
 INIT_OUT="$(/usr/sbin/vpn-ui init)"
 printf '%s\n' "$INIT_OUT" > /tmp/vpn-ui-init.json

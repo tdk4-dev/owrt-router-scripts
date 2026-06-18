@@ -1,0 +1,109 @@
+#!/bin/ash
+set -u
+
+REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
+RELEASE_BASE="${VPN_UI_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
+VERSION_FILE="/usr/share/vpn-ui/version"
+BUNDLE_NAME="luci-vpn-ui.tar.gz"
+CHECKSUM_NAME="$BUNDLE_NAME.sha256"
+REMOTE_VERSION_NAME="vpn-ui-version.txt"
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+die_json() {
+  printf '{"ok":false,"error":'
+  json_string "$1"
+  printf '}\n'
+  exit 0
+}
+
+download_file() {
+  local url="$1"
+  local dst="$2"
+  curl -fsSL --proto '=https' --connect-timeout 10 --max-time 120 "$url" -o "$dst"
+}
+
+current_version() {
+  cat "$VERSION_FILE" 2>/dev/null || printf 'development'
+}
+
+check_update() {
+  local current remote tmp="/tmp/vpn-ui-version.$$"
+  current="$(current_version)"
+  download_file "$RELEASE_BASE/$REMOTE_VERSION_NAME" "$tmp" ||
+    die_json "could not check the latest VPN panel release"
+  remote="$(sed -n '1p' "$tmp" | tr -d '\r\n')"
+  rm -f "$tmp"
+  [ -n "$remote" ] || die_json "release version file is empty"
+  printf '{"ok":true,"current":'
+  json_string "$current"
+  printf ',"latest":'
+  json_string "$remote"
+  printf ',"available":%s}\n' "$([ "$current" != "$remote" ] && printf true || printf false)"
+}
+
+validate_archive_paths() {
+  local archive="$1"
+  tar -tzf "$archive" |
+    awk '
+      /^\// { bad=1 }
+      /(^|\/)\.\.(\/|$)/ { bad=1 }
+      END { exit bad ? 1 : 0 }
+    '
+}
+
+apply_update() {
+  local tmpdir="/tmp/vpn-ui-update.$$"
+  local archive checksum expected actual installer version
+  mkdir -p "$tmpdir"
+  archive="$tmpdir/$BUNDLE_NAME"
+  checksum="$tmpdir/$CHECKSUM_NAME"
+
+  download_file "$RELEASE_BASE/$BUNDLE_NAME" "$archive" ||
+    die_json "could not download the VPN panel release bundle"
+  download_file "$RELEASE_BASE/$CHECKSUM_NAME" "$checksum" ||
+    die_json "could not download the VPN panel checksum"
+
+  expected="$(awk '{ print $1 }' "$checksum" | sed -n '1p')"
+  actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+  [ -n "$expected" ] && [ "$expected" = "$actual" ] || {
+    rm -rf "$tmpdir"
+    die_json "VPN panel release checksum verification failed"
+  }
+  validate_archive_paths "$archive" || {
+    rm -rf "$tmpdir"
+    die_json "VPN panel release contains unsafe archive paths"
+  }
+
+  tar -xzf "$archive" -C "$tmpdir" || {
+    rm -rf "$tmpdir"
+    die_json "could not extract the VPN panel release"
+  }
+  installer="$tmpdir/luci-vpn-ui/install.sh"
+  [ -f "$installer" ] || {
+    rm -rf "$tmpdir"
+    die_json "release bundle is missing install.sh"
+  }
+
+  INSTALL_GEOSITE=1 UPDATE_GEOSITE=0 sh "$installer" >/tmp/vpn-ui-self-update.log 2>&1 || {
+    rm -rf "$tmpdir"
+    die_json "VPN panel update failed: $(tail -n 8 /tmp/vpn-ui-self-update.log 2>/dev/null | tr '\n' ' ')"
+  }
+  rm -rf "$tmpdir"
+  version="$(current_version)"
+  printf '{"ok":true,"updated":true,"current":'
+  json_string "$version"
+  printf '}\n'
+}
+
+case "${1:-check}" in
+  check) check_update ;;
+  apply) apply_update ;;
+  *) die_json "update action must be check or apply" ;;
+esac

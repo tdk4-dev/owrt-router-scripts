@@ -1,0 +1,414 @@
+#!/bin/ash
+set -u
+
+LAN_IP="10.77.0.1"
+LAN_CIDR="10.77.0.0/24"
+HOSTNAME="openwrt-fin0"
+STATE_DIR="/etc/firstboot-wizard"
+COMPLETE_FILE="$STATE_DIR/complete"
+PAYLOAD="/tmp/firstboot-setup.$$.json"
+FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+header_json() {
+  printf 'Status: %s\r\n' "$1"
+  printf 'Content-Type: application/json\r\n'
+  printf 'Cache-Control: no-store\r\n'
+  printf '\r\n'
+}
+
+fail() {
+  header_json "200 OK"
+  printf '{"ok":false,"errors":['
+  json_string "$1"
+  printf ']}\n'
+  exit 0
+}
+
+ok_status() {
+  header_json "200 OK"
+  if [ -f "$COMPLETE_FILE" ]; then
+    printf '{"ok":true,"complete":true}\n'
+  else
+    printf '{"ok":true,"complete":false}\n'
+  fi
+}
+
+read_body() {
+  local len="${CONTENT_LENGTH:-0}"
+  [ "$len" -gt 0 ] 2>/dev/null || return 0
+  dd bs=1 count="$len" 2>/dev/null
+}
+
+json_get() {
+  jsonfilter -i "$PAYLOAD" -e "$1" 2>/dev/null | sed -n '1p'
+}
+
+json_list() {
+  jsonfilter -i "$PAYLOAD" -e "$1" 2>/dev/null
+}
+
+bool_true() {
+  case "$1" in
+    true|1|yes|on) return 0 ;;
+  esac
+  return 1
+}
+
+bootstrap() {
+  header_json "200 OK"
+  cat <<'EOF'
+{"ok":true,"data":{"router":{"hostname":"openwrt-fin0","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","vpnEnabled":true,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"adguard":{"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
+EOF
+}
+
+filter_meta() {
+  case "$1" in
+    registry-1hosts-lite) printf '%s\t%s\t%s\n' 2400 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt" "1Hosts (Lite)" ;;
+    registry-1hosts-mini) printf '%s\t%s\t%s\n' 3800 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt" "1Hosts (mini)" ;;
+    1) printf '%s\t%s\t%s\n' 1 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt" "AdGuard DNS filter" ;;
+    1779019548) printf '%s\t%s\t%s\n' 1779019548 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt" "AdGuard DNS Popup Hosts filter" ;;
+    registry-awavenue) printf '%s\t%s\t%s\n' 5300 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt" "AWAvenue Ads Rule" ;;
+    registry-dan-pollock) printf '%s\t%s\t%s\n' 400 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt" "Dan Pollock's List" ;;
+    registry-hagezi-normal) printf '%s\t%s\t%s\n' 3400 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt" "HaGeZi's Normal Blocklist" ;;
+    registry-hagezi-pro) printf '%s\t%s\t%s\n' 4800 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt" "HaGeZi's Pro Blocklist" ;;
+    registry-hagezi-pro-plus) printf '%s\t%s\t%s\n' 5000 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt" "HaGeZi's Pro++ Blocklist" ;;
+    1779019549) printf '%s\t%s\t%s\n' 1779019549 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt" "HaGeZi's Ultimate Blocklist" ;;
+    registry-oisd-small) printf '%s\t%s\t%s\n' 2700 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt" "OISD Blocklist Small" ;;
+    registry-oisd-big) printf '%s\t%s\t%s\n' 500 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt" "OISD Blocklist Big" ;;
+    registry-peter-lowe) printf '%s\t%s\t%s\n' 300 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt" "Peter Lowe's Blocklist" ;;
+    registry-steven-black) printf '%s\t%s\t%s\n' 3300 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt" "Steven Black's List" ;;
+    registry-dandelion-push) printf '%s\t%s\t%s\n' 3900 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt" "Dandelion Sprout's Anti Push Notifications" ;;
+    registry-dandelion-game) printf '%s\t%s\t%s\n' 600 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt" "Dandelion Sprout's Game Console Adblock List" ;;
+    registry-hagezi-allow-referral) printf '%s\t%s\t%s\n' 6100 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt" "HaGeZi's Allowlist Referral" ;;
+    2) printf '%s\t%s\t%s\n' 2 "https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt" "AdAway Default Blocklist" ;;
+    *) return 1 ;;
+  esac
+}
+
+write_selected_filters_yaml() {
+  local selected="$1"
+  local id filter_id url name
+  : > "$FILTERS_FILE"
+  for id in $selected; do
+    filter_meta "$id" >> "$FILTERS_FILE" || true
+  done
+  [ -s "$FILTERS_FILE" ] || return 1
+  while IFS='	' read -r filter_id url name; do
+    printf '  - enabled: true\n'
+    printf '    url: %s\n' "$url"
+    printf '    name: %s\n' "$name"
+    printf '    id: %s\n' "$filter_id"
+  done < "$FILTERS_FILE"
+}
+
+configure_network() {
+  uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
+  uci commit system 2>/dev/null || true
+  hostname "$HOSTNAME" 2>/dev/null || true
+
+  uci set network.lan.ipaddr="$LAN_IP"
+  uci set network.lan.netmask="255.255.255.0"
+  uci set network.lan.proto="static"
+  uci commit network
+
+  uci set dhcp.lan.start="100"
+  uci set dhcp.lan.limit="150"
+  uci set dhcp.lan.leasetime="12h"
+  uci commit dhcp
+
+  uci -q delete firewall.lan_wan_forward
+  uci set firewall.lan_wan_forward="forwarding"
+  uci set firewall.lan_wan_forward.src="lan"
+  uci set firewall.lan_wan_forward.dest="wan"
+  uci commit firewall
+}
+
+configure_account() {
+  local login="$1"
+  local password="$2"
+  local confirm="$3"
+  local keys="$4"
+
+  [ "$login" = "root" ] || fail "This image supports root SSH login only."
+  [ "${#password}" -ge 8 ] || fail "SSH password must be at least 8 characters."
+  [ "$password" = "$confirm" ] || fail "Password confirmation does not match."
+  printf '%s\n%s\n' "$password" "$password" | passwd root >/tmp/firstboot-passwd.log 2>&1 ||
+    fail "Could not set root password."
+
+  mkdir -p /etc/dropbear
+  printf '%s\n' "$keys" | awk 'NF { print }' > /etc/dropbear/authorized_keys
+  chmod 600 /etc/dropbear/authorized_keys
+  /etc/init.d/dropbear enable >/dev/null 2>&1 || true
+  /etc/init.d/dropbear restart >/dev/null 2>&1 || true
+}
+
+wait_http() {
+  local url="$1"
+  local i
+  for i in $(seq 1 30); do
+    curl -fsS --connect-timeout 2 --max-time 4 "$url" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+
+rewrite_adguard_filters() {
+  local selected="$1"
+  local yaml="/tmp/firstboot-adguard-yaml.$$"
+  local out="/tmp/firstboot-adguard-config.$$"
+
+  write_selected_filters_yaml "$selected" > "$yaml" || {
+    rm -f "$yaml" "$FILTERS_FILE"
+    fail "Select at least one AdGuard blocklist."
+  }
+  awk -v filters="$yaml" '
+    /^filters:/ {
+      print "filters:"
+      while ((getline line < filters) > 0) print line
+      skip = 1
+      next
+    }
+    /^whitelist_filters:/ { skip = 0 }
+    !skip { print }
+  ' /etc/adguardhome.yaml > "$out" || fail "Could not rewrite AdGuard filters."
+  mv "$out" /etc/adguardhome.yaml
+  rm -f "$yaml" "$FILTERS_FILE"
+}
+
+configure_adguard() {
+  local user="$1"
+  local password="$2"
+  local selected="$3"
+  local user_json password_json payload
+
+  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+  [ -f /etc/adguardhome.yaml ] && cp /etc/adguardhome.yaml "/etc/adguardhome.yaml.bak.firstboot.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+  rm -f /etc/adguardhome.yaml
+
+  /etc/init.d/adguardhome enable >/dev/null 2>&1 || true
+  /etc/init.d/adguardhome start >/dev/null 2>&1 || true
+  wait_http "http://127.0.0.1:3000/" || fail "AdGuardHome setup UI did not start."
+
+  user_json="$(json_escape "$user")"
+  password_json="$(json_escape "$password")"
+  payload="{\"web\":{\"ip\":\"0.0.0.0\",\"port\":3000},\"dns\":{\"ip\":\"0.0.0.0\",\"port\":5353},\"username\":\"$user_json\",\"password\":\"$password_json\"}"
+  curl -fsS -X POST -H 'Content-Type: application/json' --data "$payload" \
+    http://127.0.0.1:3000/control/install/configure >/tmp/firstboot-adguard-install.log 2>&1 ||
+    fail "AdGuardHome install API failed."
+
+  sleep 2
+  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+  [ -f /etc/adguardhome.yaml ] || fail "AdGuardHome did not write a config."
+  rewrite_adguard_filters "$selected"
+  chmod 600 /etc/adguardhome.yaml
+  AdGuardHome --check-config -c /etc/adguardhome.yaml -w /var/lib/adguardhome >/tmp/firstboot-adguard-check.log 2>&1 ||
+    fail "AdGuardHome config validation failed."
+
+  uci set dhcp.@dnsmasq[0].noresolv="1"
+  uci -q delete dhcp.@dnsmasq[0].server
+  uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#5353"
+  uci commit dhcp
+  /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+  /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+}
+
+write_xray_routes() {
+  mkdir -p /etc/xray
+  [ -f /etc/xray/direct-domains.txt ] || cat > /etc/xray/direct-domains.txt <<'EOF'
+# One Xray domain matcher per line. Blank lines and comments are ignored.
+regexp:^.*\.ru$
+regexp:^.*\.su$
+regexp:^.*\.xn--p1ai$
+gosuslugi.ru
+esia.gosuslugi.ru
+mos.ru
+emias.info
+EOF
+  [ -f /etc/xray/direct-ips.txt ] || cat > /etc/xray/direct-ips.txt <<'EOF'
+# Extra public IPv4/CIDR bypasses, one per line.
+EOF
+}
+
+write_xray_transparent_init() {
+  cat > /etc/init.d/xray-transparent <<'EOF'
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=05
+
+TABLE="xray_transparent"
+XRAY_PORT="12345"
+ROUTER_DNS_PORT="53"
+MARK="0x1"
+ROUTE_TABLE="100"
+FIN0_IP="0.0.0.0"
+
+start() {
+  local bypass
+  nft delete table inet $TABLE 2>/dev/null || true
+  ip rule del fwmark $MARK lookup $ROUTE_TABLE 2>/dev/null || true
+  ip route flush table $ROUTE_TABLE 2>/dev/null || true
+  ip route add local 0.0.0.0/0 dev lo table $ROUTE_TABLE
+  ip rule add fwmark $MARK lookup $ROUTE_TABLE pref 100
+
+  nft add table inet $TABLE
+  nft 'add chain inet xray_transparent dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }'
+  nft 'add chain inet xray_transparent tproxy_prerouting { type filter hook prerouting priority mangle; policy accept; }'
+  nft 'add set inet xray_transparent bypass4 { type ipv4_addr; flags interval; }'
+  nft 'add set inet xray_transparent vpn_ui_device_bypass4 { type ipv4_addr; flags interval; }'
+
+  bypass="{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4"
+  [ "$FIN0_IP" != "0.0.0.0" ] && bypass="$bypass, $FIN0_IP/32"
+  bypass="$bypass }"
+  nft add element inet xray_transparent bypass4 "$bypass"
+
+  nft add rule inet $TABLE dns_prerouting iifname { "br-lan", "tailscale0" } udp dport 53 counter redirect to :$ROUTER_DNS_PORT
+  nft add rule inet $TABLE dns_prerouting iifname { "br-lan", "tailscale0" } tcp dport 53 counter redirect to :$ROUTER_DNS_PORT
+  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } udp dport 53 counter return
+  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } tcp dport 53 counter return
+  nft add rule inet $TABLE tproxy_prerouting iifname "br-lan" ct status dnat counter return
+  nft add rule inet $TABLE tproxy_prerouting ip saddr @vpn_ui_device_bypass4 counter accept
+  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip daddr @bypass4 counter return
+  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol tcp counter tproxy ip to :$XRAY_PORT meta mark set $MARK accept
+  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol udp counter tproxy ip to :$XRAY_PORT meta mark set $MARK accept
+}
+
+stop() {
+  nft delete table inet $TABLE 2>/dev/null || true
+  ip rule del fwmark $MARK lookup $ROUTE_TABLE 2>/dev/null || true
+  ip route flush table $ROUTE_TABLE 2>/dev/null || true
+}
+
+restart() {
+  stop
+  start
+}
+EOF
+  chmod 755 /etc/init.d/xray-transparent
+}
+
+configure_xray_service() {
+  write_xray_routes
+  write_xray_transparent_init
+  uci set xray.enabled="xray"
+  uci set xray.enabled.enabled="1"
+  uci set xray.config="xray"
+  uci set xray.config.conffiles="/etc/xray/exit-st-cf.json"
+  uci set xray.config.datadir="/usr/share/xray"
+  uci set xray.config.format="json"
+  uci -q delete xray.config.confdir
+  uci commit xray
+}
+
+configure_vpn() {
+  local enabled="$1"
+  local vless="$2"
+  local id add_result select_result
+
+  configure_xray_service
+  /usr/sbin/vpn-ui init >/tmp/firstboot-vpn-init.log 2>&1 || true
+
+  if bool_true "$enabled"; then
+    case "$vless" in vless://*) ;; *) fail "A VLESS link is required when VPN is enabled." ;; esac
+    add_result="/tmp/firstboot-vpn-add.json"
+    /usr/sbin/vpn-ui add "$vless" >"$add_result" 2>&1
+    grep -q '"ok":true' "$add_result" || fail "Could not add VLESS profile: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
+    id="$(jsonfilter -i "$add_result" -e '@.profile.id' 2>/dev/null)"
+    [ -n "$id" ] || fail "VPN profile import did not return an ID."
+    /etc/init.d/xray enable >/dev/null 2>&1 || true
+    /etc/init.d/xray-transparent enable >/dev/null 2>&1 || true
+    select_result="/tmp/firstboot-vpn-select.json"
+    /usr/sbin/vpn-ui select "$id" >"$select_result" 2>&1
+    grep -q '"ok":true' "$select_result" || fail "Could not enable the selected VLESS profile: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
+  else
+    /etc/init.d/xray disable >/dev/null 2>&1 || true
+    /etc/init.d/xray-transparent disable >/dev/null 2>&1 || true
+    /etc/init.d/xray stop >/dev/null 2>&1 || true
+    /etc/init.d/xray-transparent stop >/dev/null 2>&1 || true
+  fi
+}
+
+configure_tailscale() {
+  local enabled="$1"
+  local login_server="$2"
+  local auth_key="$3"
+
+  if ! bool_true "$enabled"; then
+    /etc/init.d/tailscale stop >/dev/null 2>&1 || true
+    /etc/init.d/tailscale disable >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  case "$login_server" in https://*) ;; *) fail "Tailscale or Headscale URL must use HTTPS." ;; esac
+  [ -n "$auth_key" ] || fail "Tailscale preauth key is required."
+
+  uci set tailscale.settings="settings"
+  uci set tailscale.settings.log_stderr="1"
+  uci set tailscale.settings.log_stdout="1"
+  uci set tailscale.settings.port="41641"
+  uci set tailscale.settings.state_file="/etc/tailscale/tailscaled.state"
+  uci set tailscale.settings.fw_mode="nftables"
+  uci commit tailscale
+  /etc/init.d/tailscale enable >/dev/null 2>&1 || true
+  /etc/init.d/tailscale restart >/dev/null 2>&1 || /etc/init.d/tailscale start >/dev/null 2>&1 || true
+
+  set -- \
+    "--login-server=$login_server" \
+    "--auth-key=$auth_key" \
+    "--hostname=$HOSTNAME" \
+    "--advertise-exit-node" \
+    "--advertise-routes=$LAN_CIDR" \
+    "--accept-dns=false" \
+    "--netfilter-mode=off"
+  tailscale up "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
+    tailscale up --reset "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
+    fail "tailscale up failed."
+}
+
+apply_setup() {
+  local login password confirm keys vpn_enabled vless selected tailscale_enabled tailscale_url tailscale_key now
+
+  read_body > "$PAYLOAD"
+  login="$(json_get '@.account.login')"
+  password="$(json_get '@.account.password')"
+  confirm="$(json_get '@.account.passwordConfirm')"
+  keys="$(json_get '@.account.authorizedKeys')"
+  vpn_enabled="$(json_get '@.vpn.enabled')"
+  vless="$(json_get '@.vpn.vlessUrl')"
+  selected="$(json_list '@.adguard.selectedFilterIds[*]' | tr '\n' ' ')"
+  tailscale_enabled="$(json_get '@.tailscale.enabled')"
+  tailscale_url="$(json_get '@.tailscale.loginServer')"
+  tailscale_key="$(json_get '@.tailscale.authKey')"
+
+  mkdir -p "$STATE_DIR"
+  configure_account "$login" "$password" "$confirm" "$keys"
+  configure_network
+  configure_adguard "$login" "$password" "$selected"
+  configure_vpn "$vpn_enabled" "$vless"
+  configure_tailscale "$tailscale_enabled" "$tailscale_url" "$tailscale_key"
+
+  touch "$COMPLETE_FILE"
+  /etc/init.d/firewall restart >/dev/null 2>&1 || true
+
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  header_json "200 OK"
+  cat <<EOF
+{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"lanIp":"$LAN_IP","luciUrl":"http://$LAN_IP/cgi-bin/luci/","vpnUrl":"http://$LAN_IP/cgi-bin/luci/admin/network/vpn","adguardUrl":"http://$LAN_IP:3000/"},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set root account and SSH keys","Configure LAN on $LAN_IP","Write AdGuardHome filters","Configure VPN panel and Xray","Configure Tailscale if requested","Mark first-boot setup complete"]}}
+EOF
+}
+
+action="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*action=\([^&]*\).*/\1/p')"
+case "${action:-status}" in
+  status) ok_status ;;
+  bootstrap) bootstrap ;;
+  apply) apply_setup ;;
+  *) fail "Unknown setup action." ;;
+esac
