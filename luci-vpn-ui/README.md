@@ -6,7 +6,8 @@ OpenWrt/Xray router.
 It installs:
 
 - `/usr/sbin/vpn-ui` - authenticated helper used by LuCI.
-- `/www/luci-static/resources/view/network/vpn.js` - LuCI JavaScript view.
+- Versioned VPN and Tailscale LuCI JavaScript views. Versioned paths prevent
+  an already-open browser session from retaining an older panel module.
 - `/usr/share/luci/menu.d/luci-app-vpn-ui.json` - `Network > VPN` menu entry.
 - `/usr/share/rpcd/acl.d/luci-app-vpn-ui.json` - rpcd ACL for the helper.
 
@@ -67,10 +68,10 @@ Both modes are disabled by default.
 
 ## Tailscale
 
-The panel displays the current Tailscale/Headscale login state and can connect,
-stop, restart, or log out. Stopping preserves the current login state. Preauth
-keys are passed directly to `tailscale up`, are not displayed again, and are
-not stored by the panel.
+`Network > Tailscale` is a separate panel. The VPN page also shows Tailscale
+state for convenience. The panel can connect, stop, restart, or log out.
+Stopping preserves the current login state. Preauth keys are passed directly
+to `tailscale up`, are not displayed again, and are not stored by the panel.
 
 ## Updates
 

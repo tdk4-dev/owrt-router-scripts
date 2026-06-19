@@ -46,6 +46,17 @@ Use another SSH target:
 ROUTER_HOST=root@192.168.1.1 ./install-openwrt-vpn-ui.sh
 ```
 
+To install the same VPN and Tailscale panels on a friend's already configured
+OpenWrt router:
+
+```sh
+./install-friend-vpn-panel.sh valera-owrt
+```
+
+The friend installer checks prerequisites, creates and downloads a full
+OpenWrt backup, preserves existing VPN state, installs both
+`Network > VPN Panel` and `Network > Tailscale`, and validates the result.
+
 The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
 but normal installs and updates use bundles.
 
