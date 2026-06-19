@@ -1,12 +1,9 @@
-Router UI 0.7.3
+Router UI 0.7.4
 
-• Fixes the helper dropping the required `0` or `1` argument when enabling or
-  disabling weekly automatic updates.
-• Fixes upgrades from 0.7.0 being rolled back with validation code 19 because
-  the old updater incorrectly required every unchanged LuCI include filename
-  to match the target release version.
-• Keeps link-based update actions and explicit weekly-update opt-in/opt-out,
-  avoiding LuCI native-control disabled state.
-• Keeps automatic browser reload when LuCI restarts during installation.
+• Replaces native Tailscale peer Ping buttons with authenticated action links,
+  preventing LuCI from leaving them inactive through native disabled state.
+• Uses a fresh cache-safe Tailscale module path so already-open browser
+  sessions cannot retain the broken control.
+• Retains the 0.7.3 update validation and automatic-update argument fixes.
 • Retains mandatory verified backups, background jobs, automatic rollback,
-  Tailscale peer ping, and VPN health in Status Overview.
+  browser reload after LuCI restarts, and VPN health in Status Overview.

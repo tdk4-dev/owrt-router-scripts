@@ -160,10 +160,15 @@ return view.extend({
 				]),
 				E('td', { 'class': 'td left' }, this.formatLastSeen(peer.last_seen, peer.online)),
 				E('td', { 'class': 'td right' }, [
-					E('button', {
+					E('a', {
 						'class': 'cbi-button cbi-button-action',
-						'disabled': !peer.ip,
-						'click': L.bind(this.handlePeerPing, this, peer)
+						'href': '#',
+						'aria-disabled': peer.ip ? 'false' : 'true',
+						'click': L.bind(function(ev) {
+							ev.preventDefault();
+							if (peer.ip)
+								return this.handlePeerPing(peer);
+						}, this)
 					}, _('Ping'))
 				])
 			]);

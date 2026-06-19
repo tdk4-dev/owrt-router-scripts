@@ -15,7 +15,7 @@
 		"order": 56,
 		"action": {
 			"type": "view",
-			"path": "network/tailscale-0-7-0"
+			"path": "network/tailscale-0-7-4"
 		},
 		"depends": {
 			"acl": [ "luci-app-vpn-ui" ]

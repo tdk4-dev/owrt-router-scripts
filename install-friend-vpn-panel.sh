@@ -43,14 +43,14 @@ UPDATE_GEOSITE=0 \
 printf '\nValidating VPN and Tailscale panels on %s...\n' "$ROUTER_HOST"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER_HOST" '
   set -eu
-  test "$(cat /usr/share/vpn-ui/version)" = "0.7.3"
+  test "$(cat /usr/share/vpn-ui/version)" = "0.7.4"
   /usr/sbin/vpn-ui check | grep -q "\"ok\":true"
   /usr/sbin/vpn-ui tailscale-status | grep -q "\"tailscale\":"
   grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  grep -q "network/tailscale-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  grep -q "network/tailscale-0-7-4" /usr/share/luci/menu.d/luci-app-vpn-ui.json
   grep -q "system/update-0-7-3" /usr/share/luci/menu.d/luci-app-vpn-ui.json
   test -f /www/luci-static/resources/view/network/vpn-0-7-0.js
-  test -f /www/luci-static/resources/view/network/tailscale-0-7-0.js
+  test -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
   test -f /www/luci-static/resources/view/system/update-0-7-3.js
   test -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 '
