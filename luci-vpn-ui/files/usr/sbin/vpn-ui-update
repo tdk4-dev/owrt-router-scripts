@@ -332,14 +332,13 @@ run_rollback() {
 
 validate_install() {
   local target="$1"
-  local suffix
-  suffix="$(printf '%s' "$target" | sed 's/\./-/g')"
   [ "$(current_version)" = "$target" ] || return 1
   /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
-  grep -q "network/vpn-$suffix" /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  grep -q "system/update-$suffix" /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  [ -f "/www/luci-static/resources/view/status/include/35_vpn-$suffix.js" ] || return 1
+  grep -q '"admin/network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
+  grep -q '"admin/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
+  find /www/luci-static/resources/view/status/include -name '35_vpn-*.js' -type f |
+    grep -q . || return 1
 }
 
 apply_transaction() {

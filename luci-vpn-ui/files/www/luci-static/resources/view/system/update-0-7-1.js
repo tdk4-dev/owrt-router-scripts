@@ -5,8 +5,6 @@
 'require dom';
 
 var helper = '/usr/sbin/vpn-ui';
-var isReadonlyView = !L.hasViewPermission() || null;
-
 var css = '\
 .router-update .update-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; }\
 .router-update .update-subtitle { opacity:.7; max-width:48rem; margin:.25rem 0 0; }\
@@ -71,7 +69,11 @@ return view.extend({
 					}
 					resolve(data);
 				}, this)).catch(L.bind(function(err) {
-					if (failures < 30) {
+					if (kind === 'apply' && failures >= 8) {
+						window.setTimeout(function() { window.location.reload(); }, 2500);
+						return;
+					}
+					if (failures < 150) {
 						this.pollJob(kind, failures + 1).then(resolve, reject);
 						return;
 					}
@@ -100,6 +102,11 @@ return view.extend({
 			}, this))
 			.catch(function(err) {
 				ui.hideModal();
+				if (isInstall) {
+					ui.addNotification(null, E('p', {}, _('LuCI restarted during the update. Reloading this page…')));
+					window.setTimeout(function() { window.location.reload(); }, 2500);
+					return;
+				}
 				ui.addNotification(null, E('p', {}, err.message || err));
 			});
 	},
@@ -150,7 +157,7 @@ return view.extend({
 					}, _('Check again')),
 					E('button', {
 						'class': 'cbi-button cbi-button-positive',
-						'disabled': isReadonlyView || busy || !data.available,
+						'disabled': busy || !data.available,
 						'click': ui.createHandlerFn(this, 'install')
 					}, data.available ? _('Download and install') : _('Up to date'))
 				])
@@ -183,7 +190,7 @@ return view.extend({
 					E('input', {
 						'type': 'checkbox',
 						'checked': !!data.auto_update,
-						'disabled': isReadonlyView || busy,
+						'disabled': busy,
 						'change': L.bind(this.setAutoUpdate, this)
 					}),
 					E('span', {}, [

@@ -172,6 +172,17 @@ fi
   rollback_failed_install
   die "Tailscale panel validation failed"
 }
+UPDATE_VIEW="$(sed -n 's/.*"path":[[:space:]]*"\(system\/update-[^"]*\)".*/\1/p' \
+  /usr/share/luci/menu.d/luci-app-vpn-ui.json | sed -n '1p')"
+[ -n "$UPDATE_VIEW" ] || {
+  rollback_failed_install
+  die "Update menu validation failed"
+}
+UPDATE_FILE="/www/luci-static/resources/view/$UPDATE_VIEW.js"
+[ -f "$UPDATE_FILE" ] && grep -q "update-apply-start" "$UPDATE_FILE" || {
+  rollback_failed_install
+  die "installed release does not contain a callable Update page"
+}
 
 rm -rf "$WORK_DIR"
 printf '\nRouter UI %s installed and validated.\n' "$VERSION"

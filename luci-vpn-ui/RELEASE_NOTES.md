@@ -1,18 +1,13 @@
-Router UI 0.7.0
+Router UI 0.7.1
 
-• Update checks and installations now run as background jobs, so LuCI no
-  longer reports a false XHR timeout while GitHub downloads or services
-  restart.
-• Every installation creates and validates a full OpenWrt sysupgrade backup
-  before changing files. Installer failures and failed post-install checks
-  automatically restore the panel snapshot.
-• The Update page reports each backup, stage, and failure clearly and can
-  optionally install stable releases once a week using the same safeguards.
-• Tailscale peer Ping buttons remain available to authenticated read-only
-  views; the backend still validates that the target is a visible tailnet
-  peer.
-• Status > Overview now includes VPN service health, selected profile,
-  endpoint and server IP, direct-domain rule count, and selected-server ping.
-• A standalone router-terminal installer can install the latest stable
-  release or a pinned release such as 0.6.0 with checksum verification,
-  mandatory backup, validation, and rollback.
+• Fixes Download and install being incorrectly disabled for an authenticated
+  administrator.
+• Fixes the weekly automatic-update checkbox being disabled by the same LuCI
+  view-permission mismatch.
+• When LuCI restarts during installation, the open Update tab now reloads
+  automatically and resumes from the durable update-job state instead of
+  ending with an XHR error.
+• The standalone router-terminal installer now validates that the installed
+  release includes a callable Update page.
+• Retains the 0.7.0 background jobs, mandatory verified backups, automatic
+  rollback, Tailscale peer ping, and VPN health Overview section.
