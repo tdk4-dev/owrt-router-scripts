@@ -30,9 +30,10 @@ jobs:
             install-friend-vpn-panel.sh \
             make-vpn-ui-release-bundle.sh
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn-0-7-0.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale-0-7-4.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale-0-7-5.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update-0-7-3.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
+          node tests/test-tailscale-ping-ui.mjs
 
       - name: Build release bundle
         run: ./make-vpn-ui-release-bundle.sh

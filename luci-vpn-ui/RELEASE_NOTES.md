@@ -1,9 +1,9 @@
-Router UI 0.7.4
+Router UI 0.7.5
 
-• Replaces native Tailscale peer Ping buttons with authenticated action links,
-  preventing LuCI from leaving them inactive through native disabled state.
-• Uses a fresh cache-safe Tailscale module path so already-open browser
-  sessions cannot retain the broken control.
-• Retains the 0.7.3 update validation and automatic-update argument fixes.
+• Tailscale peer Ping now opens an immediate progress modal and replaces it
+  with the reachable/unreachable result, latency, and direct or DERP route.
+• Removes the old result area below the full peer table, which made a
+  successful click appear to do nothing until the user scrolled to the end.
+• Uses a fresh cache-safe Tailscale module path.
 • Retains mandatory verified backups, background jobs, automatic rollback,
   browser reload after LuCI restarts, and VPN health in Status Overview.

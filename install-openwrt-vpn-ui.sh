@@ -228,10 +228,10 @@ verify_install() {
       -e "xray=@.services.xray" \
       -e "transparent=@.services.transparent"
     grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "network/tailscale-0-7-4" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "network/tailscale-0-7-5" /usr/share/luci/menu.d/luci-app-vpn-ui.json
     grep -q "system/update-0-7-3" /usr/share/luci/menu.d/luci-app-vpn-ui.json
     [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ]
-    [ -f /www/luci-static/resources/view/network/tailscale-0-7-4.js ]
+    [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ]
     [ -f /www/luci-static/resources/view/system/update-0-7-3.js ]
     [ -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js ]
   '

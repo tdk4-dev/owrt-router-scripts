@@ -27,6 +27,7 @@ GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/sbin/vpn-ui-update
 /www/luci-static/resources/view/network/vpn-0-7-0.js
+/www/luci-static/resources/view/network/tailscale-0-7-5.js
 /www/luci-static/resources/view/network/tailscale-0-7-4.js
 /www/luci-static/resources/view/network/tailscale-0-7-0.js
 /www/luci-static/resources/view/system/update-0-7-3.js
@@ -121,7 +122,7 @@ fetch_branch_files() {
     usr/sbin/vpn-ui \
     usr/sbin/vpn-ui-update \
     www/luci-static/resources/view/network/vpn-0-7-0.js \
-    www/luci-static/resources/view/network/tailscale-0-7-4.js \
+    www/luci-static/resources/view/network/tailscale-0-7-5.js \
     www/luci-static/resources/view/system/update-0-7-3.js \
     www/luci-static/resources/view/status/include/35_vpn-0-7-0.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
@@ -137,7 +138,7 @@ ensure_source_files() {
   if [ -f "$SRC_DIR/usr/sbin/vpn-ui" ] &&
     [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-7-0.js" ] &&
-    [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-7-4.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-7-5.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update-0-7-3.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
@@ -300,11 +301,12 @@ fi
 copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-7-0.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-7-4.js" /www/luci-static/resources/view/network/tailscale-0-7-4.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-7-5.js" /www/luci-static/resources/view/network/tailscale-0-7-5.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update-0-7-3.js" /www/luci-static/resources/view/system/update-0-7-3.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js" /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js 644
 rm -f /www/luci-static/resources/view/network/vpn-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
+rm -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-0.js
 rm -f /www/luci-static/resources/view/system/update-0-6-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-0.js
@@ -338,7 +340,7 @@ printf '%s\n' "$INIT_OUT" | grep -q '"ok":true' || {
   die "VPN status validation failed after installation"
 grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
   die "LuCI VPN menu validation failed"
-grep -q "network/tailscale-0-7-4" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
+grep -q "network/tailscale-0-7-5" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
   die "LuCI Tailscale menu validation failed"
 grep -q "system/update-0-7-3" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
   die "LuCI Update menu validation failed"

@@ -23,7 +23,6 @@ var css = '\
 .tailscale-ui .ts-peer-online { box-shadow:inset 3px 0 0 #2fb35d; }\
 .tailscale-ui .ts-peer-name { font-weight:700; }\
 .tailscale-ui .ts-peer-sub { display:block; opacity:.68; font-size:.9em; margin-top:.15rem; }\
-.tailscale-ui .ts-ping-result { margin-top:1rem; padding:.8rem; border:1px solid #444; border-radius:.4rem; white-space:pre-wrap; overflow-wrap:anywhere; }\
 ';
 
 function parseResponse(res) {
@@ -103,25 +102,30 @@ return view.extend({
 	},
 
 	handlePeerPing: function(peer) {
-		var result = document.querySelector('#ts-ping-result');
-		if (result) {
-			result.style.display = 'block';
-			result.className = 'ts-ping-result spinning';
-			result.textContent = _('Pinging %s…').format(peer.hostname || peer.ip);
-		}
+		var title = _('Tailscale ping: %s').format(peer.hostname || peer.ip);
+
+		ui.showModal(title, [
+			E('p', { 'class': 'spinning' }, _('Pinging %s…').format(peer.hostname || peer.ip))
+		]);
 
 		return this.callHelper(['tailscale-ping', peer.ip]).then(function(data) {
-			if (!result)
-				return;
-			result.className = 'ts-ping-result';
-			result.textContent = data.reachable
+			var message = data.reachable
 				? _('%s is reachable in %s via %s.').format(peer.hostname || peer.ip, data.latency || '-', data.route || '-')
 				: _('%s did not respond.\n%s').format(peer.hostname || peer.ip, data.output || '');
+
+			ui.showModal(title, [
+				E('p', { 'style': 'white-space:pre-wrap; overflow-wrap:anywhere' }, message),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+				])
+			]);
 		}).catch(function(err) {
-			if (!result)
-				return;
-			result.className = 'ts-ping-result';
-			result.textContent = err.message || err;
+			ui.showModal(title, [
+				E('p', {}, err.message || err),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+				])
+			]);
 		});
 	},
 
@@ -194,8 +198,7 @@ return view.extend({
 						E('td', { 'class': 'td', 'colspan': '7' }, _('No tailnet peers are visible.'))
 					])
 				]))
-			]),
-			E('div', { 'id': 'ts-ping-result', 'class': 'ts-ping-result', 'style': 'display:none' })
+			])
 		]);
 	},
 
