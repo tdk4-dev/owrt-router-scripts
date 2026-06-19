@@ -26,7 +26,19 @@ die_json() {
 download_file() {
   local url="$1"
   local dst="$2"
-  curl -fsSL --proto '=https' --connect-timeout 10 --max-time 120 "$url" -o "$dst"
+  local attempt=1
+
+  while [ "$attempt" -le 3 ]; do
+    if curl -4 -fsSL --proto '=https' --connect-timeout 15 --max-time 120 \
+      "$url" -o "$dst"; then
+      return 0
+    fi
+    rm -f "$dst"
+    sleep $((attempt * 2))
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 current_version() {

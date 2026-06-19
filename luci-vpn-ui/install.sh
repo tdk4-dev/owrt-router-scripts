@@ -19,8 +19,8 @@ GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 
 TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/sbin/vpn-ui-update
-/www/luci-static/resources/view/network/vpn-0-5-1.js
-/www/luci-static/resources/view/network/tailscale-0-5-1.js
+/www/luci-static/resources/view/network/vpn-0-5-2.js
+/www/luci-static/resources/view/network/tailscale-0-5-2.js
 /usr/share/luci/menu.d/luci-app-vpn-ui.json
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
 /usr/share/vpn-ui/version
@@ -90,8 +90,8 @@ fetch_branch_files() {
   for path in \
     usr/sbin/vpn-ui \
     usr/sbin/vpn-ui-update \
-    www/luci-static/resources/view/network/vpn-0-5-1.js \
-    www/luci-static/resources/view/network/tailscale-0-5-1.js \
+    www/luci-static/resources/view/network/vpn-0-5-2.js \
+    www/luci-static/resources/view/network/tailscale-0-5-2.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
     usr/share/vpn-ui/version
@@ -104,8 +104,8 @@ fetch_branch_files() {
 ensure_source_files() {
   if [ -f "$SRC_DIR/usr/sbin/vpn-ui" ] &&
     [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
-    [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-5-1.js" ] &&
-    [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-5-1.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-5-2.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-5-2.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/vpn-ui/version" ]; then
@@ -212,8 +212,8 @@ chmod 700 "$LATEST_ROLLBACK"
 
 copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
-copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-5-1.js" /www/luci-static/resources/view/network/vpn-0-5-1.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-5-1.js" /www/luci-static/resources/view/network/tailscale-0-5-1.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn-0-5-2.js" /www/luci-static/resources/view/network/vpn-0-5-2.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale-0-5-2.js" /www/luci-static/resources/view/network/tailscale-0-5-2.js 644
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
