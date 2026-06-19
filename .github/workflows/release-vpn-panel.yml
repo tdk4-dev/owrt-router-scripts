@@ -31,5 +31,7 @@ jobs:
             dist/luci-vpn-ui.tar.gz \
             dist/luci-vpn-ui.tar.gz.sha256 \
             dist/vpn-ui-version.txt \
-            --title "VPN Panel ${version}" \
-            --notes "OpenWrt LuCI VPN panel ${version} release bundle."
+            dist/vpn-ui-changelog.txt \
+            dist/vpn-ui-release-date.txt \
+            --title "Router UI ${version}" \
+            --notes-file luci-vpn-ui/RELEASE_NOTES.md

@@ -43,14 +43,16 @@ UPDATE_GEOSITE=0 \
 printf '\nValidating VPN and Tailscale panels on %s...\n' "$ROUTER_HOST"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER_HOST" '
   set -eu
-  test "$(cat /usr/share/vpn-ui/version)" = "0.5.2"
+  test "$(cat /usr/share/vpn-ui/version)" = "0.6.0"
   /usr/sbin/vpn-ui check | grep -q "\"ok\":true"
-  /usr/sbin/vpn-ui status | grep -q "\"tailscale\":"
-  grep -q "network/vpn-0-5-2" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  grep -q "network/tailscale-0-5-2" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  test -f /www/luci-static/resources/view/network/vpn-0-5-2.js
-  test -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
+  /usr/sbin/vpn-ui tailscale-status | grep -q "\"tailscale\":"
+  grep -q "network/vpn-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  grep -q "network/tailscale-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  grep -q "system/update-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  test -f /www/luci-static/resources/view/network/vpn-0-6-0.js
+  test -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
+  test -f /www/luci-static/resources/view/system/update-0-6-0.js
 '
 
 printf '\nFriend router panel installation completed.\n'
-printf 'Open LuCI, then use Network > VPN Panel and Network > Tailscale.\n'
+printf 'Open LuCI, then use VPN Panel, Tailscale, and the top-level Update menu.\n'

@@ -7,9 +7,13 @@ VERSION_FILE="/usr/share/vpn-ui/version"
 BUNDLE_NAME="luci-vpn-ui.tar.gz"
 CHECKSUM_NAME="$BUNDLE_NAME.sha256"
 REMOTE_VERSION_NAME="vpn-ui-version.txt"
+REMOTE_CHANGELOG_NAME="vpn-ui-changelog.txt"
+REMOTE_RELEASE_DATE_NAME="vpn-ui-release-date.txt"
 
 json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
+  printf '%s' "$1" |
+    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' |
+    awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
 }
 
 json_string() {
@@ -46,17 +50,30 @@ current_version() {
 }
 
 check_update() {
-  local current remote tmp="/tmp/vpn-ui-version.$$"
+  local current remote changelog released_at
+  local tmp="/tmp/vpn-ui-version.$$"
+  local changelog_tmp="/tmp/vpn-ui-changelog.$$"
+  local date_tmp="/tmp/vpn-ui-release-date.$$"
   current="$(current_version)"
   download_file "$RELEASE_BASE/$REMOTE_VERSION_NAME" "$tmp" ||
-    die_json "could not check the latest VPN panel release"
+    die_json "could not check the latest router software release"
+  download_file "$RELEASE_BASE/$REMOTE_CHANGELOG_NAME" "$changelog_tmp" ||
+    die_json "could not download the release changelog"
+  download_file "$RELEASE_BASE/$REMOTE_RELEASE_DATE_NAME" "$date_tmp" ||
+    die_json "could not download the release date"
   remote="$(sed -n '1p' "$tmp" | tr -d '\r\n')"
-  rm -f "$tmp"
+  changelog="$(cat "$changelog_tmp")"
+  released_at="$(sed -n '1p' "$date_tmp" | tr -d '\r\n')"
+  rm -f "$tmp" "$changelog_tmp" "$date_tmp"
   [ -n "$remote" ] || die_json "release version file is empty"
   printf '{"ok":true,"current":'
   json_string "$current"
   printf ',"latest":'
   json_string "$remote"
+  printf ',"released_at":'
+  json_string "$released_at"
+  printf ',"changelog":'
+  json_string "$changelog"
   printf ',"available":%s}\n' "$([ "$current" != "$remote" ] && printf true || printf false)"
 }
 
@@ -78,19 +95,19 @@ apply_update() {
   checksum="$tmpdir/$CHECKSUM_NAME"
 
   download_file "$RELEASE_BASE/$BUNDLE_NAME" "$archive" ||
-    die_json "could not download the VPN panel release bundle"
+    die_json "could not download the router software release bundle"
   download_file "$RELEASE_BASE/$CHECKSUM_NAME" "$checksum" ||
-    die_json "could not download the VPN panel checksum"
+    die_json "could not download the router software checksum"
 
   expected="$(awk '{ print $1 }' "$checksum" | sed -n '1p')"
   actual="$(sha256sum "$archive" | awk '{ print $1 }')"
   [ -n "$expected" ] && [ "$expected" = "$actual" ] || {
     rm -rf "$tmpdir"
-    die_json "VPN panel release checksum verification failed"
+    die_json "router software release checksum verification failed"
   }
   validate_archive_paths "$archive" || {
     rm -rf "$tmpdir"
-    die_json "VPN panel release contains unsafe archive paths"
+    die_json "router software release contains unsafe archive paths"
   }
 
   tar -xzf "$archive" -C "$tmpdir" || {
@@ -105,7 +122,7 @@ apply_update() {
 
   INSTALL_GEOSITE=1 UPDATE_GEOSITE=0 sh "$installer" >/tmp/vpn-ui-self-update.log 2>&1 || {
     rm -rf "$tmpdir"
-    die_json "VPN panel update failed: $(tail -n 8 /tmp/vpn-ui-self-update.log 2>/dev/null | tr '\n' ' ')"
+    die_json "router software update failed: $(tail -n 8 /tmp/vpn-ui-self-update.log 2>/dev/null | tr '\n' ' ')"
   }
   rm -rf "$tmpdir"
   version="$(current_version)"

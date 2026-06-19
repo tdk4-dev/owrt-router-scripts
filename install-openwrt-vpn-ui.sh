@@ -227,10 +227,12 @@ verify_install() {
       -e "selected=@.selected" \
       -e "xray=@.services.xray" \
       -e "transparent=@.services.transparent"
-    grep -q "network/vpn-0-5-2" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "network/tailscale-0-5-2" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    [ -f /www/luci-static/resources/view/network/vpn-0-5-2.js ]
-    [ -f /www/luci-static/resources/view/network/tailscale-0-5-2.js ]
+    grep -q "network/vpn-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "network/tailscale-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "system/update-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    [ -f /www/luci-static/resources/view/network/vpn-0-6-0.js ]
+    [ -f /www/luci-static/resources/view/network/tailscale-0-6-0.js ]
+    [ -f /www/luci-static/resources/view/system/update-0-6-0.js ]
   '
 
   lan_ip="$(ssh_router 'uci -q get network.lan.ipaddr 2>/dev/null || printf "%s" "10.20.0.1"')"
@@ -239,6 +241,8 @@ verify_install() {
   printf '  http://%s/cgi-bin/luci/admin/network/vpn\n' "$lan_ip"
   printf 'Tailscale panel URL:\n'
   printf '  http://%s/cgi-bin/luci/admin/network/tailscale\n' "$lan_ip"
+  printf 'Router update URL:\n'
+  printf '  http://%s/cgi-bin/luci/admin/update\n' "$lan_ip"
   printf '\nUI rollback command:\n'
   printf "  ssh %s 'sh /root/rollback-vpn-ui.sh'\n" "$ROUTER_HOST"
 }

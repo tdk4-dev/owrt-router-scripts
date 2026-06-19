@@ -185,78 +185,6 @@ return view.extend({
 		], _('Saving automatic switching settings'));
 	},
 
-	handleTailscaleApply: function() {
-		var server = document.querySelector('#vpn-tailscale-server');
-		var hostname = document.querySelector('#vpn-tailscale-hostname');
-		var key = document.querySelector('#vpn-tailscale-key');
-		var routes = document.querySelector('#vpn-tailscale-routes');
-		var exitNode = document.querySelector('#vpn-tailscale-exit');
-
-		return this.runAction([
-			'tailscale-up',
-			server ? server.value.trim() : '',
-			hostname ? hostname.value.trim() : '',
-			key ? key.value.trim() : '',
-			routes ? routes.value.trim() : '',
-			exitNode && exitNode.checked ? '1' : '0'
-		], _('Applying Tailscale settings'));
-	},
-
-	handleTailscaleRestart: function() {
-		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'));
-	},
-
-	handleTailscaleStop: function() {
-		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'));
-	},
-
-	handleTailscaleLogout: function() {
-		if (!confirm(_('Log this router out of its current tailnet?')))
-			return;
-		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'));
-	},
-
-	handleUpdateCheck: function() {
-		ui.showModal(_('Checking for updates'), [
-			E('p', { 'class': 'spinning' }, _('Contacting the release server...'))
-		]);
-		return this.callHelper(['update-check']).then(function(data) {
-			ui.hideModal();
-			ui.showModal(_('VPN panel update'), [
-				E('p', {}, data.available
-					? _('Version %s is available. Installed: %s.').format(data.latest, data.current)
-					: _('The VPN panel is up to date (%s).').format(data.current)),
-				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close')),
-					data.available ? ' ' : '',
-					data.available ? E('button', {
-						'class': 'btn cbi-button-positive',
-						'disabled': isReadonlyView,
-						'click': L.bind(this.handleUpdateApply, this)
-					}, _('Install update')) : ''
-				])
-			]);
-		}.bind(this)).catch(function(err) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', {}, err.message || err));
-		});
-	},
-
-	handleUpdateApply: function() {
-		ui.hideModal();
-		ui.showModal(_('Installing VPN panel update'), [
-			E('p', { 'class': 'spinning' }, _('Downloading, verifying, and installing the release bundle...'))
-		]);
-		return this.callHelper(['update-apply']).then(function(data) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', {}, _('VPN panel updated to %s. Reloading...').format(data.current || '-')));
-			window.setTimeout(function() { window.location.reload(); }, 1200);
-		}).catch(function(err) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', {}, err.message || err));
-		});
-	},
-
 	handleSelect: function(id, ev) {
 		if (ev)
 			ev.preventDefault();
@@ -791,105 +719,6 @@ return view.extend({
 		]);
 	},
 
-	renderTailscale: function(data) {
-		var tailscale = data.tailscale || {};
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Tailscale / Headscale')),
-			E('div', { 'class': 'vpn-service-row' }, [
-				E('span', { 'class': 'label ' + (tailscale.connected ? 'notice' : 'warning') }, tailscale.connected ? _('Connected') : _('Disconnected')),
-				E('span', { 'class': 'label' }, 'IP: %s'.format(tailscale.ip || '-')),
-				E('span', { 'class': 'label' }, 'Control: %s'.format(tailscale.control_url || '-'))
-			]),
-			E('div', { 'class': 'vpn-settings-grid' }, [
-				E('div', { 'class': 'vpn-setting' }, [
-					E('label', { 'for': 'vpn-tailscale-server' }, _('Login server')),
-					E('input', {
-						'id': 'vpn-tailscale-server',
-						'type': 'text',
-						'value': tailscale.control_url || 'https://login.tailscale.com',
-						'disabled': isReadonlyView
-					})
-				]),
-				E('div', { 'class': 'vpn-setting' }, [
-					E('label', { 'for': 'vpn-tailscale-hostname' }, _('Node hostname')),
-					E('input', {
-						'id': 'vpn-tailscale-hostname',
-						'type': 'text',
-						'value': tailscale.hostname || '',
-						'disabled': isReadonlyView
-					})
-				]),
-				E('div', { 'class': 'vpn-setting' }, [
-					E('label', { 'for': 'vpn-tailscale-key' }, _('Preauth key')),
-					E('input', {
-						'id': 'vpn-tailscale-key',
-						'type': 'password',
-						'autocomplete': 'off',
-						'placeholder': tailscale.connected ? _('Optional while connected') : _('Required for first login'),
-						'disabled': isReadonlyView
-					})
-				]),
-				E('div', { 'class': 'vpn-setting' }, [
-					E('label', { 'for': 'vpn-tailscale-routes' }, _('Advertise routes')),
-					E('input', {
-						'id': 'vpn-tailscale-routes',
-						'type': 'text',
-						'placeholder': '10.77.0.0/24',
-						'disabled': isReadonlyView
-					})
-				]),
-				E('label', { 'class': 'vpn-check-row' }, [
-					E('input', {
-						'id': 'vpn-tailscale-exit',
-						'type': 'checkbox',
-						'disabled': isReadonlyView
-					}),
-					_('Advertise this router as an exit node')
-				])
-			]),
-			E('div', { 'class': 'vpn-actions' }, [
-				E('button', {
-					'class': 'cbi-button cbi-button-neutral',
-					'disabled': isReadonlyView,
-					'click': ui.createHandlerFn(this, 'handleTailscaleRestart')
-				}, _('Restart')),
-				E('button', {
-					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.running,
-					'click': ui.createHandlerFn(this, 'handleTailscaleStop')
-				}, _('Stop service')),
-				E('button', {
-					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.connected,
-					'click': ui.createHandlerFn(this, 'handleTailscaleLogout')
-				}, _('Log out')),
-				E('button', {
-					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView,
-					'click': ui.createHandlerFn(this, 'handleTailscaleApply')
-				}, _('Apply / connect'))
-			])
-		]);
-	},
-
-	renderUpdate: function(data) {
-		var update = data.update || {};
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Panel update')),
-			E('div', { 'class': 'vpn-global-row' }, [
-				E('div', { 'class': 'vpn-global-state' }, [
-					E('span', { 'class': 'label' }, _('Installed version: %s').format(update.current || 'development')),
-					E('span', { 'class': 'vpn-muted' }, _('Updates are downloaded as one release bundle and verified with SHA-256 before installation.'))
-				]),
-				E('button', {
-					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView,
-					'click': ui.createHandlerFn(this, 'handleUpdateCheck')
-				}, _('Check for updates'))
-			])
-		]);
-	},
-
 	renderRules: function(data) {
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
@@ -985,11 +814,9 @@ return view.extend({
 	renderBody: function(data) {
 		return [
 			this.renderGlobal(data),
-			this.renderUpdate(data),
 			this.renderSubscriptions(data),
 			this.renderProfiles(data),
 			this.renderAutoSwitch(data),
-			this.renderTailscale(data),
 			this.renderRules(data),
 			this.renderDevices(data)
 		];

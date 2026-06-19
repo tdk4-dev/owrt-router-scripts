@@ -55,7 +55,8 @@ OpenWrt router:
 
 The friend installer checks prerequisites, creates and downloads a full
 OpenWrt backup, preserves existing VPN state, installs both
-`Network > VPN Panel` and `Network > Tailscale`, and validates the result.
+`Network > VPN Panel` and `Network > Tailscale`, adds a top-level `Update`
+menu, and validates the result.
 
 The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
 but normal installs and updates use bundles.

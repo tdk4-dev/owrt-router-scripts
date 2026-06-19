@@ -15,6 +15,15 @@ var css = '\
 .tailscale-ui .ts-check { display:flex; gap:.5rem; align-items:center; min-height:2.2rem; }\
 .tailscale-ui .ts-actions { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }\
 .tailscale-ui .ts-note { opacity:.72; margin:.5rem 0 1rem; }\
+.tailscale-ui .ts-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; margin:1rem 0; }\
+.tailscale-ui .ts-summary-card { border:1px solid #444; border-radius:.5rem; padding:.85rem; background:rgba(255,255,255,.025); }\
+.tailscale-ui .ts-summary-label { display:block; opacity:.65; font-size:.85em; margin-bottom:.25rem; }\
+.tailscale-ui .ts-summary-value { font-size:1.05em; font-weight:700; overflow-wrap:anywhere; }\
+.tailscale-ui .ts-table-wrap { overflow-x:auto; }\
+.tailscale-ui .ts-peer-online { box-shadow:inset 3px 0 0 #2fb35d; }\
+.tailscale-ui .ts-peer-name { font-weight:700; }\
+.tailscale-ui .ts-peer-sub { display:block; opacity:.68; font-size:.9em; margin-top:.15rem; }\
+.tailscale-ui .ts-ping-result { margin-top:1rem; padding:.8rem; border:1px solid #444; border-radius:.4rem; white-space:pre-wrap; overflow-wrap:anywhere; }\
 ';
 
 function parseResponse(res) {
@@ -39,7 +48,7 @@ return view.extend({
 	},
 
 	load: function() {
-		return this.callHelper(['status']);
+		return this.callHelper(['tailscale-status']);
 	},
 
 	refresh: function(data) {
@@ -93,16 +102,127 @@ return view.extend({
 		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'));
 	},
 
+	handlePeerPing: function(peer) {
+		var result = document.querySelector('#ts-ping-result');
+		if (result) {
+			result.style.display = 'block';
+			result.className = 'ts-ping-result spinning';
+			result.textContent = _('Pinging %s…').format(peer.hostname || peer.ip);
+		}
+
+		return this.callHelper(['tailscale-ping', peer.ip]).then(function(data) {
+			if (!result)
+				return;
+			result.className = 'ts-ping-result';
+			result.textContent = data.reachable
+				? _('%s is reachable in %s via %s.').format(peer.hostname || peer.ip, data.latency || '-', data.route || '-')
+				: _('%s did not respond.\n%s').format(peer.hostname || peer.ip, data.output || '');
+		}).catch(function(err) {
+			if (!result)
+				return;
+			result.className = 'ts-ping-result';
+			result.textContent = err.message || err;
+		});
+	},
+
+	formatLastSeen: function(value, online) {
+		if (online)
+			return _('Now');
+		if (!value)
+			return _('Unknown');
+		return value.replace('T', ' ').replace(/(\.[0-9]+)?Z$/, ' UTC');
+	},
+
+	renderPeers: function(tailscale) {
+		var peers = (tailscale.peers || []).slice().sort(function(a, b) {
+			if (!!a.online !== !!b.online)
+				return a.online ? -1 : 1;
+			return (a.hostname || a.ip).localeCompare(b.hostname || b.ip);
+		});
+		var rows = peers.map(function(peer) {
+			var route = peer.direct_address || (peer.relay ? 'DERP: ' + peer.relay : '-');
+
+			return E('tr', { 'class': 'tr' + (peer.online ? ' ts-peer-online' : '') }, [
+				E('td', { 'class': 'td left' }, [
+					E('span', { 'class': 'ts-peer-name' }, peer.hostname || peer.dns_name || peer.ip),
+					E('span', { 'class': 'ts-peer-sub' }, peer.dns_name && peer.dns_name !== peer.hostname ? peer.dns_name : peer.os || '-')
+				]),
+				E('td', { 'class': 'td left' }, peer.ip || '-'),
+				E('td', { 'class': 'td left' }, [
+					E('span', { 'class': 'label ' + (peer.online ? 'notice' : '') }, peer.online ? _('Online') : _('Offline')),
+					peer.active ? ' ' : '',
+					peer.active ? E('span', { 'class': 'label notice' }, _('Active')) : ''
+				]),
+				E('td', { 'class': 'td left' }, route),
+				E('td', { 'class': 'td left' }, [
+					peer.exit_node ? E('span', { 'class': 'label notice' }, _('Selected exit')) :
+						(peer.exit_node_option ? E('span', { 'class': 'label' }, _('Exit node')) : '-')
+				]),
+				E('td', { 'class': 'td left' }, this.formatLastSeen(peer.last_seen, peer.online)),
+				E('td', { 'class': 'td right' }, [
+					E('button', {
+						'class': 'cbi-button cbi-button-action',
+						'disabled': isReadonlyView || !peer.ip,
+						'click': L.bind(this.handlePeerPing, this, peer)
+					}, _('Ping'))
+				])
+			]);
+		}, this);
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Tailnet devices')),
+			E('p', { 'class': 'ts-note' }, _('%d devices visible, %d online. Ping uses the Tailscale data path and reports direct or DERP routing.')
+				.format(peers.length, peers.filter(function(peer) { return peer.online; }).length)),
+			E('div', { 'class': 'ts-table-wrap' }, [
+				E('table', { 'class': 'table' }, [
+					E('tr', { 'class': 'tr table-titles' }, [
+						E('th', { 'class': 'th left' }, _('Device')),
+						E('th', { 'class': 'th left' }, _('Tailscale IP')),
+						E('th', { 'class': 'th left' }, _('Status')),
+						E('th', { 'class': 'th left' }, _('Path')),
+						E('th', { 'class': 'th left' }, _('Routing')),
+						E('th', { 'class': 'th left' }, _('Last seen')),
+						E('th', { 'class': 'th right' }, '')
+					])
+				].concat(rows.length ? rows : [
+					E('tr', { 'class': 'tr placeholder' }, [
+						E('td', { 'class': 'td', 'colspan': '7' }, _('No tailnet peers are visible.'))
+					])
+				]))
+			]),
+			E('div', { 'id': 'ts-ping-result', 'class': 'ts-ping-result', 'style': 'display:none' })
+		]);
+	},
+
 	renderBody: function(data) {
 		var tailscale = data.tailscale || {};
 
-		return E('div', { 'class': 'cbi-section' }, [
+		return [
+		E('div', { 'class': 'cbi-section' }, [
 			E('div', { 'class': 'ts-state' }, [
 				E('span', { 'class': 'label ' + (tailscale.connected ? 'notice' : 'warning') },
 					tailscale.connected ? _('Connected') : _('Disconnected')),
 				E('span', { 'class': 'label' }, _('Service: %s').format(tailscale.running ? _('running') : _('stopped'))),
 				E('span', { 'class': 'label' }, 'IP: %s'.format(tailscale.ip || '-')),
 				E('span', { 'class': 'label' }, 'Control: %s'.format(tailscale.control_url || '-'))
+			]),
+			E('div', { 'class': 'ts-summary' }, [
+				E('div', { 'class': 'ts-summary-card' }, [
+					E('span', { 'class': 'ts-summary-label' }, _('Tailnet')),
+					E('span', { 'class': 'ts-summary-value' }, tailscale.tailnet || '-')
+				]),
+				E('div', { 'class': 'ts-summary-card' }, [
+					E('span', { 'class': 'ts-summary-label' }, _('Tailscale version')),
+					E('span', { 'class': 'ts-summary-value' }, tailscale.version || '-')
+				]),
+				E('div', { 'class': 'ts-summary-card' }, [
+					E('span', { 'class': 'ts-summary-label' }, _('Visible devices')),
+					E('span', { 'class': 'ts-summary-value' }, String((tailscale.peers || []).length))
+				]),
+				E('div', { 'class': 'ts-summary-card' }, [
+					E('span', { 'class': 'ts-summary-label' }, _('Online devices')),
+					E('span', { 'class': 'ts-summary-value' }, String((tailscale.peers || []).filter(function(peer) { return peer.online; }).length))
+				])
 			]),
 			E('p', { 'class': 'ts-note' }, _('Preauth keys are passed directly to Tailscale and are not stored by this panel.')),
 			E('div', { 'class': 'ts-grid' }, [
@@ -174,7 +294,9 @@ return view.extend({
 					'click': ui.createHandlerFn(this, 'handleApply')
 				}, _('Apply / connect'))
 			])
-		]);
+		]),
+		this.renderPeers(tailscale)
+		];
 	},
 
 	render: function(data) {

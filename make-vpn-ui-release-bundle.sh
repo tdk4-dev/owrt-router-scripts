@@ -31,6 +31,8 @@ else
     awk '{ print $1 "  luci-vpn-ui.tar.gz" }' > "$OUT_DIR/luci-vpn-ui.tar.gz.sha256"
 fi
 printf '%s\n' "$VERSION" > "$OUT_DIR/vpn-ui-version.txt"
+cp "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md" "$OUT_DIR/vpn-ui-changelog.txt"
+date -u '+%B %d, %Y' > "$OUT_DIR/vpn-ui-release-date.txt"
 
 printf 'Release bundle: %s\n' "$OUT_DIR/luci-vpn-ui.tar.gz"
 printf 'Version: %s\n' "$VERSION"

@@ -1,14 +1,15 @@
 # LuCI VPN Panel
 
-This directory contains a small LuCI panel for an already configured
-OpenWrt/Xray router.
+This directory contains a LuCI management suite for an already configured
+OpenWrt/Xray/Tailscale router.
 
 It installs:
 
 - `/usr/sbin/vpn-ui` - authenticated helper used by LuCI.
-- Versioned VPN and Tailscale LuCI JavaScript views. Versioned paths prevent
-  an already-open browser session from retaining an older panel module.
-- `/usr/share/luci/menu.d/luci-app-vpn-ui.json` - `Network > VPN` menu entry.
+- Versioned VPN, Tailscale, and Update LuCI JavaScript views. Versioned paths
+  prevent an already-open browser session from retaining an older module.
+- `/usr/share/luci/menu.d/luci-app-vpn-ui.json` - VPN, Tailscale, and
+  top-level Update menu entries.
 - `/usr/share/rpcd/acl.d/luci-app-vpn-ui.json` - rpcd ACL for the helper.
 
 The panel imports the current `/etc/xray/exit-st-cf.json` VLESS Reality TCP
@@ -68,20 +69,25 @@ Both modes are disabled by default.
 
 ## Tailscale
 
-`Network > Tailscale` is a separate panel. The VPN page also shows Tailscale
-state for convenience. The panel can connect, stop, restart, or log out.
-Stopping preserves the current login state. Preauth keys are passed directly
-to `tailscale up`, are not displayed again, and are not stored by the panel.
+`Network > Tailscale` is a dedicated panel; Tailscale controls no longer
+appear in the VPN panel. It can connect, stop, restart, or log out and lists
+all peers visible through `tailscale status --json`, including online state,
+path, exit-node capability, and last-seen time. Each peer has an authenticated
+Tailscale-layer ping action. Stopping preserves the current login state.
+Preauth keys are passed directly to `tailscale up`, are not displayed again,
+and are not stored by the panel.
 
 ## Updates
 
-The Update button downloads one versioned release bundle, verifies its
-SHA-256, rejects unsafe archive paths, and runs the regular transactional
-installer. The installer still creates `/root/rollback-vpn-ui.sh`.
+The top-level `Update` menu shows the installed version, latest release,
+release date, status, and changelog. It downloads one versioned release
+bundle, verifies its SHA-256, rejects unsafe archive paths, and runs the
+regular transactional installer. The installer still creates
+`/root/rollback-vpn-ui.sh`.
 
 Publishing a tag matching `vpn-panel-v<VERSION>` runs the repository release
-workflow and attaches the bundle, checksum, and version file required by the
-updater.
+workflow and attaches the bundle, checksum, version, release date, and
+changelog files required by the updater.
 
 ## Install to a Running Router
 
