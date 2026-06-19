@@ -121,17 +121,13 @@ return view.extend({
 		return this.startJob('apply');
 	},
 
-	setAutoUpdate: function(ev) {
-		var enabled = ev.target.checked;
-		ev.target.disabled = true;
+	setAutoUpdate: function(enabled) {
 		return this.callHelper(['update-auto', enabled ? '1' : '0']).then(L.bind(function(data) {
 			this.updateView(data);
 			ui.addNotification(null, E('p', {}, enabled
 				? _('Weekly automatic updates enabled.')
 				: _('Weekly automatic updates disabled.')));
 		}, this)).catch(L.bind(function(err) {
-			ev.target.disabled = false;
-			ev.target.checked = !enabled;
 			ui.addNotification(null, E('p', {}, err.message || err));
 		}, this));
 	},
@@ -150,15 +146,25 @@ return view.extend({
 					E('p', { 'class': 'update-subtitle' }, _('Updates are checksum-verified, backed up before installation, validated afterward, and automatically rolled back if installation or validation fails.'))
 				]),
 				E('div', { 'class': 'update-actions' }, [
-					E('button', {
+					E('a', {
 						'class': 'cbi-button cbi-button-action',
-						'disabled': busy,
-						'click': ui.createHandlerFn(this, 'refresh')
+						'href': '#',
+						'aria-disabled': busy ? 'true' : 'false',
+						'click': L.bind(function(ev) {
+							ev.preventDefault();
+							if (!busy)
+								return this.refresh();
+						}, this)
 					}, _('Check again')),
-					E('button', {
+					E('a', {
 						'class': 'cbi-button cbi-button-positive',
-						'disabled': busy || !data.available,
-						'click': ui.createHandlerFn(this, 'install')
+						'href': '#',
+						'aria-disabled': busy || !data.available ? 'true' : 'false',
+						'click': L.bind(function(ev) {
+							ev.preventDefault();
+							if (!busy && data.available)
+								return this.install();
+						}, this)
 					}, data.available ? _('Download and install') : _('Up to date'))
 				])
 			]),
@@ -186,15 +192,19 @@ return view.extend({
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Automatic updates')),
-				E('label', { 'class': 'update-setting' }, [
-					E('input', {
-						'type': 'checkbox',
-						'checked': !!data.auto_update,
-						'disabled': busy,
-						'change': L.bind(this.setAutoUpdate, this)
-					}),
+				E('div', { 'class': 'update-setting' }, [
+					E('a', {
+						'class': 'cbi-button ' + (data.auto_update ? 'cbi-button-positive' : 'cbi-button-neutral'),
+						'href': '#',
+						'aria-disabled': busy ? 'true' : 'false',
+						'click': L.bind(function(ev) {
+							ev.preventDefault();
+							if (!busy)
+								return this.setAutoUpdate(!data.auto_update);
+						}, this)
+					}, data.auto_update ? _('Weekly updates enabled') : _('Enable weekly updates')),
 					E('span', {}, [
-						E('strong', {}, _('Install stable releases once a week')),
+						E('strong', {}, data.auto_update ? _('Stable releases install once a week') : _('Automatic installation is disabled')),
 						E('br'),
 						E('span', {}, _('Schedule: %s. The same backup, validation, and rollback protections are used.').format(data.auto_schedule || _('Sunday 04:17')))
 					])
