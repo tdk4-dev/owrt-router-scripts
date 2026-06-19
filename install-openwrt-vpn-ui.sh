@@ -227,12 +227,13 @@ verify_install() {
       -e "selected=@.selected" \
       -e "xray=@.services.xray" \
       -e "transparent=@.services.transparent"
-    grep -q "network/vpn-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "network/tailscale-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "system/update-0-6-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    [ -f /www/luci-static/resources/view/network/vpn-0-6-0.js ]
-    [ -f /www/luci-static/resources/view/network/tailscale-0-6-0.js ]
-    [ -f /www/luci-static/resources/view/system/update-0-6-0.js ]
+    grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "network/tailscale-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "system/update-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ]
+    [ -f /www/luci-static/resources/view/network/tailscale-0-7-0.js ]
+    [ -f /www/luci-static/resources/view/system/update-0-7-0.js ]
+    [ -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js ]
   '
 
   lan_ip="$(ssh_router 'uci -q get network.lan.ipaddr 2>/dev/null || printf "%s" "10.20.0.1"')"

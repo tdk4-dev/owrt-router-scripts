@@ -80,14 +80,25 @@ and are not stored by the panel.
 ## Updates
 
 The top-level `Update` menu shows the installed version, latest release,
-release date, status, and changelog. It downloads one versioned release
-bundle, verifies its SHA-256, rejects unsafe archive paths, and runs the
-regular transactional installer. The installer still creates
-`/root/rollback-vpn-ui.sh`.
+release date, status, changelog, and update job progress. Checks and
+installations run in the background so LuCI requests do not time out while
+GitHub downloads or service restarts are in progress.
+
+Before any update changes files, the updater creates a full
+`sysupgrade -b` archive under `/root/router-ui-backups/`, verifies that it can
+be read, and stores its SHA-256. The release bundle is then checksum-verified,
+checked for unsafe paths, installed transactionally, and validated. Any
+installer or post-install validation failure automatically runs the exact
+panel rollback created for that attempt.
+
+Weekly automatic stable updates are optional and disabled by default. When
+enabled from the Update page, they run Sunday at 04:17 router-local time and
+use the same backup, checksum, validation, and rollback path.
 
 Publishing a tag matching `vpn-panel-v<VERSION>` runs the repository release
 workflow and attaches the bundle, checksum, version, release date, and
-changelog files required by the updater.
+changelog files required by the updater. It also attaches the standalone
+router-terminal installer.
 
 ## Install to a Running Router
 
@@ -128,7 +139,8 @@ sh /tmp/install-vpn-ui.sh
 ## Router-Side Installer
 
 `install.sh` is intended to run on the router either from an uploaded directory
-or as the raw branch bootstrap above. It creates
+or as the raw branch bootstrap above. It creates a mandatory full OpenWrt
+backup unless the calling release updater has already created one, plus
 `/root/vpn-ui-preinstall-<timestamp>/` and:
 
 ```sh
@@ -137,6 +149,30 @@ or as the raw branch bootstrap above. It creates
 
 Rollback restores all touched files, clears LuCI menu cache, restarts
 `rpcd`/`uhttpd`, validates the restored Xray config, and restarts Xray.
+
+For users who only have a router terminal, copy
+`install-router-ui-release.sh` to the router and run:
+
+```sh
+sh install-router-ui-release.sh
+```
+
+It installs the latest stable GitHub release. A specific release can be
+installed for testing:
+
+```sh
+ROUTER_UI_VERSION=0.6.0 sh install-router-ui-release.sh
+```
+
+The standalone installer verifies release metadata and SHA-256, creates and
+validates a full OpenWrt backup, installs the bundle, validates VPN and
+Tailscale state, and invokes the per-install rollback on failure.
+
+## Status Overview
+
+`Status > Overview` includes a VPN service section with combined Xray and
+transparent-routing health, selected profile, endpoint and server IP,
+direct-domain rule count, and the selected server's cached connectivity ping.
 
 ## Custom Image Notes
 

@@ -162,7 +162,7 @@ return view.extend({
 				E('td', { 'class': 'td right' }, [
 					E('button', {
 						'class': 'cbi-button cbi-button-action',
-						'disabled': isReadonlyView || !peer.ip,
+						'disabled': !peer.ip,
 						'click': L.bind(this.handlePeerPing, this, peer)
 					}, _('Ping'))
 				])

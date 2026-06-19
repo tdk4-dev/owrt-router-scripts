@@ -1,13 +1,18 @@
-Router UI 0.6.0
+Router UI 0.7.0
 
-• VPN Panel is focused only on VPN profiles, subscriptions, automatic
-  switching, direct-routing rules, and per-device VPN controls.
-• Tailscale has its own expanded panel with visible tailnet devices, online
-  state, route details, exit-node indicators, last-seen timestamps, and
-  authenticated Tailscale ping actions.
-• Update is now a top-level LuCI menu with installed version, latest released
-  version, release date, update status, and full release notes.
-• Router release downloads remain SHA-256 verified and transactional, with a
-  rollback snapshot created before installation.
-• All LuCI view paths are versioned to prevent stale browser modules after an
-  update.
+• Update checks and installations now run as background jobs, so LuCI no
+  longer reports a false XHR timeout while GitHub downloads or services
+  restart.
+• Every installation creates and validates a full OpenWrt sysupgrade backup
+  before changing files. Installer failures and failed post-install checks
+  automatically restore the panel snapshot.
+• The Update page reports each backup, stage, and failure clearly and can
+  optionally install stable releases once a week using the same safeguards.
+• Tailscale peer Ping buttons remain available to authenticated read-only
+  views; the backend still validates that the target is a visible tailnet
+  peer.
+• Status > Overview now includes VPN service health, selected profile,
+  endpoint and server IP, direct-domain rule count, and selected-server ping.
+• A standalone router-terminal installer can install the latest stable
+  release or a pinned release such as 0.6.0 with checksum verification,
+  mandatory backup, validation, and rollback.

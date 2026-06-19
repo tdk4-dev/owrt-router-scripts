@@ -32,6 +32,17 @@ else
 fi
 printf '%s\n' "$VERSION" > "$OUT_DIR/vpn-ui-version.txt"
 cp "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md" "$OUT_DIR/vpn-ui-changelog.txt"
+cp "$ROOT_DIR/install-router-ui-release.sh" "$OUT_DIR/install-router-ui-release.sh"
+chmod 755 "$OUT_DIR/install-router-ui-release.sh"
+if command -v sha256sum >/dev/null 2>&1; then
+  (
+    cd "$OUT_DIR"
+    sha256sum install-router-ui-release.sh > install-router-ui-release.sh.sha256
+  )
+else
+  shasum -a 256 "$OUT_DIR/install-router-ui-release.sh" |
+    awk '{ print $1 "  install-router-ui-release.sh" }' > "$OUT_DIR/install-router-ui-release.sh.sha256"
+fi
 date -u '+%B %d, %Y' > "$OUT_DIR/vpn-ui-release-date.txt"
 
 printf 'Release bundle: %s\n' "$OUT_DIR/luci-vpn-ui.tar.gz"

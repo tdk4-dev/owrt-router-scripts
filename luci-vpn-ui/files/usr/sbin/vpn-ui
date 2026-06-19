@@ -1689,6 +1689,51 @@ status_json() {
   printf '}\n'
 }
 
+vpn_summary_json() {
+  local selected file domain_count ping xray_state transparent_state vpn_enabled
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  file="$PROFILE_DIR/$selected.conf"
+  [ -n "$selected" ] && [ -f "$file" ] ||
+    die_json "no selected VPN profile is available"
+  load_profile_file "$file"
+  domain_count="$(awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[[:space:]]+/, "")
+      sub(/[[:space:]]+$/, "")
+    }
+    NF && $0 !~ /^#/ { count++ }
+    END { print count + 0 }
+  ' "$DOMAINS_FILE" 2>/dev/null)"
+  ping="$(profile_ping_cached "$selected")"
+  xray_state="stopped"
+  transparent_state="inactive"
+  vpn_enabled="false"
+  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
+    xray_state="running"
+  fi
+  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
+  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
+
+  printf '{"ok":true,"working":%s,"xray":' "$vpn_enabled"
+  json_string "$xray_state"
+  printf ',"transparent":'
+  json_string "$transparent_state"
+  printf ',"selected_id":'
+  json_string "$selected"
+  printf ',"selected_name":'
+  json_string "$P_NAME"
+  printf ',"endpoint":'
+  json_string "$P_HOST:$P_PORT"
+  printf ',"ip":'
+  json_string "$P_VPS_IP"
+  printf ',"direct_domain_rules":%s,"ping":' "${domain_count:-0}"
+  json_string "$ping"
+  printf '}\n'
+}
+
 cmd_add() {
   local url="$1"
   init_state
@@ -2085,6 +2130,9 @@ case "${1:-status}" in
   status)
     status_json
     ;;
+  vpn-summary)
+    vpn_summary_json
+    ;;
   refresh-pings)
     cmd_refresh_pings
     ;;
@@ -2160,11 +2208,17 @@ case "${1:-status}" in
   tailscale-stop)
     cmd_tailscale_stop
     ;;
-  update-check)
-    cmd_update check
+  update-status)
+    cmd_update status
     ;;
-  update-apply)
-    cmd_update apply
+  update-check-start)
+    cmd_update check-start
+    ;;
+  update-apply-start)
+    cmd_update apply-start
+    ;;
+  update-auto)
+    cmd_update set-auto "${2:-}"
     ;;
   test-domain)
     [ -n "${2:-}" ] || die_json "test-domain requires a domain"
