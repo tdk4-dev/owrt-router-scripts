@@ -2118,8 +2118,9 @@ cmd_tailscale_ping() {
 
 cmd_update() {
   local action="$1"
+  shift
   [ -x /usr/sbin/vpn-ui-update ] || die_json "panel updater is not installed"
-  /usr/sbin/vpn-ui-update "$action"
+  /usr/sbin/vpn-ui-update "$action" "$@"
 }
 
 case "${1:-status}" in

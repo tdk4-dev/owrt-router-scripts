@@ -1,12 +1,12 @@
-Router UI 0.7.2
+Router UI 0.7.3
 
-• Replaces native Update-page buttons with direct authenticated action links,
-  preventing LuCI from disabling them through stale or mismatched view
-  permission state.
-• Replaces the native weekly-update checkbox with an explicit enable/disable
-  action using the same authenticated helper.
+• Fixes the helper dropping the required `0` or `1` argument when enabling or
+  disabling weekly automatic updates.
+• Fixes upgrades from 0.7.0 being rolled back with validation code 19 because
+  the old updater incorrectly required every unchanged LuCI include filename
+  to match the target release version.
+• Keeps link-based update actions and explicit weekly-update opt-in/opt-out,
+  avoiding LuCI native-control disabled state.
 • Keeps automatic browser reload when LuCI restarts during installation.
-• The standalone router-terminal installer validates that the installed
-  release contains a callable Update page.
 • Retains mandatory verified backups, background jobs, automatic rollback,
   Tailscale peer ping, and VPN health in Status Overview.
