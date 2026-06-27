@@ -40,6 +40,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -60,6 +61,7 @@ button:disabled {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -71,10 +73,24 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px rgb(94 159 184 / 34%);
   outline: none;
+}
+
+.choice-set.compact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.choice-set.compact .choice-row {
+  padding-right: 14px;
+}
+
+.choice-row.muted {
+  opacity: .58;
 }
 
 input::placeholder,
@@ -270,6 +286,13 @@ h1 {
   line-height: 1.45;
 }
 
+.notice {
+  border-left: 3px solid var(--accent);
+  background: #203038;
+  padding: 11px 13px;
+  color: var(--text-strong);
+}
+
 .choice-set {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -439,6 +462,48 @@ h1 {
   border: 1px solid #67312d;
   border-radius: 4px;
   padding: 12px 14px;
+}
+
+.apply-progress {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: #203038;
+  color: var(--text-strong);
+  padding: 12px 14px;
+}
+
+.apply-progress-title {
+  display: block;
+  font-weight: 750;
+}
+
+.apply-progress-detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgb(116 184 210 / 22%);
+  border-top-color: var(--accent-strong);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .footer {

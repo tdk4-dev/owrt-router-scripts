@@ -1,0 +1,182 @@
+#!/bin/ash
+set -u
+
+STATE_DIR="/etc/router-prep"
+TOKEN_FILE="$STATE_DIR/token"
+POLICY_FILE="$STATE_DIR/customer-policy.conf"
+PLACEHOLDER_FILE="$STATE_DIR/placeholder-wifi"
+SEALED_FILE="$STATE_DIR/sealed"
+PAYLOAD="/tmp/router-prep.$$.json"
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+reply() {
+  printf 'Status: 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n\r\n%s\n' "$1"
+  exit 0
+}
+
+fail() {
+  reply "{\"ok\":false,\"error\":\"$(json_escape "$1")\"}"
+}
+
+authorized() {
+  [ ! -f "$SEALED_FILE" ] || return 1
+  [ -s "$TOKEN_FILE" ] || return 1
+  [ "$(json_get '@.token')" = "$(cat "$TOKEN_FILE")" ]
+}
+
+read_body() {
+  local len="${CONTENT_LENGTH:-0}"
+  [ "$len" -gt 0 ] 2>/dev/null || return 0
+  dd bs=1 count="$len" 2>/dev/null
+}
+
+json_get() {
+  jsonfilter -i "$PAYLOAD" -e "$1" 2>/dev/null | sed -n '1p'
+}
+
+load_policy() {
+  CUSTOMER_VPN="1"
+  CUSTOMER_TAILSCALE="0"
+  CUSTOMER_UPDATE="0"
+  CUSTOMER_PACKAGES="0"
+  CUSTOMER_ADGUARD="1"
+  [ -f "$POLICY_FILE" ] && . "$POLICY_FILE"
+}
+
+bool_json() {
+  [ "$1" = "1" ] && printf true || printf false
+}
+
+status() {
+  local setup_complete="false" setup_in_progress="false"
+  local wan="down" dns="down" ssh="down" xray="down" adguard="down" tailscale_state="down"
+  local password_set="false" latest_backup="" model kernel uptime
+  load_policy
+  [ -f /etc/firstboot-wizard/complete ] && setup_complete="true"
+  [ -f /etc/firstboot-wizard/in-progress ] && setup_in_progress="true"
+  awk -F: '$1 == "root" && $2 != "" && $2 != "!" && $2 != "*" { found=1 } END { exit !found }' /etc/shadow 2>/dev/null &&
+    password_set="true"
+  ifstatus wan 2>/dev/null | grep -q '"up": true' && wan="up"
+  nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1 && dns="up"
+  pidof dropbear >/dev/null 2>&1 && ssh="up"
+  (pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1) && xray="up"
+  pidof AdGuardHome >/dev/null 2>&1 && adguard="up"
+  tailscale ip -4 >/dev/null 2>&1 && tailscale_state="connected"
+  latest_backup="$(find /root/router-prep-backups -type f -name 'pre-handoff-*.tar.gz' 2>/dev/null |
+    sort | tail -n 1)"
+  model="$(ubus call system board 2>/dev/null | jsonfilter -e '@.model' 2>/dev/null || true)"
+  kernel="$(uname -r 2>/dev/null || true)"
+  uptime="$(cut -d. -f1 /proc/uptime 2>/dev/null || printf 0)"
+
+  printf '{"ok":true,"sealed":false,"setup":{"complete":%s,"inProgress":%s},' "$setup_complete" "$setup_in_progress"
+  printf '"readiness":{"passwordSet":%s,"backupCreated":%s},' \
+    "$password_set" "$([ -n "$latest_backup" ] && printf true || printf false)"
+  printf '"placeholderWifi":%s,' "$([ -f "$PLACEHOLDER_FILE" ] && printf true || printf false)"
+  printf '"policy":{"vpn":%s,"tailscale":%s,"update":%s,"packages":%s,"adguard":%s},' \
+    "$(bool_json "$CUSTOMER_VPN")" "$(bool_json "$CUSTOMER_TAILSCALE")" \
+    "$(bool_json "$CUSTOMER_UPDATE")" "$(bool_json "$CUSTOMER_PACKAGES")" \
+    "$(bool_json "$CUSTOMER_ADGUARD")"
+  printf '"health":{"wan":'
+  json_string "$wan"
+  printf ',"dns":'
+  json_string "$dns"
+  printf ',"ssh":'
+  json_string "$ssh"
+  printf ',"xray":'
+  json_string "$xray"
+  printf ',"adguard":'
+  json_string "$adguard"
+  printf ',"tailscale":'
+  json_string "$tailscale_state"
+  printf '},"version":'
+  json_string "$(cat /usr/share/vpn-ui/version 2>/dev/null || echo unknown)"
+  printf ',"device":{"model":'
+  json_string "${model:-x86/64 router}"
+  printf ',"kernel":'
+  json_string "$kernel"
+  printf ',"uptimeSeconds":%s,"latestBackup":' "${uptime:-0}"
+  json_string "$latest_backup"
+  printf '}'
+  printf '}\n'
+}
+
+write_policy() {
+  load_policy
+  CUSTOMER_VPN="$(json_get '@.policy.vpn')"; [ "$CUSTOMER_VPN" = "true" ] && CUSTOMER_VPN=1 || CUSTOMER_VPN=0
+  CUSTOMER_TAILSCALE="$(json_get '@.policy.tailscale')"; [ "$CUSTOMER_TAILSCALE" = "true" ] && CUSTOMER_TAILSCALE=1 || CUSTOMER_TAILSCALE=0
+  CUSTOMER_UPDATE="$(json_get '@.policy.update')"; [ "$CUSTOMER_UPDATE" = "true" ] && CUSTOMER_UPDATE=1 || CUSTOMER_UPDATE=0
+  CUSTOMER_PACKAGES="$(json_get '@.policy.packages')"; [ "$CUSTOMER_PACKAGES" = "true" ] && CUSTOMER_PACKAGES=1 || CUSTOMER_PACKAGES=0
+  CUSTOMER_ADGUARD="$(json_get '@.policy.adguard')"; [ "$CUSTOMER_ADGUARD" = "true" ] && CUSTOMER_ADGUARD=1 || CUSTOMER_ADGUARD=0
+  cat > "$POLICY_FILE" <<EOF
+CUSTOMER_VPN='$CUSTOMER_VPN'
+CUSTOMER_TAILSCALE='$CUSTOMER_TAILSCALE'
+CUSTOMER_UPDATE='$CUSTOMER_UPDATE'
+CUSTOMER_PACKAGES='$CUSTOMER_PACKAGES'
+CUSTOMER_ADGUARD='$CUSTOMER_ADGUARD'
+EOF
+  chmod 600 "$POLICY_FILE"
+  /usr/sbin/router-prep apply-policy >/tmp/router-prep-policy.log 2>&1 || fail "Could not apply customer policy."
+}
+
+action="${QUERY_STRING#*action=}"
+action="${action%%&*}"
+read_body > "$PAYLOAD"
+
+authorized || reply '{"ok":false,"error":"Developer preparation access is disabled or unauthorized."}'
+
+case "${action:-status}" in
+  authorize) reply '{"ok":true}' ;;
+  status)
+    result="$(status)"
+    reply "$result"
+    ;;
+  placeholder)
+    if [ "$(json_get '@.enabled')" = "true" ]; then
+      : > "$PLACEHOLDER_FILE"
+    else
+      rm -f "$PLACEHOLDER_FILE"
+    fi
+    reply '{"ok":true}'
+    ;;
+  policy)
+    write_policy
+    reply '{"ok":true}'
+    ;;
+  tailscale-up)
+    server="$(json_get '@.server')"
+    key="$(json_get '@.key')"
+    hostname="$(json_get '@.hostname')"
+    [ -n "$server" ] && [ -n "$key" ] || fail "Control URL and preauth key are required."
+    /usr/sbin/vpn-ui tailscale-up "$server" "$key" "$hostname" "10.77.0.0/24" "0" >/tmp/router-prep-tailscale.json 2>&1 ||
+      fail "Tailscale enrollment failed."
+    reply '{"ok":true}'
+    ;;
+  tailscale-logout)
+    /usr/sbin/vpn-ui tailscale-logout >/tmp/router-prep-tailscale.json 2>&1 || fail "Tailscale logout failed."
+    reply '{"ok":true}'
+    ;;
+  backup)
+    backup_path="$(/usr/sbin/router-prep backup)" || fail "Could not create and validate a system backup."
+    reply "{\"ok\":true,\"path\":\"$(json_escape "$backup_path")\"}"
+    ;;
+  seal)
+    [ -f /etc/firstboot-wizard/complete ] || fail "Complete the customer setup before sealing the router."
+    awk -F: '$1 == "root" && $2 != "" && $2 != "!" && $2 != "*" { found=1 } END { exit !found }' /etc/shadow 2>/dev/null ||
+      fail "Set and verify the root password before sealing the router."
+    write_policy
+    /usr/sbin/router-prep backup >/tmp/router-prep-seal-backup.path 2>/tmp/router-prep-seal-backup.log ||
+      fail "The pre-handoff backup failed; the router was not sealed."
+    rm -f "$PLACEHOLDER_FILE"
+    date -u '+%Y-%m-%dT%H:%M:%SZ' > "$SEALED_FILE"
+    chmod 000 /www/cgi-bin/router-prep
+    reply '{"ok":true,"sealed":true}'
+    ;;
+  *) fail "Unknown preparation action." ;;
+esac

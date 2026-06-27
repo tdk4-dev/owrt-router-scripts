@@ -60,6 +60,8 @@ cp -R "$ROOT_DIR/luci-vpn-ui/files/." "$OVERLAY/"
 chmod 0755 \
   "$OVERLAY/etc/uci-defaults/99-openwrt-fin0-firstboot" \
   "$OVERLAY/www/cgi-bin/firstboot-setup" \
+  "$OVERLAY/www/cgi-bin/router-prep" \
+  "$OVERLAY/usr/sbin/router-prep" \
   "$OVERLAY/usr/sbin/vpn-ui" \
   "$OVERLAY/usr/sbin/vpn-ui-update"
 

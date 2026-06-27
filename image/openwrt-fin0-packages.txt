@@ -12,6 +12,7 @@ grub2
 grub2-efi
 i915-firmware-dmc
 iperf3
+iwinfo
 jsonfilter
 kmod-acpi-video
 kmod-backlight
@@ -42,4 +43,5 @@ socat
 tailscale
 tcpdump
 unzip
+wpad-basic-mbedtls
 xray-core

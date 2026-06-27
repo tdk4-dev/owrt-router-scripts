@@ -7,6 +7,13 @@ const steps = [
     lede: 'Set the SSH credentials that will protect the router after the assistant finishes.'
   },
   {
+    id: 'wifi',
+    label: 'Wi-Fi',
+    eyebrow: 'Wireless',
+    title: 'Configure wireless networks',
+    lede: 'Choose the bands, network name, security, and radio behavior for detected Wi-Fi hardware.'
+  },
+  {
     id: 'vpn',
     label: 'VPN',
     eyebrow: 'Connectivity',
@@ -40,6 +47,11 @@ const state = {
   ready: false,
   step: 0,
   errors: [],
+  progress: {
+    inProgress: false,
+    completedPhases: []
+  },
+  devPreview: false,
   applying: false,
   applied: null,
   filterQuery: '',
@@ -49,12 +61,26 @@ const state = {
     firmware: 'OpenWrt 24.10.5 x86/64'
   },
   filters: [],
+  wifiRadios: [],
   form: {
     account: {
       login: 'root',
       password: '',
       passwordConfirm: '',
       authorizedKeys: ''
+    },
+    wifi: {
+      enabled: false,
+      enable2g: true,
+      enable5g: true,
+      ssid: 'OpenWrt',
+      security: 'sae-mixed',
+      password: '',
+      country: 'US',
+      channel2g: 'auto',
+      channel5g: 'auto',
+      hidden: false,
+      isolate: false
     },
     vpn: {
       enabled: true,
@@ -73,11 +99,32 @@ const state = {
 
 const app = document.querySelector('#app');
 const routerApiMode = window.location.pathname.startsWith('/setup/');
+const DRAFT_KEY = 'openwrt-firstboot-draft-v1';
+const SECRET_DRAFT_KEY = 'openwrt-firstboot-secrets-v1';
+const devPreviewToken = new URLSearchParams(window.location.hash.slice(1)).get('dev') || '';
 
 function apiUrl(action) {
   if (routerApiMode)
     return `/cgi-bin/firstboot-setup?action=${encodeURIComponent(action)}`;
   return `/api/${encodeURIComponent(action)}`;
+}
+
+async function authorizeDevPreview() {
+  if (!devPreviewToken)
+    return false;
+  try {
+    const response = await fetch('/cgi-bin/router-prep?action=authorize', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: devPreviewToken }),
+      cache: 'no-store'
+    });
+    const payload = await response.json();
+    return !!payload.ok;
+  }
+  catch (_) {
+    return false;
+  }
 }
 
 function escapeHtml(value) {
@@ -98,6 +145,88 @@ function selectedFilters() {
   return state.filters.filter(filter => selected.has(filter.id));
 }
 
+function phaseDone(phase) {
+  return state.progress.completedPhases.includes(phase);
+}
+
+function saveDraft() {
+  const durable = {
+    step: state.step,
+    account: {
+      login: state.form.account.login,
+      authorizedKeys: state.form.account.authorizedKeys
+    },
+    wifi: {
+      ...state.form.wifi,
+      password: ''
+    },
+    vpn: {
+      enabled: state.form.vpn.enabled
+    },
+    adguard: {
+      selectedFilterIds: state.form.adguard.selectedFilterIds
+    },
+    tailscale: {
+      enabled: state.form.tailscale.enabled,
+      loginServer: state.form.tailscale.loginServer
+    }
+  };
+  const secrets = {
+    accountPassword: state.form.account.password,
+    accountPasswordConfirm: state.form.account.passwordConfirm,
+    wifiPassword: state.form.wifi.password,
+    vlessUrl: state.form.vpn.vlessUrl,
+    tailscaleAuthKey: state.form.tailscale.authKey
+  };
+
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(durable));
+    sessionStorage.setItem(SECRET_DRAFT_KEY, JSON.stringify(secrets));
+  }
+  catch (_) {
+    // Storage may be unavailable in private browsing.
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+    sessionStorage.removeItem(SECRET_DRAFT_KEY);
+  }
+  catch (_) {}
+}
+
+function restoreDraft() {
+  try {
+    const durable = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    const secrets = JSON.parse(sessionStorage.getItem(SECRET_DRAFT_KEY) || 'null');
+
+    if (durable) {
+      state.step = Math.max(0, Math.min(steps.length - 1, Number(durable.step) || 0));
+      state.form.account.login = durable.account?.login || state.form.account.login;
+      state.form.account.authorizedKeys = durable.account?.authorizedKeys || '';
+      Object.assign(state.form.wifi, durable.wifi || {});
+      state.form.vpn.enabled = durable.vpn?.enabled ?? state.form.vpn.enabled;
+      state.form.adguard.selectedFilterIds = Array.isArray(durable.adguard?.selectedFilterIds)
+        ? durable.adguard.selectedFilterIds.filter(id => state.filters.some(filter => filter.id === id))
+        : state.form.adguard.selectedFilterIds;
+      state.form.tailscale.enabled = durable.tailscale?.enabled ?? state.form.tailscale.enabled;
+      state.form.tailscale.loginServer = durable.tailscale?.loginServer || state.form.tailscale.loginServer;
+    }
+
+    if (secrets) {
+      state.form.account.password = secrets.accountPassword || '';
+      state.form.account.passwordConfirm = secrets.accountPasswordConfirm || '';
+      state.form.wifi.password = secrets.wifiPassword || '';
+      state.form.vpn.vlessUrl = secrets.vlessUrl || '';
+      state.form.tailscale.authKey = secrets.tailscaleAuthKey || '';
+    }
+  }
+  catch (_) {
+    clearDraft();
+  }
+}
+
 function writeNested(path, value) {
   const parts = path.split('.');
   let target = state.form;
@@ -113,12 +242,14 @@ function clearErrorsInPlace() {
 
 function updateNested(path, value) {
   writeNested(path, value);
+  saveDraft();
   clearErrorsInPlace();
 }
 
 function setNested(path, value) {
   writeNested(path, value);
   state.errors = [];
+  saveDraft();
   render();
 }
 
@@ -138,15 +269,28 @@ function validateStep(index = state.step) {
       errors.push('Password confirmation does not match.');
   }
 
-  if (id === 'vpn' && form.vpn.enabled) {
+  if (id === 'wifi' && form.wifi.enabled && !phaseDone('wifi')) {
+    if (!state.wifiRadios.length)
+      errors.push('No compatible Wi-Fi radio was detected.');
+    if (!form.wifi.enable2g && !form.wifi.enable5g)
+      errors.push('Enable at least one Wi-Fi band.');
+    if (!form.wifi.ssid.trim())
+      errors.push('Wi-Fi network name is required.');
+    if (form.wifi.ssid.length > 32)
+      errors.push('Wi-Fi network name must be 32 characters or fewer.');
+    if (form.wifi.security !== 'none' && form.wifi.password.length < 8)
+      errors.push('Wi-Fi password must be at least 8 characters.');
+  }
+
+  if (id === 'vpn' && form.vpn.enabled && !phaseDone('vpn')) {
     if (!form.vpn.vlessUrl.trim().startsWith('vless://'))
       errors.push('Paste a valid VLESS link or disable VPN for first boot.');
   }
 
-  if (id === 'adguard' && selectedFilters().length === 0)
+  if (id === 'adguard' && selectedFilters().length === 0 && !phaseDone('adguard'))
     errors.push('Select at least one AdGuard blocklist.');
 
-  if (id === 'tailscale' && form.tailscale.enabled) {
+  if (id === 'tailscale' && form.tailscale.enabled && !phaseDone('tailscale')) {
     if (!form.tailscale.loginServer.trim().startsWith('https://'))
       errors.push('Tailscale or Headscale URL must use HTTPS.');
     if (!form.tailscale.authKey.trim())
@@ -172,6 +316,7 @@ function goTo(index) {
     return;
   state.step = index;
   state.errors = [];
+  saveDraft();
   render();
 }
 
@@ -186,6 +331,7 @@ function nextStep() {
   if (state.step < steps.length - 1) {
     state.step += 1;
     state.errors = [];
+    saveDraft();
     render();
   }
 }
@@ -194,6 +340,7 @@ function previousStep() {
   if (state.step > 0) {
     state.step -= 1;
     state.errors = [];
+    saveDraft();
     render();
   }
 }
@@ -205,6 +352,7 @@ function toggleFilter(id, checked) {
   else
     selected.delete(id);
   state.form.adguard.selectedFilterIds = Array.from(selected);
+  saveDraft();
   clearErrorsInPlace();
   refreshAdguardFilterList();
 }
@@ -215,6 +363,7 @@ function useRouterDefaults() {
     .map(filter => filter.id);
   state.filterQuery = '';
   state.errors = [];
+  saveDraft();
   const search = document.querySelector('#filter-search');
   if (search)
     search.value = '';
@@ -225,6 +374,7 @@ function selectVisibleFilters() {
   const selected = new Set(state.form.adguard.selectedFilterIds);
   filteredFilters().forEach(filter => selected.add(filter.id));
   state.form.adguard.selectedFilterIds = Array.from(selected);
+  saveDraft();
   refreshAdguardFilterList();
 }
 
@@ -307,6 +457,22 @@ function textareaField({ id, label, value, path, hint = '' }) {
   `;
 }
 
+function selectField({ id, label, value, path, options, hint = '' }) {
+  return `
+    <div class="field">
+      <label for="${id}">${escapeHtml(label)}</label>
+      <select id="${id}" data-path="${attr(path)}">
+        ${options.map(option => `
+          <option value="${attr(option.value)}" ${option.value === value ? 'selected' : ''}>
+            ${escapeHtml(option.label)}
+          </option>
+        `).join('')}
+      </select>
+      ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ''}
+    </div>
+  `;
+}
+
 function renderAccount() {
   const account = state.form.account;
   return `
@@ -347,6 +513,116 @@ function renderAccount() {
         path: 'account.authorizedKeys',
         hint: 'Optional. One public key per line.'
       })}
+    </div>
+  `;
+}
+
+function renderWifi() {
+  const wifi = state.form.wifi;
+  const has2g = state.wifiRadios.some(radio => radio.band === '2g');
+  const has5g = state.wifiRadios.some(radio => radio.band === '5g');
+  const radioSummary = state.wifiRadios.length
+    ? state.wifiRadios.map(radio => `${radio.label} (${radio.device})`).join(', ')
+    : 'No compatible Wi-Fi radios detected';
+
+  return `
+    <div class="choice-set">
+      <label class="choice-row">
+        <input type="radio" name="wifi-enabled" value="0" ${!wifi.enabled ? 'checked' : ''}>
+        <span>
+          <span class="choice-title">Leave Wi-Fi disabled</span>
+          <span class="choice-detail">Ethernet remains available and wireless can be configured later in LuCI.</span>
+        </span>
+      </label>
+      <label class="choice-row ${state.wifiRadios.length ? '' : 'muted'}">
+        <input type="radio" name="wifi-enabled" value="1" ${wifi.enabled ? 'checked' : ''} ${state.wifiRadios.length ? '' : 'disabled'}>
+        <span>
+          <span class="choice-title">Configure Wi-Fi</span>
+          <span class="choice-detail">${escapeHtml(radioSummary)}</span>
+        </span>
+      </label>
+    </div>
+    <div class="form-grid ${wifi.enabled ? '' : 'hidden'}">
+      ${inputField({
+        id: 'wifi-ssid',
+        label: 'Network name',
+        value: wifi.ssid,
+        path: 'wifi.ssid',
+        autocomplete: 'off'
+      })}
+      ${selectField({
+        id: 'wifi-security',
+        label: 'Security',
+        value: wifi.security,
+        path: 'wifi.security',
+        options: [
+          { value: 'sae-mixed', label: 'WPA2/WPA3 Personal' },
+          { value: 'psk2', label: 'WPA2 Personal' },
+          { value: 'sae', label: 'WPA3 Personal' },
+          { value: 'none', label: 'Open network' }
+        ]
+      })}
+      ${inputField({
+        id: 'wifi-password',
+        label: 'Wi-Fi password',
+        type: 'password',
+        value: wifi.password,
+        path: 'wifi.password',
+        autocomplete: 'new-password',
+        hint: wifi.security === 'none' ? 'Not used for an open network.' : 'At least 8 characters.'
+      })}
+      ${inputField({
+        id: 'wifi-country',
+        label: 'Country code',
+        value: wifi.country,
+        path: 'wifi.country',
+        hint: 'Two-letter regulatory code, for example US, DE, or RU.'
+      })}
+      ${has2g ? selectField({
+        id: 'wifi-channel-2g',
+        label: '2.4 GHz channel',
+        value: wifi.channel2g,
+        path: 'wifi.channel2g',
+        options: [
+          { value: 'auto', label: 'Automatic' },
+          ...Array.from({ length: 13 }, (_, index) => {
+            const channel = String(index + 1);
+            return { value: channel, label: channel };
+          })
+        ]
+      }) : ''}
+      ${has5g ? selectField({
+        id: 'wifi-channel-5g',
+        label: '5 GHz channel',
+        value: wifi.channel5g,
+        path: 'wifi.channel5g',
+        options: [
+          { value: 'auto', label: 'Automatic' },
+          ...['36', '40', '44', '48', '100', '104', '108', '112', '116', '120', '124', '128', '132', '136', '140', '149', '153', '157', '161']
+            .map(channel => ({ value: channel, label: channel }))
+        ]
+      }) : ''}
+      <div class="field full">
+        <label>Wireless bands</label>
+        <div class="choice-set compact">
+          <label class="choice-row">
+            <input type="checkbox" data-path="wifi.enable2g" ${wifi.enable2g ? 'checked' : ''} ${has2g ? '' : 'disabled'}>
+            <span><span class="choice-title">2.4 GHz</span></span>
+          </label>
+          <label class="choice-row">
+            <input type="checkbox" data-path="wifi.enable5g" ${wifi.enable5g ? 'checked' : ''} ${has5g ? '' : 'disabled'}>
+            <span><span class="choice-title">5 GHz</span></span>
+          </label>
+          <label class="choice-row">
+            <input type="checkbox" data-path="wifi.hidden" ${wifi.hidden ? 'checked' : ''}>
+            <span><span class="choice-title">Hide network name</span></span>
+          </label>
+          <label class="choice-row">
+            <input type="checkbox" data-path="wifi.isolate" ${wifi.isolate ? 'checked' : ''}>
+            <span><span class="choice-title">Isolate wireless clients</span></span>
+          </label>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -453,10 +729,25 @@ function renderReview() {
     return renderApplied();
 
   return `
+    ${state.applying ? `
+      <div class="apply-progress" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>
+          <span class="apply-progress-title">Applying setup</span>
+          <span class="apply-progress-detail">Writing router settings and validating services. Keep this page open.</span>
+        </span>
+      </div>
+    ` : ''}
     <div class="review">
       ${reviewRow('Router', `${state.router.hostname} on ${state.router.lanIp}`)}
       ${reviewRow('SSH login', state.form.account.login)}
       ${reviewRow('SSH password', state.form.account.password ? 'Will be set' : 'Missing')}
+      ${reviewRow('Wi-Fi', state.form.wifi.enabled
+        ? `${state.form.wifi.ssid} (${[
+          state.form.wifi.enable2g ? '2.4 GHz' : '',
+          state.form.wifi.enable5g ? '5 GHz' : ''
+        ].filter(Boolean).join(' + ')}, ${state.form.wifi.security})`
+        : 'Disabled')}
       ${reviewRow('VPN', vpn.enabled ? 'Enabled with VLESS profile' : 'Disabled on first boot')}
       ${reviewRow('AdGuard filters', selected.map(filter => filter.name).join(', '))}
       ${reviewRow('Tailscale', tailscale.enabled ? `Enabled with ${tailscale.loginServer}` : 'Skipped')}
@@ -476,8 +767,10 @@ function reviewRow(label, value) {
 
 function renderApplied() {
   const apply = state.applied;
-  const preview = apply.preview || {};
-  const router = preview.router || {};
+  const finishUrl = target => `${apiUrl('finish')}&target=${encodeURIComponent(target)}`;
+  const luciUrl = finishUrl('luci');
+  const vpnUrl = finishUrl('vpn');
+  const adguardUrl = finishUrl('adguard');
   return `
     <div class="apply-log">
       ${apply.phases.map(phase => `
@@ -490,13 +783,13 @@ function renderApplied() {
     <div class="review">
       ${reviewRow('Mock apply id', apply.id)}
       ${reviewRow('Applied at', apply.appliedAt)}
-      ${reviewRow('VPN panel', router.vpnUrl || '-')}
-      ${reviewRow('AdGuard', router.adguardUrl || '-')}
+      ${reviewRow('VPN panel', vpnUrl)}
+      ${reviewRow('AdGuard', adguardUrl)}
     </div>
     <div class="link-row">
-      <a href="${attr(router.luciUrl || '#')}" target="_blank" rel="noreferrer">LuCI</a>
-      <a href="${attr(router.vpnUrl || '#')}" target="_blank" rel="noreferrer">VPN panel</a>
-      <a href="${attr(router.adguardUrl || '#')}" target="_blank" rel="noreferrer">AdGuardHome</a>
+      <a href="${attr(luciUrl)}" target="_blank" rel="noreferrer">LuCI</a>
+      <a href="${attr(vpnUrl)}" target="_blank" rel="noreferrer">VPN panel</a>
+      <a href="${attr(adguardUrl)}" target="_blank" rel="noreferrer">AdGuardHome</a>
     </div>
   `;
 }
@@ -505,6 +798,8 @@ function renderPanel() {
   const id = steps[state.step].id;
   if (id === 'account')
     return renderAccount();
+  if (id === 'wifi')
+    return renderWifi();
   if (id === 'vpn')
     return renderVpn();
   if (id === 'adguard')
@@ -566,16 +861,17 @@ function render() {
           <p class="lede">${escapeHtml(step.lede)}</p>
         </header>
         <div class="panel">
+          ${state.devPreview ? '<div class="notice">Developer preview. Applying customer setup is disabled.</div>' : ''}
           ${renderErrors()}
           ${renderPanel()}
         </div>
         <footer class="footer">
-          <button class="text-button" data-action="reset-preview" ${state.applied ? '' : 'disabled'}>Start over</button>
+          <button class="text-button" data-action="reset-preview">Start over</button>
           <div class="footer-actions">
             <button class="secondary" data-action="back" ${state.step === 0 ? 'disabled' : ''}>Back</button>
             ${
               state.step === steps.length - 1
-                ? `<button class="primary" data-action="apply" ${state.applying || state.applied ? 'disabled' : ''}>Apply setup</button>`
+                ? `<button class="primary" data-action="apply" ${state.applying || state.applied || state.devPreview ? 'disabled' : ''}>${state.applying ? 'Applying setup' : 'Apply setup'}</button>`
                 : '<button class="primary" data-action="next">Continue</button>'
             }
           </div>
@@ -588,7 +884,7 @@ function render() {
 function bindEvents() {
   app.addEventListener('input', event => {
     const path = event.target.dataset.path;
-    if (path)
+    if (path && event.target.type !== 'checkbox')
       updateNested(path, event.target.value);
 
     if (event.target.id === 'filter-search') {
@@ -598,6 +894,14 @@ function bindEvents() {
   });
 
   app.addEventListener('change', event => {
+    if (event.target.dataset.path && event.target.type === 'checkbox')
+      setNested(event.target.dataset.path, event.target.checked);
+    else if (event.target.dataset.path && event.target.tagName === 'SELECT')
+      setNested(event.target.dataset.path, event.target.value);
+
+    if (event.target.name === 'wifi-enabled')
+      setNested('wifi.enabled', event.target.value === '1');
+
     if (event.target.name === 'vpn-enabled')
       setNested('vpn.enabled', event.target.value === '1');
 
@@ -630,8 +934,9 @@ function bindEvents() {
     if (action === 'apply')
       applySetup();
     if (action === 'reset-preview') {
+      clearDraft();
       state.applied = null;
-      render();
+      window.location.reload();
     }
   });
 }
@@ -658,6 +963,7 @@ async function applySetup() {
     if (!payload.ok)
       throw new Error((payload.errors || ['Apply failed']).join(' '));
     state.applied = payload.data;
+    clearDraft();
   }
   catch (error) {
     state.errors = [error.message];
@@ -672,19 +978,39 @@ async function bootstrap() {
   bindEvents();
   render();
 
-  const response = await fetch(apiUrl('bootstrap'));
-  const payload = await response.json();
+  const [bootstrapResponse, statusResponse] = await Promise.all([
+    fetch(apiUrl('bootstrap'), { cache: 'no-store' }),
+    fetch(apiUrl('status'), { cache: 'no-store' })
+  ]);
+  const payload = await bootstrapResponse.json();
+  const status = await statusResponse.json();
+  state.devPreview = await authorizeDevPreview();
+  if (status.complete && routerApiMode && !state.devPreview) {
+    window.location.replace('/cgi-bin/luci/');
+    return;
+  }
   const data = payload.data || {};
 
   state.router = data.router || state.router;
   state.filters = data.adguard?.filters || [];
+  state.wifiRadios = data.wifi?.radios || [];
   state.form.account.login = data.defaults?.accountLogin || state.form.account.login;
+  state.form.wifi.enabled = data.defaults?.wifiEnabled ?? state.form.wifi.enabled;
+  state.form.wifi.ssid = data.defaults?.wifiSsid || state.form.wifi.ssid;
+  state.form.wifi.country = data.defaults?.wifiCountry || state.form.wifi.country;
   state.form.vpn.enabled = data.defaults?.vpnEnabled ?? state.form.vpn.enabled;
   state.form.tailscale.enabled = data.defaults?.tailscaleEnabled ?? state.form.tailscale.enabled;
   state.form.tailscale.loginServer = data.defaults?.tailscaleLoginServer || state.form.tailscale.loginServer;
   state.form.adguard.selectedFilterIds = state.filters
     .filter(filter => filter.enabled)
     .map(filter => filter.id);
+  state.progress = {
+    inProgress: !!status.inProgress,
+    completedPhases: Array.isArray(status.completedPhases) ? status.completedPhases : []
+  };
+  restoreDraft();
+  if (state.progress.inProgress)
+    state.errors = ['Setup was interrupted. Completed service phases will be skipped; root credentials will be verified again.'];
   state.ready = true;
   render();
 }

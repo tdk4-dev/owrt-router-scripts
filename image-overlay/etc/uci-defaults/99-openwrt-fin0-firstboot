@@ -17,18 +17,20 @@ uci set dhcp.lan.limit="150"
 uci set dhcp.lan.leasetime="12h"
 uci commit dhcp
 
-uci -q delete firewall.lan_wan_forward
+uci -q delete firewall.lan_wan_forward || true
 uci set firewall.lan_wan_forward="forwarding"
 uci set firewall.lan_wan_forward.src="lan"
 uci set firewall.lan_wan_forward.dest="wan"
 uci commit firewall
 
-mkdir -p /etc/firstboot-wizard /etc/xray /etc/crontabs
+mkdir -p /etc/firstboot-wizard /etc/router-prep /etc/xray /etc/crontabs
 touch /etc/crontabs/root
 sed -i '\|/usr/sbin/vpn-ui auto-tick|d' /etc/crontabs/root
 printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> /etc/crontabs/root
 
-chmod 0755 /www/cgi-bin/firstboot-setup /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
+chmod 0755 /www/cgi-bin/firstboot-setup /www/cgi-bin/router-prep \
+  /usr/sbin/router-prep /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
+/usr/sbin/router-prep init
 
 /etc/init.d/rpcd enable >/dev/null 2>&1 || true
 /etc/init.d/uhttpd enable >/dev/null 2>&1 || true
@@ -36,6 +38,9 @@ chmod 0755 /www/cgi-bin/firstboot-setup /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
 /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
 /etc/init.d/xray disable >/dev/null 2>&1 || true
 /etc/init.d/tailscale disable >/dev/null 2>&1 || true
+/etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+/etc/init.d/xray stop >/dev/null 2>&1 || true
+/etc/init.d/tailscale stop >/dev/null 2>&1 || true
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 
 exit 0

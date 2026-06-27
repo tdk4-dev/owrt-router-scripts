@@ -317,6 +317,8 @@ rm -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
+[ ! -x /usr/sbin/router-prep ] || [ ! -f /etc/router-prep/customer-policy.conf ] ||
+  /usr/sbin/router-prep apply-policy
 ensure_geosite_data
 
 mkdir -p /etc/crontabs
@@ -339,11 +341,12 @@ printf '%s\n' "$INIT_OUT" | grep -q '"ok":true' || {
 /usr/sbin/vpn-ui vpn-summary | grep -q '"ok":true' ||
   die "VPN status validation failed after installation"
 grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI VPN menu validation failed"
-grep -q "network/tailscale-0-7-5" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Tailscale menu validation failed"
-grep -q "system/update-0-7-3" /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Update menu validation failed"
+  grep -q "CUSTOMER_VPN='0'" /etc/router-prep/customer-policy.conf 2>/dev/null ||
+    die "LuCI VPN menu validation failed"
+[ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] ||
+  die "LuCI Tailscale view validation failed"
+[ -f /www/luci-static/resources/view/system/update-0-7-3.js ] ||
+  die "LuCI Update view validation failed"
 [ -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js ] ||
   die "LuCI VPN status include validation failed"
 

@@ -1250,6 +1250,7 @@ regexp:^.*\.avito\.st$
 ozon.ru
 ozone.ru
 ozonusercontent.com
+ozonru.me
 wildberries.ru
 wb.ru
 dns-shop.ru
@@ -1310,6 +1311,7 @@ EOF
     cat > /etc/xray/direct-ips.txt <<'EOF'
 # Extra public IPv4/CIDR bypasses, one per line.
 # Private ranges, Tailscale CGNAT, and the VPS IP are always bypassed.
+185.73.192.0/22
 EOF
   fi
 

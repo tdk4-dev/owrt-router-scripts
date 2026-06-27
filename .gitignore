@@ -24,6 +24,7 @@
 run.log
 
 # Archives, OpenWrt images, and generated bundles
+dist/
 *.tar
 *.tgz
 *.tar.gz
@@ -73,3 +74,8 @@ home-net-audit-*/
 owrt-iperf-variants-*/
 owrt-raw-wan-iperf-*/
 owrt-upload-latency-probe-*/
+
+# Local operational notes with private network details.
+NETWORK_INVENTORY.md
+INCIDENT_LOG.md
+SE0_RU1_CASCADE.md

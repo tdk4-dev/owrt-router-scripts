@@ -28,6 +28,39 @@ Build it on an x86_64 Linux host:
 The script uses the official OpenWrt 24.10.5 ImageBuilder and writes BIOS and
 EFI ext4 combined images to `dist/`.
 
+### Owner Preparation Panel
+
+The custom image includes a preparation panel that is separate from the
+customer first-boot wizard. Retrieve its temporary token over a trusted SSH or
+local console session:
+
+```sh
+router-prep token
+```
+
+Then open:
+
+```text
+http://10.77.0.1/prepare/#token=TOKEN
+```
+
+The panel provides:
+
+- WAN, DNS, SSH, Xray, AdGuard, and Tailscale health checks
+- simulated 2.4 and 5 GHz radios for previewing the complete Wi-Fi wizard
+- owner Headscale/Tailscale enrollment without exposing the preauth key later
+- customer access policy for VPN, Tailscale, updates, packages, and AdGuard
+- verified pre-handoff `sysupgrade` backups
+- a seal action that removes preview radios and disables the preparation API
+
+After sealing, the preparation panel can only be reopened from SSH or the
+local console:
+
+```sh
+router-prep unseal
+router-prep token
+```
+
 ## LuCI VPN Panel
 
 Install the graphical VPN panel onto an already running OpenWrt router:

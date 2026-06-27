@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const webDir = join(rootDir, 'www');
 const port = Number(process.env.PORT || 8787);
+const applyDelayMs = Number(process.env.APPLY_DELAY_MS || 0);
 
 const adguardFilters = [
   {
@@ -138,6 +139,11 @@ const adguardFilters = [
 ];
 
 let lastApply = null;
+const mockProgress = {
+  complete: false,
+  inProgress: false,
+  completedPhases: []
+};
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -176,9 +182,14 @@ function parsePayload(body) {
   return JSON.parse(body);
 }
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function validatePayload(payload) {
   const errors = [];
   const account = payload.account || {};
+  const wifi = payload.wifi || {};
   const vpn = payload.vpn || {};
   const tailscale = payload.tailscale || {};
 
@@ -190,6 +201,14 @@ function validatePayload(payload) {
     errors.push('SSH password must be at least 8 characters.');
   if (account.password !== account.passwordConfirm)
     errors.push('Password confirmation does not match.');
+  if (wifi.enabled) {
+    if (!wifi.enable2g && !wifi.enable5g)
+      errors.push('Enable at least one Wi-Fi band.');
+    if (!String(wifi.ssid || '').trim() || String(wifi.ssid).length > 32)
+      errors.push('Wi-Fi network name must be 1 to 32 characters.');
+    if (wifi.security !== 'none' && String(wifi.password || '').length < 8)
+      errors.push('Wi-Fi password must be at least 8 characters.');
+  }
   if (vpn.enabled && !String(vpn.vlessUrl || '').startsWith('vless://'))
     errors.push('A VLESS link is required when VPN is enabled.');
   if (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0)
@@ -247,9 +266,18 @@ function bootstrapPayload() {
     },
     defaults: {
       accountLogin: 'root',
+      wifiEnabled: false,
+      wifiSsid: 'OpenWrt',
+      wifiCountry: 'US',
       vpnEnabled: true,
       tailscaleEnabled: false,
       tailscaleLoginServer: 'https://headscale.example.com'
+    },
+    wifi: {
+      radios: [
+        { device: 'radio0', band: '2g', label: '2.4 GHz' },
+        { device: 'radio1', band: '5g', label: '5 GHz' }
+      ]
     },
     adguard: {
       source: 'mocked AdGuard Hostlists Registry plus openwrt-fin0 installed filters',
@@ -260,6 +288,11 @@ function bootstrapPayload() {
 }
 
 async function handleApi(req, res, pathname) {
+  if (req.method === 'GET' && pathname === '/api/status') {
+    sendJson(res, 200, { ok: true, ...mockProgress });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/bootstrap') {
     sendJson(res, 200, { ok: true, data: bootstrapPayload() });
     return;
@@ -273,6 +306,8 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 422, { ok: false, errors });
         return;
       }
+      if (applyDelayMs > 0)
+        await delay(applyDelayMs);
 
       lastApply = {
         id: `mock-${Date.now()}`,
@@ -281,12 +316,16 @@ async function handleApi(req, res, pathname) {
         phases: [
           'Set root account and SSH keys',
           'Configure LAN on 10.77.0.1',
+          payload.wifi?.enabled ? 'Configure Wi-Fi access points' : 'Leave Wi-Fi disabled',
           'Write AdGuardHome filters',
           payload.vpn?.enabled ? 'Render and test Xray config' : 'Disable Xray services',
           payload.tailscale?.enabled ? 'Run tailscale up' : 'Leave Tailscale logged out',
           'Mark first-boot setup complete'
         ]
       };
+      mockProgress.complete = true;
+      mockProgress.inProgress = false;
+      mockProgress.completedPhases = ['account', 'network', 'wifi', 'adguard', 'vpn', 'tailscale'];
       sendJson(res, 200, { ok: true, data: lastApply });
     }
     catch (error) {

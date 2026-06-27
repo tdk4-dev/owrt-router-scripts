@@ -335,8 +335,8 @@ validate_install() {
   [ "$(current_version)" = "$target" ] || return 1
   /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
-  grep -q '"admin/network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  grep -q '"admin/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
+  [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
+  [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
   find /www/luci-static/resources/view/status/include -name '35_vpn-*.js' -type f |
     grep -q . || return 1
 }

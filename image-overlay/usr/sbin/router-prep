@@ -1,0 +1,145 @@
+#!/bin/ash
+set -eu
+
+STATE_DIR="${ROUTER_PREP_STATE_DIR:-/etc/router-prep}"
+POLICY_FILE="$STATE_DIR/customer-policy.conf"
+MENU_FILE="${ROUTER_PREP_MENU_FILE:-/usr/share/luci/menu.d/luci-app-vpn-ui.json}"
+PACKAGE_MENU="${ROUTER_PREP_PACKAGE_MENU:-/usr/share/luci/menu.d/luci-app-package-manager.json}"
+PACKAGE_MENU_DISABLED="$PACKAGE_MENU.router-prep-disabled"
+BACKUP_DIR="${ROUTER_PREP_BACKUP_DIR:-/root/router-prep-backups}"
+
+mkdir -p "$STATE_DIR"
+
+load_policy() {
+  CUSTOMER_VPN="1"
+  CUSTOMER_TAILSCALE="0"
+  CUSTOMER_UPDATE="0"
+  CUSTOMER_PACKAGES="0"
+  CUSTOMER_ADGUARD="1"
+  if [ -f "$POLICY_FILE" ]; then
+    . "$POLICY_FILE"
+  fi
+}
+
+write_policy() {
+  cat > "$POLICY_FILE" <<EOF
+CUSTOMER_VPN='$CUSTOMER_VPN'
+CUSTOMER_TAILSCALE='$CUSTOMER_TAILSCALE'
+CUSTOMER_UPDATE='$CUSTOMER_UPDATE'
+CUSTOMER_PACKAGES='$CUSTOMER_PACKAGES'
+CUSTOMER_ADGUARD='$CUSTOMER_ADGUARD'
+EOF
+  chmod 600 "$POLICY_FILE"
+}
+
+apply_menu_policy() {
+  local first=1
+  mkdir -p "$(dirname "$MENU_FILE")"
+  printf '{\n' > "$MENU_FILE"
+
+  if [ "$CUSTOMER_VPN" = "1" ]; then
+    cat >> "$MENU_FILE" <<'EOF'
+	"admin/network/vpn": {
+		"title": "VPN Panel",
+		"order": 55,
+		"action": { "type": "view", "path": "network/vpn-0-7-0" },
+		"depends": { "acl": [ "luci-app-vpn-ui" ] }
+	}
+EOF
+    first=0
+  fi
+  if [ "$CUSTOMER_TAILSCALE" = "1" ]; then
+    [ "$first" = "1" ] || printf ',\n' >> "$MENU_FILE"
+    cat >> "$MENU_FILE" <<'EOF'
+	"admin/network/tailscale": {
+		"title": "Tailscale",
+		"order": 56,
+		"action": { "type": "view", "path": "network/tailscale-0-7-5" },
+		"depends": { "acl": [ "luci-app-vpn-ui" ] }
+	}
+EOF
+    first=0
+  fi
+  if [ "$CUSTOMER_UPDATE" = "1" ]; then
+    [ "$first" = "1" ] || printf ',\n' >> "$MENU_FILE"
+    cat >> "$MENU_FILE" <<'EOF'
+	"admin/update": {
+		"title": "Update",
+		"order": 80,
+		"action": { "type": "view", "path": "system/update-0-7-3" },
+		"depends": { "acl": [ "luci-app-vpn-ui" ] }
+	}
+EOF
+  fi
+  printf '\n}\n' >> "$MENU_FILE"
+
+  if [ "$CUSTOMER_PACKAGES" = "1" ]; then
+    [ ! -f "$PACKAGE_MENU_DISABLED" ] || mv "$PACKAGE_MENU_DISABLED" "$PACKAGE_MENU"
+  else
+    [ ! -f "$PACKAGE_MENU" ] || mv "$PACKAGE_MENU" "$PACKAGE_MENU_DISABLED"
+  fi
+
+  if command -v uci >/dev/null 2>&1; then
+    uci -q delete firewall.router_prep_adguard || true
+    if [ "$CUSTOMER_ADGUARD" != "1" ]; then
+      uci set firewall.router_prep_adguard="rule"
+      uci set firewall.router_prep_adguard.name="Block customer AdGuard UI"
+      uci set firewall.router_prep_adguard.src="lan"
+      uci set firewall.router_prep_adguard.proto="tcp"
+      uci set firewall.router_prep_adguard.dest_port="3000"
+      uci set firewall.router_prep_adguard.target="REJECT"
+    fi
+    uci commit firewall
+    [ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall reload >/dev/null 2>&1 || true
+  fi
+  rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
+}
+
+generate_token() {
+  umask 077
+  hexdump -n 24 -e '24/1 "%02x"' /dev/urandom > "$STATE_DIR/token"
+  printf '%s\n' "$(cat "$STATE_DIR/token")"
+}
+
+create_backup() {
+  local stamp path
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  path="$BACKUP_DIR/pre-handoff-$stamp.tar.gz"
+  mkdir -p "$BACKUP_DIR"
+  chmod 700 "$BACKUP_DIR"
+  sysupgrade -b "$path" >/tmp/router-prep-backup.log 2>&1
+  [ -s "$path" ] && tar -tzf "$path" >/dev/null 2>&1
+  chmod 600 "$path"
+  printf '%s\n' "$path"
+}
+
+case "${1:-status}" in
+  init)
+    load_policy
+    [ -s "$STATE_DIR/token" ] || generate_token >/dev/null
+    write_policy
+    ;;
+  apply-policy)
+    load_policy
+    apply_menu_policy
+    ;;
+  token)
+    [ -s "$STATE_DIR/token" ] || generate_token >/dev/null
+    cat "$STATE_DIR/token"
+    ;;
+  rotate-token)
+    generate_token
+    ;;
+  backup)
+    create_backup
+    ;;
+  unseal)
+    rm -f "$STATE_DIR/sealed"
+    chmod 0755 /www/cgi-bin/router-prep
+    generate_token
+    ;;
+  *)
+    printf 'Usage: router-prep {init|apply-policy|token|rotate-token|backup|unseal}\n' >&2
+    exit 1
+    ;;
+esac
