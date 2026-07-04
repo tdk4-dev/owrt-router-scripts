@@ -104,6 +104,18 @@ return view.extend({
 		return fs.exec(helper, args).then(parseResponse);
 	},
 
+	clearNotifications: function() {
+		Array.prototype.slice.call(document.querySelectorAll('.alert-message, .alert')).forEach(function(node) {
+			if (node && node.parentNode)
+				node.parentNode.removeChild(node);
+		});
+	},
+
+	notify: function(message) {
+		this.clearNotifications();
+		ui.addNotification(null, E('p', {}, message));
+	},
+
 	refresh: function(data) {
 		this.data = data;
 		dom.content(document.querySelector('#vpn-ui-root'), this.renderBody(data));
@@ -117,11 +129,11 @@ return view.extend({
 		return this.callHelper(args).then(L.bind(function(data) {
 			ui.hideModal();
 			this.refresh(data);
-			ui.addNotification(null, E('p', {}, _('VPN settings updated.')));
+			this.notify(_('VPN settings updated.'));
 		}, this)).catch(function(err) {
 			ui.hideModal();
-			ui.addNotification(null, E('p', {}, err.message || err));
-		});
+			this.notify(err.message || err);
+		}.bind(this));
 	},
 
 	handleRefresh: function() {
@@ -133,7 +145,7 @@ return view.extend({
 		var value = input ? input.value.trim() : '';
 
 		if (!value) {
-			ui.addNotification(null, E('p', {}, _('Paste a VLESS link first.')));
+			this.notify(_('Paste a VLESS link first.'));
 			return;
 		}
 
@@ -148,7 +160,7 @@ return view.extend({
 		var value = input ? input.value.trim() : '';
 
 		if (!value) {
-			ui.addNotification(null, E('p', {}, _('Paste an HTTPS subscription link first.')));
+			this.notify(_('Paste an HTTPS subscription link first.'));
 			return;
 		}
 
@@ -340,7 +352,7 @@ return view.extend({
 		var value = input ? input.value.trim() : '';
 
 		if (!value) {
-			ui.addNotification(null, E('p', {}, _('Enter a domain to test.')));
+			this.notify(_('Enter a domain to test.'));
 			return;
 		}
 
@@ -355,8 +367,8 @@ return view.extend({
 			if (result)
 				dom.content(result, E('div', { 'class': 'alert-message warning' }, err.message || err));
 			else
-				ui.addNotification(null, E('p', {}, err.message || err));
-		});
+				this.notify(err.message || err);
+		}.bind(this));
 	},
 
 	handleTestDomainKeydown: function(ev) {
@@ -530,7 +542,8 @@ return view.extend({
 		});
 		var rows = profiles.map(function(profile) {
 			var selected = !!profile.selected;
-			var pingClass = profile.ping == 'timeout' ? 'vpn-ping-bad' : (profile.ping == 'not tested' ? 'vpn-muted' : 'vpn-ping-ok');
+			var ping = profile.ping || '-';
+			var pingClass = ping == 'timeout' ? 'vpn-ping-bad' : (ping == 'not tested' || ping.indexOf('tcp ') == 0 ? 'vpn-muted' : 'vpn-ping-ok');
 
 			return E('tr', { 'class': 'tr vpn-profile-row' + (selected ? ' vpn-selected' : '') }, [
 				E('td', { 'class': 'td left' }, [
@@ -558,7 +571,7 @@ return view.extend({
 					profile.source_id ? E('div', { 'class': 'vpn-muted' }, subscriptionNames[profile.source_id] || _('Subscription')) : ''
 				]),
 				E('td', { 'class': 'td left' }, [
-					E('span', { 'class': pingClass }, profile.ping || '-')
+					E('span', { 'class': pingClass }, ping)
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('span', { 'class': 'label' + (selected ? ' notice' : '') }, selected ? _('Enabled') : _('Saved'))

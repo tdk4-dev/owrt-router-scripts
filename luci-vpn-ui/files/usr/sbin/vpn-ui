@@ -396,7 +396,7 @@ reset_profile_vars() {
   P_VPS_IP=""
   P_NETWORK="tcp"
   P_SECURITY="reality"
-  P_FLOW="xtls-rprx-vision"
+  P_FLOW=""
   P_PUBLIC_KEY=""
   P_SHORT_ID=""
   P_SNI=""
@@ -412,7 +412,10 @@ load_profile_file() {
   . "$file"
   [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
   [ -n "$P_SECURITY" ] || P_SECURITY="reality"
-  [ -n "$P_FLOW" ] || P_FLOW="xtls-rprx-vision"
+  case "${P_URL:-}" in
+    *\?flow=*|*\&flow=*) ;;
+    vless://*|vless%3A*|vless%3a*) P_FLOW="" ;;
+  esac
   [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
   [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
 }
@@ -494,7 +497,6 @@ parse_vless_url() {
   [ -n "$P_NAME" ] || P_NAME="$P_HOST:$P_PORT"
   [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
   [ -n "$P_SECURITY" ] || P_SECURITY="reality"
-  [ -n "$P_FLOW" ] || P_FLOW="xtls-rprx-vision"
   [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
   [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
   [ -n "$P_SNI" ] || P_SNI="$P_HOST"
@@ -525,7 +527,7 @@ import_current_profile() {
   P_SPIDERX="$(json_string_value spiderX "$XRAY_CONFIG")"
   P_NETWORK="tcp"
   P_SECURITY="reality"
-  P_FLOW="xtls-rprx-vision"
+  P_FLOW="$(json_string_value flow "$XRAY_CONFIG")"
   P_VPS_IP="$(detect_vps_ip_from_transparent)"
   [ -n "$P_VPS_IP" ] || P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
   [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
@@ -788,7 +790,7 @@ render_xray_config() {
   local domains_src="$2"
   local ips_src="$3"
   local host_json sni_json fp_json pbk_json sid_json spx_json uuid_json
-  local extra_direct_ip_json direct_domain_json
+  local extra_direct_ip_json direct_domain_json flow_json
 
   host_json="$(json_config_escape "$P_HOST")"
   sni_json="$(json_config_escape "$P_SNI")"
@@ -799,6 +801,10 @@ render_xray_config() {
   uuid_json="$(json_config_escape "$P_UUID")"
   extra_direct_ip_json="$(json_tail_from_file "$ips_src")"
   direct_domain_json="$(json_list_from_file "$domains_src")"
+  flow_json=""
+  if [ -n "$P_FLOW" ]; then
+    flow_json="$(printf ',\n                "flow": "%s"' "$(json_config_escape "$P_FLOW")")"
+  fi
 
   cat > "$out" <<EOF
 {
@@ -869,8 +875,7 @@ render_xray_config() {
             "users": [
               {
                 "id": "$uuid_json",
-                "encryption": "none",
-                "flow": "$P_FLOW"
+                "encryption": "none"$flow_json
               }
             ]
           }
@@ -899,6 +904,11 @@ render_xray_config() {
       {
         "type": "field",
         "protocol": ["bittorrent"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "port": "8080",
         "outboundTag": "direct"
       },
       {
@@ -1188,6 +1198,23 @@ tcp_probe_ms() {
   }'
 }
 
+active_proxy_probe_ms() {
+  local value
+
+  detect_xray_paths
+  value="$(curl -k -4 -sS -o /dev/null \
+    --connect-timeout 4 --max-time 8 \
+    -x "socks5h://$LAN_IP:11808" \
+    -w '%{time_starttransfer}' "https://api.ipify.org/" 2>/dev/null || true)"
+  awk -v value="$value" 'BEGIN {
+    if (value + 0 <= 0) {
+      print "timeout"
+      exit
+    }
+    printf "%d ms\n", (value * 1000) + 0.5
+  }'
+}
+
 profile_ping_cached() {
   local id="$1"
   local file="$PING_DIR/$id"
@@ -1198,8 +1225,18 @@ refresh_profile_ping() {
   local id="$1"
   local host="$2"
   local port="$3"
+  local selected probe
   mkdir -p "$PING_DIR"
-  tcp_probe_ms "$host" "$port" > "$PING_DIR/$id"
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  if [ "$id" = "$selected" ]; then
+    active_proxy_probe_ms > "$PING_DIR/$id"
+    return
+  fi
+  probe="$(tcp_probe_ms "$host" "$port")"
+  case "$probe" in
+    timeout) printf '%s\n' "$probe" > "$PING_DIR/$id" ;;
+    *) printf 'tcp %s\n' "$probe" > "$PING_DIR/$id" ;;
+  esac
 }
 
 ping_numeric() {
