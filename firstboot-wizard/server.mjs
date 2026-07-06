@@ -190,8 +190,11 @@ function validatePayload(payload) {
     errors.push('SSH password must be at least 8 characters.');
   if (account.password !== account.passwordConfirm)
     errors.push('Password confirmation does not match.');
-  if (vpn.enabled && !String(vpn.vlessUrl || '').startsWith('vless://'))
-    errors.push('A VLESS link is required when VPN is enabled.');
+  if (vpn.enabled) {
+    const vpnUrl = String(vpn.vlessUrl || '');
+    if (!vpnUrl.startsWith('vless://') && !vpnUrl.startsWith('https://'))
+      errors.push('A VLESS link or HTTPS subscription link is required when VPN is enabled.');
+  }
   if (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0)
     errors.push('Select at least one AdGuard blocklist.');
   if (tailscale.enabled) {

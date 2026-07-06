@@ -1,5 +1,9 @@
-Router UI 0.7.6
+Router UI 0.7.7
 
+• Fixes imported subscription profile switching on Xray 25 by omitting empty
+  direct-domain routing rules from generated Xray configs.
+• First-boot setup accepts HTTPS subscription links as well as direct
+  `vless://` links when VPN is enabled.
 • Fixes imported VLESS Reality profiles that do not specify `flow=` by
   omitting the Xray `flow` field instead of forcing Vision mode.
 • Existing 0.7.5-imported profiles are corrected when loaded if their original

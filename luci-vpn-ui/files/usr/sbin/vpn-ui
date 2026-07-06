@@ -790,7 +790,7 @@ render_xray_config() {
   local domains_src="$2"
   local ips_src="$3"
   local host_json sni_json fp_json pbk_json sid_json spx_json uuid_json
-  local extra_direct_ip_json direct_domain_json flow_json
+  local extra_direct_ip_json direct_domain_json direct_domain_rule_json flow_json
 
   host_json="$(json_config_escape "$P_HOST")"
   sni_json="$(json_config_escape "$P_SNI")"
@@ -801,6 +801,19 @@ render_xray_config() {
   uuid_json="$(json_config_escape "$P_UUID")"
   extra_direct_ip_json="$(json_tail_from_file "$ips_src")"
   direct_domain_json="$(json_list_from_file "$domains_src")"
+  direct_domain_rule_json=""
+  if [ -n "$direct_domain_json" ]; then
+    direct_domain_rule_json="$(cat <<EOF
+,
+      {
+        "type": "field",
+        "domain": [$direct_domain_json
+        ],
+        "outboundTag": "direct"
+      }
+EOF
+)"
+  fi
   flow_json=""
   if [ -n "$P_FLOW" ]; then
     flow_json="$(printf ',\n                "flow": "%s"' "$(json_config_escape "$P_FLOW")")"
@@ -938,13 +951,7 @@ render_xray_config() {
           "2ip.ru"
         ],
         "outboundTag": "proxy"
-      },
-      {
-        "type": "field",
-        "domain": [$direct_domain_json
-        ],
-        "outboundTag": "direct"
-      },
+      }$direct_domain_rule_json,
       {
         "type": "field",
         "inboundTag": ["socks-in", "http-in", "transparent-in"],

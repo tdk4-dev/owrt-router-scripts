@@ -139,8 +139,9 @@ function validateStep(index = state.step) {
   }
 
   if (id === 'vpn' && form.vpn.enabled) {
-    if (!form.vpn.vlessUrl.trim().startsWith('vless://'))
-      errors.push('Paste a valid VLESS link or disable VPN for first boot.');
+    const vpnUrl = form.vpn.vlessUrl.trim();
+    if (!vpnUrl.startsWith('vless://') && !vpnUrl.startsWith('https://'))
+      errors.push('Paste a valid VLESS link or HTTPS subscription link, or disable VPN for first boot.');
   }
 
   if (id === 'adguard' && selectedFilters().length === 0)
@@ -372,13 +373,13 @@ function renderVpn() {
     </div>
     <div class="form-grid ${vpn.enabled ? '' : 'hidden'}">
       <div class="field full">
-        <label for="vless-url">VLESS link</label>
+        <label for="vless-url">VLESS or subscription link</label>
         <input
           id="vless-url"
           type="text"
           value="${attr(vpn.vlessUrl)}"
           data-path="vpn.vlessUrl"
-          placeholder="vless://...">
+          placeholder="vless://... or https://provider.example/sub/...">
         <div class="hint">The final router helper will import this into the VPN panel profile store.</div>
       </div>
     </div>
@@ -457,7 +458,7 @@ function renderReview() {
       ${reviewRow('Router', `${state.router.hostname} on ${state.router.lanIp}`)}
       ${reviewRow('SSH login', state.form.account.login)}
       ${reviewRow('SSH password', state.form.account.password ? 'Will be set' : 'Missing')}
-      ${reviewRow('VPN', vpn.enabled ? 'Enabled with VLESS profile' : 'Disabled on first boot')}
+      ${reviewRow('VPN', vpn.enabled ? (vpn.vlessUrl.trim().startsWith('https://') ? 'Enabled with subscription profile' : 'Enabled with VLESS profile') : 'Disabled on first boot')}
       ${reviewRow('AdGuard filters', selected.map(filter => filter.name).join(', '))}
       ${reviewRow('Tailscale', tailscale.enabled ? `Enabled with ${tailscale.loginServer}` : 'Skipped')}
       ${reviewRow('Secrets', 'Passwords, VLESS links, and preauth keys are not returned after submission.')}

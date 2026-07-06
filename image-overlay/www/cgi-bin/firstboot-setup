@@ -310,18 +310,27 @@ configure_xray_service() {
 
 configure_vpn() {
   local enabled="$1"
-  local vless="$2"
+  local vpn_url="$2"
   local id add_result select_result
 
   configure_xray_service
   /usr/sbin/vpn-ui init >/tmp/firstboot-vpn-init.log 2>&1 || true
 
   if bool_true "$enabled"; then
-    case "$vless" in vless://*) ;; *) fail "A VLESS link is required when VPN is enabled." ;; esac
+    case "$vpn_url" in vless://*|https://*) ;; *) fail "A VLESS link or HTTPS subscription link is required when VPN is enabled." ;; esac
     add_result="/tmp/firstboot-vpn-add.json"
-    /usr/sbin/vpn-ui add "$vless" >"$add_result" 2>&1
-    grep -q '"ok":true' "$add_result" || fail "Could not add VLESS profile: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
-    id="$(jsonfilter -i "$add_result" -e '@.profile.id' 2>/dev/null)"
+    case "$vpn_url" in
+      vless://*)
+        /usr/sbin/vpn-ui add "$vpn_url" >"$add_result" 2>&1
+        grep -q '"ok":true' "$add_result" || fail "Could not add VLESS profile: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
+        id="$(jsonfilter -i "$add_result" -e '@.profile.id' 2>/dev/null)"
+        ;;
+      https://*)
+        /usr/sbin/vpn-ui subscription-add "$vpn_url" >"$add_result" 2>&1
+        grep -q '"ok":true' "$add_result" || fail "Could not import subscription: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
+        id="$(jsonfilter -i "$add_result" -e '@.selected' 2>/dev/null)"
+        ;;
+    esac
     [ -n "$id" ] || fail "VPN profile import did not return an ID."
     /etc/init.d/xray enable >/dev/null 2>&1 || true
     /etc/init.d/xray-transparent enable >/dev/null 2>&1 || true
