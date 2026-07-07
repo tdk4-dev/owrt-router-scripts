@@ -16,6 +16,16 @@ It mirrors the main behavior of the current `openwrt-fin0` setup:
 
 The script does not clone personal DHCP reservations or WAN port forwards from the existing router. It has prompts for optional local DNS rewrites and extra direct IP/domain bypasses.
 
+For an already running router, the LuCI VPN panel can be installed separately:
+
+```sh
+./install-openwrt-vpn-ui.sh
+```
+
+For a custom x86 image, use `luci-vpn-ui/files/` as an overlay and run
+`/usr/sbin/vpn-ui init` after `/etc/xray/exit-st-cf.json` exists. See
+[luci-vpn-ui/README.md](luci-vpn-ui/README.md).
+
 ## Script
 
 Use:
@@ -123,6 +133,7 @@ Common edits:
 vpn-routes list
 vpn-routes add-domain example.ru
 vpn-routes add-domain 'regexp:^.*\.example\.ru$'
+vpn-routes add-domain geosite:alibaba
 vpn-routes del-domain example.ru
 vpn-routes edit domains
 vpn-routes add-ip 203.0.113.10/32
@@ -131,6 +142,8 @@ vpn-routes apply
 ```
 
 `add-*`, `del-*`, and `edit` automatically run `vpn-routes apply`. `apply` regenerates `/etc/xray/exit-st-cf.json`, runs `xray run -test`, then restarts Xray and the transparent nft service only if the config is valid.
+`geosite:*` domain rules require `geosite.dat` in the configured Xray datadir;
+the setup installs it by default when missing.
 
 ## Expected Checks
 

@@ -1,0 +1,55 @@
+name: Release VPN panel
+
+on:
+  push:
+    tags:
+      - "vpn-panel-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag
+        run: |
+          version="$(sed -n '1p' luci-vpn-ui/VERSION | tr -d '\r\n')"
+          test "${GITHUB_REF_NAME}" = "vpn-panel-v${version}"
+
+      - name: Validate scripts
+        run: |
+          sh -n \
+            luci-vpn-ui/install.sh \
+            luci-vpn-ui/files/usr/sbin/vpn-ui \
+            luci-vpn-ui/files/usr/sbin/vpn-ui-update \
+            install-router-ui-release.sh \
+            install-openwrt-vpn-ui.sh \
+            install-friend-vpn-panel.sh \
+            make-vpn-ui-release-bundle.sh
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn-0-7-0.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale-0-7-5.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update-0-7-3.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
+          node tests/test-tailscale-ping-ui.mjs
+
+      - name: Build release bundle
+        run: ./make-vpn-ui-release-bundle.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n '1p' luci-vpn-ui/VERSION | tr -d '\r\n')"
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/luci-vpn-ui.tar.gz \
+            dist/luci-vpn-ui.tar.gz.sha256 \
+            dist/vpn-ui-version.txt \
+            dist/vpn-ui-changelog.txt \
+            dist/vpn-ui-release-date.txt \
+            dist/install-router-ui-release.sh \
+            dist/install-router-ui-release.sh.sha256 \
+            --title "Router UI ${version}" \
+            --notes-file luci-vpn-ui/RELEASE_NOTES.md

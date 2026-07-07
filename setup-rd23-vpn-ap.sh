@@ -10,8 +10,8 @@ KNOWN_HOSTS="${KNOWN_HOSTS:-/tmp/rd23-openwrt-known-hosts}"
 
 ROUTER_HOST="${ROUTER_HOST:-192.168.1.1}"
 ROUTER_USER="${ROUTER_USER:-root}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519_selfhost}"
-HOSTNAME="${HOSTNAME:-Exlet-OWRT}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519_openwrt}"
+HOSTNAME="${HOSTNAME:-openwrt-rd23}"
 
 LAN_IP="${LAN_IP:-10.77.0.1}"
 LAN_NETMASK="${LAN_NETMASK:-255.255.255.0}"
@@ -20,13 +20,13 @@ LAN_DHCP_START="${LAN_DHCP_START:-100}"
 LAN_DHCP_LIMIT="${LAN_DHCP_LIMIT:-150}"
 
 WIFI_COUNTRY="${WIFI_COUNTRY:-RU}"
-WIFI_2G_SSID="${WIFI_2G_SSID:-Exlet-OWRT-2.4}"
-WIFI_5G_SSID="${WIFI_5G_SSID:-Exlet-OWRT-5}"
+WIFI_2G_SSID="${WIFI_2G_SSID:-OpenWrt-2G}"
+WIFI_5G_SSID="${WIFI_5G_SSID:-OpenWrt-5G}"
 WIFI_PASSWORD="${WIFI_PASSWORD:-}"
 
 VLESS_URL="${VLESS_URL:-}"
-HEADSCALE_URL="${HEADSCALE_URL:-https://tdk4.duckdns.org}"
-TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-valera-owrt}"
+HEADSCALE_URL="${HEADSCALE_URL:-https://headscale.example.com}"
+TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-openwrt-rd23}"
 TAILSCALE_AUTHKEY="${TAILSCALE_AUTHKEY:-}"
 TAILSCALE_SSH_CIDR="${TAILSCALE_SSH_CIDR:-100.64.0.0/10}"
 
@@ -67,14 +67,14 @@ Usage:
 
 Common environment variables:
   ROUTER_HOST=192.168.1.1          OpenWrt SSH host before LAN readdress
-  SSH_KEY=~/.ssh/id_ed25519_selfhost
-  HOSTNAME=Exlet-OWRT
+  SSH_KEY=~/.ssh/id_ed25519_openwrt
+  HOSTNAME=openwrt-rd23
   LAN_IP=10.77.0.1
-  WIFI_2G_SSID=Exlet-OWRT-2.4
-  WIFI_5G_SSID=Exlet-OWRT-5
+  WIFI_2G_SSID=OpenWrt-2G
+  WIFI_5G_SSID=OpenWrt-5G
   WIFI_PASSWORD='strong-password'
-  HEADSCALE_URL=https://tdk4.duckdns.org
-  TAILSCALE_HOSTNAME=valera-owrt
+  HEADSCALE_URL=https://headscale.example.com
+  TAILSCALE_HOSTNAME=openwrt-rd23
   TAILSCALE_AUTHKEY=tskey-auth-...  Optional; required only for first login
   INSTALL_PACKAGES=1               Optional opkg install of xray/tailscale/etc
 
@@ -432,10 +432,10 @@ uci set "\$WAN_ZONE.masq=1"
 uci set "\$WAN_ZONE.mtu_fix=1"
 uci set firewall.@defaults[0].flow_offloading='0'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
-uci -q delete firewall.valera_lan_wan
-uci set firewall.valera_lan_wan='forwarding'
-uci set firewall.valera_lan_wan.src='lan'
-uci set firewall.valera_lan_wan.dest='wan'
+uci -q delete firewall.lan_wan_forward
+uci set firewall.lan_wan_forward='forwarding'
+uci set firewall.lan_wan_forward.src='lan'
+uci set firewall.lan_wan_forward.dest='wan'
 uci -q delete firewall.allow_tailscale_ssh
 uci set firewall.allow_tailscale_ssh='rule'
 uci set firewall.allow_tailscale_ssh.name='Allow-Tailscale-SSH'
@@ -607,7 +607,7 @@ main() {
   info "Done"
   cat <<EOF
 Production notes:
-  - No /etc/hosts override for tdk4.duckdns.org is kept.
+  - No static /etc/hosts override for the Tailscale/Headscale login host is kept.
   - SSH over tailnet is allowed from $TAILSCALE_SSH_CIDR to TCP/22.
   - Transparent proxy bypasses private ranges, Tailscale, and the VLESS endpoint.
   - Russian, EMIAS, and ESIA/Gosuslugi domains are routed direct by Xray.

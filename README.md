@@ -1,35 +1,79 @@
 # OpenWrt Router Setup Scripts
 
-For the new x86/64 router-PC setup, use [README-x86-fin0.md](README-x86-fin0.md) and [setup-openwrt-x86-fin0.sh](setup-openwrt-x86-fin0.sh).
+Reusable scripts for configuring OpenWrt routers with LuCI, Xray/VLESS Reality,
+transparent routing, direct-route lists, and optional Tailscale/Headscale.
 
-# Xiaomi RD23 VPN AP Setup
+## x86 Router Setup
 
-This repo contains a Mac-side setup script for Xiaomi RD23 / Xiaomi Mi Router AX3000T routers running OpenWrt.
+For the x86/64 router-PC setup, use:
 
-The script automates the repeatable OpenWrt configuration:
+- [README-x86-fin0.md](README-x86-fin0.md)
+- [setup-openwrt-x86-fin0.sh](setup-openwrt-x86-fin0.sh)
 
-- LAN `10.77.0.1/24`, WAN DHCP, DHCP/DNS for clients.
-- Wi-Fi AP on 2.4 GHz and 5 GHz.
-- Xray VLESS TCP Reality with explicit `flow=xtls-rprx-vision`.
-- nft tproxy transparent proxy.
-- Split tunneling: Russian domains, EMIAS, ESIA/Gosuslugi, private ranges, Tailscale, and the VLESS endpoint go direct.
-- Tailscale/Headscale validation and optional first login via auth key.
-- Tailnet SSH firewall rule for TCP/22 from `100.64.0.0/10`.
-- Production cleanup: no `/etc/hosts` override for `tdk4.duckdns.org`.
+`openwrt-fin0` is the default example hostname used by that flow. Override it
+with `HOSTNAME` or `TAILSCALE_HOSTNAME` for your own deployment.
 
-## Boundary
+### Custom Installation Image
 
-The stock Xiaomi exploit/flashing step is not bundled. That part depends on Xiaomi firmware UI state and requires an admin password set in the Xiaomi web UI first.
+The custom x86/64 image includes LuCI, AdGuardHome, Xray, Tailscale, the VPN
+panel, and the dark first-boot setup assistant. It boots its LAN at
+`10.77.0.1`.
 
-Flow:
+Build it on an x86_64 Linux host:
 
-1. Plug Mac Ethernet into a Xiaomi LAN port.
-2. Open Xiaomi web UI.
-3. Complete initial setup and set the admin password.
-4. Run your known RD23 OpenWrt exploit/flashing flow.
-5. Run this script once OpenWrt root SSH is reachable.
+```sh
+./build-openwrt-x86-fin0-image-linux.sh
+```
 
-## Usage
+The script uses the official OpenWrt 24.10.5 ImageBuilder and writes BIOS and
+EFI ext4 combined images to `dist/`.
+
+## LuCI VPN Panel
+
+Install the graphical VPN panel onto an already running OpenWrt router:
+
+```sh
+./install-openwrt-vpn-ui.sh
+```
+
+By default it connects to the `owrt` SSH alias, creates a full `sysupgrade -b`
+backup, uploads the local panel bundle, runs the router-side installer, and
+validates the rendered Xray config without changing the selected profile.
+
+Use another SSH target:
+
+```sh
+ROUTER_HOST=root@192.168.1.1 ./install-openwrt-vpn-ui.sh
+```
+
+To install the same VPN and Tailscale panels on a friend's already configured
+OpenWrt router:
+
+```sh
+./install-friend-vpn-panel.sh valera-owrt
+```
+
+The friend installer checks prerequisites, creates and downloads a full
+OpenWrt backup, preserves existing VPN state, installs both
+`Network > VPN Panel` and `Network > Tailscale`, adds a top-level `Update`
+menu, and validates the result.
+
+The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
+but normal installs and updates use bundles.
+
+The installer also installs Xray geosite data at `/usr/share/xray/geosite.dat`
+when it is missing, so `geosite:*` direct routing rules work by default. It
+does not refresh an existing geosite database unless `UPDATE_GEOSITE=1` is set.
+
+The panel source and image-overlay notes live in
+[luci-vpn-ui/README.md](luci-vpn-ui/README.md).
+
+## Xiaomi RD23 VPN AP Setup
+
+For Xiaomi RD23 / AX3000T routers already running OpenWrt, use:
+
+- [rd23.env.example](rd23.env.example)
+- [setup-rd23-vpn-ap.sh](setup-rd23-vpn-ap.sh)
 
 ```sh
 cp rd23.env.example rd23.env
@@ -39,7 +83,8 @@ Edit `rd23.env`, especially:
 
 - `WIFI_PASSWORD`
 - `VLESS_URL`
-- `TAILSCALE_AUTHKEY` if the router is not already logged into Headscale
+- `HEADSCALE_URL`, `TAILSCALE_HOSTNAME`, and `TAILSCALE_AUTHKEY` if using
+  Headscale/Tailscale login from the script
 
 Then run:
 
@@ -50,40 +95,10 @@ set +a
 ./setup-rd23-vpn-ap.sh
 ```
 
-If OpenWrt is already at the final LAN address:
-
-```sh
-ROUTER_HOST=10.77.0.1 ./setup-rd23-vpn-ap.sh
-```
-
-If the router starts at OpenWrt default `192.168.1.1`, the script will configure `10.77.0.1`, restart networking, and wait for SSH at the new address. The Mac may need Ethernet DHCP renewal after that change.
-
-## Expected Final Checks
-
-On the router:
-
-```sh
-nslookup tdk4.duckdns.org
-curl -4 http://api.ipify.org
-curl -4 -x socks5h://10.77.0.1:11808 http://api.ipify.org
-tailscale status
-```
-
-Expected:
-
-- `tdk4.duckdns.org` resolves to the public home IP, not a home-LAN IP.
-- direct router IP is the local ISP public IP.
-- SOCKS/Xray IP is the VLESS server IP.
-- Tailscale shows the router online.
-
-From your admin machine:
-
-```sh
-ssh valera-owrt
-```
-
 ## Notes
 
-- Do not keep a static `/etc/hosts` mapping like `10.20.0.181 tdk4.duckdns.org` for production. It only works at home.
-- The script uses `ssh cat > file` for file transfer; it does not use OpenWrt-incompatible SFTP `scp`.
-- Router-side shell snippets are BusyBox `ash` compatible and avoid `timeout`, `nohup`, and GNU-only utilities.
+- Do not commit real VLESS links, auth keys, private domains, or local device
+  addresses.
+- Use `.env`/local config files for deployment-specific values.
+- File transfer to OpenWrt uses `ssh` + `cat` or `ssh` + `tar`, avoiding
+  OpenWrt-incompatible SFTP assumptions.

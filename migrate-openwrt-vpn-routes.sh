@@ -28,6 +28,7 @@ REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 REALITY_SNI="${REALITY_SNI:-}"
 REALITY_FINGERPRINT="${REALITY_FINGERPRINT:-}"
 REALITY_SPIDERX="${REALITY_SPIDERX:-}"
+XRAY_DATADIR="${XRAY_DATADIR:-}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -70,6 +71,7 @@ Environment overrides are available if autodetection fails:
   REALITY_SNI=www.cloudflare.com
   REALITY_FINGERPRINT=firefox
   REALITY_SPIDERX=/
+  XRAY_DATADIR=/usr/share/xray
 
 Internal:
   sh $SCRIPT_NAME --apply
@@ -118,6 +120,32 @@ json_list_from_file() {
       printf ',\n          "%s"' "$esc"
     fi
   done < "$file"
+}
+
+file_has_rule_prefix() {
+  local file="$1"
+  local prefix="$2"
+  local item
+
+  [ -f "$file" ] || return 1
+  while IFS= read -r item || [ -n "$item" ]; do
+    item="$(printf '%s' "$item" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$item" ] || continue
+    case "$item" in
+      "$prefix"*) return 0 ;;
+    esac
+  done < "$file"
+  return 1
+}
+
+ensure_domain_rule_data() {
+  local file="$1"
+
+  [ -n "$XRAY_DATADIR" ] || XRAY_DATADIR="/usr/share/xray"
+  if file_has_rule_prefix "$file" "geosite:"; then
+    [ -s "$XRAY_DATADIR/geosite.dat" ] ||
+      die "geosite rules require $XRAY_DATADIR/geosite.dat; install or copy Xray geosite data, then apply routes again"
+  fi
 }
 
 active_line_count() {
@@ -237,6 +265,9 @@ detect_xray_paths() {
   fi
   [ -n "$XRAY_BIN" ] && [ -x "$XRAY_BIN" ] ||
     die "could not find xray binary; pass XRAY_BIN=/path/to/xray"
+
+  [ -n "$XRAY_DATADIR" ] || XRAY_DATADIR="$(uci -q get xray.config.datadir 2>/dev/null || true)"
+  [ -n "$XRAY_DATADIR" ] || XRAY_DATADIR="/usr/share/xray"
 }
 
 infer_vars_from_config() {
@@ -540,6 +571,7 @@ REALITY_SHORT_ID=$(shell_quote "$REALITY_SHORT_ID")
 REALITY_SNI=$(shell_quote "$REALITY_SNI")
 REALITY_FINGERPRINT=$(shell_quote "$REALITY_FINGERPRINT")
 REALITY_SPIDERX=$(shell_quote "$REALITY_SPIDERX")
+XRAY_DATADIR=$(shell_quote "$XRAY_DATADIR")
 EOF
   chmod 600 "$VARS_FILE"
 }
@@ -557,6 +589,7 @@ write_xray_config() {
   spx_json="$(json_escape "$REALITY_SPIDERX")"
   uuid_json="$(json_escape "$VLESS_UUID")"
   extra_direct_ip_json="$(json_tail_from_file "$IPS_FILE")"
+  ensure_domain_rule_data "$DOMAINS_FILE"
   direct_domain_json="$(json_list_from_file "$DOMAINS_FILE")"
 
   cat > "$out" <<EOF
@@ -711,7 +744,7 @@ restart_xray_services() {
     uci set xray.enabled.enabled='1'
     uci set xray.config='xray'
     uci set xray.config.conffiles="$XRAY_CONFIG"
-    uci set xray.config.datadir='/usr/share/xray'
+    uci set xray.config.datadir="$XRAY_DATADIR"
     uci set xray.config.format='json'
     uci -q delete xray.config.confdir
     uci commit xray
@@ -784,6 +817,7 @@ Usage:
 Examples:
   vpn-routes add-domain example.ru
   vpn-routes add-domain 'regexp:^.*\.example\.ru$'
+  vpn-routes add-domain geosite:alibaba
   vpn-routes add-ip 203.0.113.10/32
 USAGE
 }

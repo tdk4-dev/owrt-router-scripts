@@ -149,7 +149,7 @@ or:
   IPERF_SERVER=public.ip.or.hostname
 
 Examples:
-  REMOTE_SSH=hostkey-nl ./owrt-raw-wan-iperf.sh
+  REMOTE_SSH=remote-iperf-host ./owrt-raw-wan-iperf.sh
   IPERF_SERVER=203.0.113.10 ./owrt-raw-wan-iperf.sh
 EOF
   exit 2

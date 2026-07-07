@@ -1,0 +1,2369 @@
+#!/bin/ash
+set -u
+
+XRAY_CONFIG="/etc/xray/exit-st-cf.json"
+PROFILE_DIR="/etc/xray/vless-profiles.d"
+SELECTED_FILE="/etc/xray/vless-selected"
+DOMAINS_FILE="/etc/xray/direct-domains.txt"
+IPS_FILE="/etc/xray/direct-ips.txt"
+TRANSPARENT_INIT="/etc/init.d/xray-transparent"
+DEVICE_BYPASS_FILE="/etc/xray/vpn-ui-device-bypass-macs.txt"
+SUBSCRIPTION_DIR="/etc/xray/subscriptions.d"
+AUTO_CONFIG="/etc/xray/vpn-ui-auto.conf"
+AUTO_POOL_FILE="/etc/xray/vpn-ui-auto-pool.txt"
+AUTO_STATE="/tmp/vpn-ui-auto-state"
+PING_DIR="/tmp/vpn-ui-pings"
+VERSION_FILE="/usr/share/vpn-ui/version"
+DHCP_LEASES_FILE="/tmp/dhcp.leases"
+NFT_FAMILY="inet"
+NFT_TABLE="xray_transparent"
+NFT_DEVICE_BYPASS_SET="vpn_ui_device_bypass4"
+DEFAULT_XRAY_DATADIR="/usr/share/xray"
+XRAY_ACCESS_LOG="/tmp/xray-access.log"
+XRAY_ERROR_LOG="/tmp/xray-error.log"
+XRAY_ACCESS_LOG_MAX_BYTES=1048576
+XRAY_ACCESS_LOG_KEEP_BYTES=262144
+XRAY_ERROR_LOG_MAX_BYTES=262144
+XRAY_ERROR_LOG_KEEP_BYTES=65536
+ADGUARD_CONFIG="/etc/adguardhome.yaml"
+ADGUARD_QUERYLOG="/tmp/lib/adguardhome/data/querylog.json"
+
+XRAY_SERVICE=""
+XRAY_BIN=""
+LAN_IP=""
+
+json_escape() {
+  printf '%s' "$1" |
+    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' |
+    awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+one_line() {
+  printf '%s' "$1" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g' | cut -c 1-500
+}
+
+die_json() {
+  printf '{"ok":false,"error":'
+  json_string "$(one_line "$*")"
+  printf '}\n'
+  exit 0
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+json_config_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+is_ipv4() {
+  printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
+}
+
+normalize_mac() {
+  printf '%s' "$1" | tr 'A-F' 'a-f'
+}
+
+valid_mac() {
+  printf '%s' "$1" | grep -Eq '^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$'
+}
+
+valid_port() {
+  printf '%s' "$1" | grep -Eq '^[0-9]+$' || return 1
+  [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+url_decode() {
+  local value
+  value="$(printf '%s' "$1" | sed 's/+/ /g; s/%/\\x/g')"
+  printf '%b' "$value"
+}
+
+trim_input() {
+  printf '%s' "$1" |
+    tr -d '\r\n' |
+    sed -e 's/&amp;/\&/g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//'
+}
+
+qs_value() {
+  local query="$1"
+  local key="$2"
+  local pair name value
+
+  printf '%s' "$query" | tr '&' '\n' | while IFS= read -r pair || [ -n "$pair" ]; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    [ "$name" = "$key" ] || continue
+    url_decode "$value"
+    exit 0
+  done
+}
+
+detect_xray_paths() {
+  if [ -z "$XRAY_SERVICE" ]; then
+    if [ -x /etc/init.d/xray-exit-st ]; then
+      XRAY_SERVICE="xray-exit-st"
+    else
+      XRAY_SERVICE="xray"
+    fi
+  fi
+
+  if [ -z "$XRAY_BIN" ] && [ -x /usr/local/bin/xray-latest ]; then
+    XRAY_BIN="/usr/local/bin/xray-latest"
+  fi
+  if [ -z "$XRAY_BIN" ] && command -v xray >/dev/null 2>&1; then
+    XRAY_BIN="$(command -v xray)"
+  fi
+  [ -n "$XRAY_BIN" ] && [ -x "$XRAY_BIN" ] ||
+    die_json "could not find xray binary"
+
+  if [ -z "$LAN_IP" ]; then
+    LAN_IP="$(uci -q get network.lan.ipaddr 2>/dev/null || true)"
+  fi
+  if [ -z "$LAN_IP" ] && [ -f "$XRAY_CONFIG" ]; then
+    LAN_IP="$(json_string_value listen "$XRAY_CONFIG")"
+  fi
+  [ -n "$LAN_IP" ] || LAN_IP="0.0.0.0"
+}
+
+json_string_value() {
+  local key="$1"
+  local file="$2"
+  sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" |
+    sed -n '1p' |
+    sed 's/\\\\/\\/g; s/\\"/"/g'
+}
+
+json_vnext_string_value() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    /"vnext"[[:space:]]*:/ { seen=1 }
+    seen && $0 ~ "\"" key "\"" {
+      print
+      exit
+    }
+  ' "$file" |
+    sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+    sed 's/\\\\/\\/g; s/\\"/"/g'
+}
+
+json_vnext_number_value() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    /"vnext"[[:space:]]*:/ { seen=1 }
+    seen && $0 ~ "\"" key "\"" {
+      gsub(/[^0-9]/, "", $0)
+      print
+      exit
+    }
+  ' "$file"
+}
+
+detect_vps_ip_from_transparent() {
+  [ -f "$TRANSPARENT_INIT" ] || return 0
+  sed -n \
+    -e 's/^[[:space:]]*FIN0_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
+    -e 's/^[[:space:]]*VPS_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
+    "$TRANSPARENT_INIT" |
+    sed -n '1p'
+}
+
+resolve_vps_ip() {
+  local host="$1"
+  local found
+
+  if is_ipv4 "$host"; then
+    printf '%s' "$host"
+    return 0
+  fi
+
+  found="$(nslookup "$host" 2>/dev/null |
+    awk '
+      /^Name:/ { answer=1; next }
+      answer && /^Address [0-9]+: [0-9]/ { print $3; exit }
+      answer && /^Address: [0-9]/ {
+        value=$2
+        sub(/:[0-9]+$/, "", value)
+        print value
+        exit
+      }
+    ')"
+  printf '%s' "$found"
+}
+
+extract_direct_array() {
+  local key="$1"
+  local file="$2"
+
+  [ -f "$file" ] || return 0
+
+  awk -v key="$key" '
+    function reset() {
+      in_array = 0
+      waiting = 0
+      count = 0
+      delete vals
+    }
+    function value_from_line(line, s) {
+      s = line
+      sub(/^[^\"]*\"/, "", s)
+      sub(/\".*$/, "", s)
+      gsub(/\\\\/, "\\", s)
+      gsub(/\\"/, "\"", s)
+      return s
+    }
+    $0 ~ "\"" key "\"[[:space:]]*:[[:space:]]*\\[" {
+      in_array = 1
+      count = 0
+      next
+    }
+    in_array && $0 ~ "\\]" {
+      in_array = 0
+      waiting = 1
+      next
+    }
+    in_array {
+      if ($0 ~ /\"/) {
+        count++
+        vals[count] = value_from_line($0)
+      }
+      next
+    }
+    waiting && $0 ~ /"outboundTag"[[:space:]]*:[[:space:]]*"direct"/ {
+      for (i = 1; i <= count; i++) print vals[i]
+      reset()
+      next
+    }
+    waiting && $0 ~ /"outboundTag"[[:space:]]*:/ {
+      reset()
+      next
+    }
+  ' "$file" | awk 'NF && !seen[$0]++'
+}
+
+is_builtin_direct_ip() {
+  local item="$1"
+  local vps_ip="$2"
+  case "$item" in
+    0.0.0.0/8|10.0.0.0/8|100.64.0.0/10|127.0.0.0/8|169.254.0.0/16|172.16.0.0/12|192.168.0.0/16|224.0.0.0/4|240.0.0.0/4)
+      return 0
+      ;;
+    "$vps_ip"|"$vps_ip/32")
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+normalize_file() {
+  local src="$1"
+  local dst="$2"
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$src" > "$dst"
+}
+
+normalize_text_to_file() {
+  local text="$1"
+  local dst="$2"
+  local tmp="/tmp/vpn-ui-text.$$"
+  printf '%s\n' "$text" > "$tmp"
+  normalize_file "$tmp" "$dst"
+  rm -f "$tmp"
+}
+
+json_list_from_file() {
+  local file="$1"
+  local item esc first
+  first=1
+  [ -f "$file" ] || return 0
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    esc="$(json_config_escape "$item")"
+    if [ "$first" = "1" ]; then
+      printf '\n          "%s"' "$esc"
+      first=0
+    else
+      printf ',\n          "%s"' "$esc"
+    fi
+  done
+}
+
+json_tail_from_file() {
+  local file="$1"
+  local item esc
+  [ -f "$file" ] || return 0
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    esc="$(json_config_escape "$item")"
+    printf ',\n          "%s"' "$esc"
+  done
+}
+
+file_has_rule_prefix() {
+  local file="$1"
+  local prefix="$2"
+
+  [ -f "$file" ] || return 1
+  awk -v prefix="$prefix" '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (index($0, prefix) == 1) found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$file"
+}
+
+xray_datadir() {
+  local datadir
+  datadir="$(uci -q get xray.config.datadir 2>/dev/null || true)"
+  [ -n "$datadir" ] || datadir="$DEFAULT_XRAY_DATADIR"
+  printf '%s' "$datadir"
+}
+
+ensure_domain_rule_data() {
+  local file="$1"
+  local datadir
+
+  if file_has_rule_prefix "$file" "geosite:"; then
+    datadir="$(xray_datadir)"
+    [ -s "$datadir/geosite.dat" ] ||
+      die_json "geosite rules require $datadir/geosite.dat; install or copy Xray geosite data, then apply rules again"
+  fi
+}
+
+profile_id_from_url() {
+  printf '%s' "$1" | sha256sum | awk '{ print substr($1, 1, 16) }'
+}
+
+profile_id_from_current() {
+  printf '%s:%s:%s' "$P_HOST" "$P_PORT" "$P_UUID" | sha256sum | awk '{ print substr($1, 1, 16) }'
+}
+
+write_profile_file() {
+  local file="$PROFILE_DIR/$P_ID.conf"
+  mkdir -p "$PROFILE_DIR"
+  {
+    printf 'P_ID=%s\n' "$(shell_quote "$P_ID")"
+    printf 'P_NAME=%s\n' "$(shell_quote "$P_NAME")"
+    printf 'P_URL=%s\n' "$(shell_quote "$P_URL")"
+    printf 'P_UUID=%s\n' "$(shell_quote "$P_UUID")"
+    printf 'P_HOST=%s\n' "$(shell_quote "$P_HOST")"
+    printf 'P_PORT=%s\n' "$(shell_quote "$P_PORT")"
+    printf 'P_VPS_IP=%s\n' "$(shell_quote "$P_VPS_IP")"
+    printf 'P_NETWORK=%s\n' "$(shell_quote "$P_NETWORK")"
+    printf 'P_SECURITY=%s\n' "$(shell_quote "$P_SECURITY")"
+    printf 'P_FLOW=%s\n' "$(shell_quote "$P_FLOW")"
+    printf 'P_PUBLIC_KEY=%s\n' "$(shell_quote "$P_PUBLIC_KEY")"
+    printf 'P_SHORT_ID=%s\n' "$(shell_quote "$P_SHORT_ID")"
+    printf 'P_SNI=%s\n' "$(shell_quote "$P_SNI")"
+    printf 'P_FINGERPRINT=%s\n' "$(shell_quote "$P_FINGERPRINT")"
+    printf 'P_SPIDERX=%s\n' "$(shell_quote "$P_SPIDERX")"
+    printf 'P_SOURCE_ID=%s\n' "$(shell_quote "$P_SOURCE_ID")"
+  } > "$file"
+  chmod 600 "$file"
+}
+
+reset_profile_vars() {
+  P_ID=""
+  P_NAME=""
+  P_URL=""
+  P_UUID=""
+  P_HOST=""
+  P_PORT=""
+  P_VPS_IP=""
+  P_NETWORK="tcp"
+  P_SECURITY="reality"
+  P_FLOW=""
+  P_PUBLIC_KEY=""
+  P_SHORT_ID=""
+  P_SNI=""
+  P_FINGERPRINT="firefox"
+  P_SPIDERX="/"
+  P_SOURCE_ID=""
+}
+
+load_profile_file() {
+  local file="$1"
+  reset_profile_vars
+  # shellcheck disable=SC1090
+  . "$file"
+  [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
+  [ -n "$P_SECURITY" ] || P_SECURITY="reality"
+  case "${P_URL:-}" in
+    *\?flow=*|*\&flow=*) ;;
+    vless://*|vless%3A*|vless%3a*) P_FLOW="" ;;
+  esac
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+}
+
+load_profile_id() {
+  local id="$1"
+  local file="$PROFILE_DIR/$id.conf"
+  [ -f "$file" ] || die_json "unknown VLESS profile: $id"
+  load_profile_file "$file"
+}
+
+parse_vless_url() {
+  local url="$1"
+  local nofrag body rest hostport query fragment parsed after_bracket
+
+  reset_profile_vars
+  url="$(trim_input "$url")"
+  case "$url" in
+    vless://*) ;;
+    vless%3A*|vless%3a*) url="$(url_decode "$url")" ;;
+  esac
+  P_URL="$url"
+
+  case "$url" in
+    vless://*) ;;
+    *) die_json "VLESS link must start with vless://" ;;
+  esac
+
+  nofrag="${url%%#*}"
+  fragment=""
+  case "$url" in
+    *#*) fragment="${url#*#}" ;;
+  esac
+
+  body="${nofrag#vless://}"
+  P_UUID="${body%%@*}"
+  rest="${body#*@}"
+  [ "$rest" != "$body" ] || die_json "VLESS link is missing endpoint"
+
+  hostport="${rest%%\?*}"
+  hostport="${hostport%%/*}"
+  query=""
+  case "$rest" in
+    *\?*) query="${rest#*\?}" ;;
+  esac
+
+  case "$hostport" in
+    \[*\]*)
+      P_HOST="${hostport#\[}"
+      P_HOST="${P_HOST%%\]*}"
+      after_bracket="${hostport#*\]}"
+      case "$after_bracket" in
+        :*) P_PORT="${after_bracket#:}" ;;
+      esac
+      ;;
+    *:*)
+      P_HOST="${hostport%:*}"
+      parsed="${hostport##*:}"
+      [ "$parsed" != "$hostport" ] && P_PORT="$parsed"
+      ;;
+    *)
+      P_HOST="$hostport"
+      P_PORT="443"
+      ;;
+  esac
+
+  P_PUBLIC_KEY="$(qs_value "$query" pbk)"
+  P_SHORT_ID="$(qs_value "$query" sid)"
+  P_SNI="$(qs_value "$query" sni)"
+  P_FINGERPRINT="$(qs_value "$query" fp)"
+  P_SPIDERX="$(qs_value "$query" spx)"
+  P_FLOW="$(qs_value "$query" flow)"
+  P_NETWORK="$(qs_value "$query" type)"
+  P_SECURITY="$(qs_value "$query" security)"
+
+  P_UUID="$(url_decode "$P_UUID")"
+  P_HOST="$(url_decode "$P_HOST")"
+  [ -n "$P_NAME" ] || P_NAME="$(url_decode "$fragment")"
+  [ -n "$P_NAME" ] || P_NAME="$P_HOST:$P_PORT"
+  [ -n "$P_NETWORK" ] || P_NETWORK="tcp"
+  [ -n "$P_SECURITY" ] || P_SECURITY="reality"
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+  [ -n "$P_SNI" ] || P_SNI="$P_HOST"
+
+  [ -n "$P_UUID" ] || die_json "VLESS UUID is missing"
+  [ -n "$P_HOST" ] || die_json "VLESS endpoint host is missing"
+  valid_port "$P_PORT" || die_json "VLESS endpoint port is invalid"
+  [ "$P_NETWORK" = "tcp" ] || die_json "only VLESS Reality TCP links are supported by this router renderer"
+  [ "$P_SECURITY" = "reality" ] || die_json "only VLESS Reality links are supported by this router renderer"
+  [ -n "$P_PUBLIC_KEY" ] || die_json "VLESS Reality public key is missing"
+  [ -n "$P_SHORT_ID" ] || die_json "VLESS Reality short id is missing"
+
+  P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
+  is_ipv4 "$P_VPS_IP" || die_json "could not resolve endpoint IPv4 for $P_HOST"
+  P_ID="$(profile_id_from_url "$url")"
+}
+
+import_current_profile() {
+  reset_profile_vars
+  P_URL=""
+  P_HOST="$(json_vnext_string_value address "$XRAY_CONFIG")"
+  P_PORT="$(json_vnext_number_value port "$XRAY_CONFIG")"
+  P_UUID="$(json_string_value id "$XRAY_CONFIG")"
+  P_PUBLIC_KEY="$(json_string_value publicKey "$XRAY_CONFIG")"
+  P_SHORT_ID="$(json_string_value shortId "$XRAY_CONFIG")"
+  P_SNI="$(json_string_value serverName "$XRAY_CONFIG")"
+  P_FINGERPRINT="$(json_string_value fingerprint "$XRAY_CONFIG")"
+  P_SPIDERX="$(json_string_value spiderX "$XRAY_CONFIG")"
+  P_NETWORK="tcp"
+  P_SECURITY="reality"
+  P_FLOW="$(json_string_value flow "$XRAY_CONFIG")"
+  P_VPS_IP="$(detect_vps_ip_from_transparent)"
+  [ -n "$P_VPS_IP" ] || P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
+  [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
+  [ -n "$P_SPIDERX" ] || P_SPIDERX="/"
+  [ -n "$P_SNI" ] || P_SNI="$P_HOST"
+
+  [ -n "$P_HOST" ] || die_json "could not import current Xray endpoint"
+  valid_port "$P_PORT" || die_json "could not import current Xray port"
+  [ -n "$P_UUID" ] || die_json "could not import current VLESS UUID"
+  [ -n "$P_PUBLIC_KEY" ] || die_json "could not import current Reality public key"
+  [ -n "$P_SHORT_ID" ] || die_json "could not import current Reality short id"
+  is_ipv4 "$P_VPS_IP" || die_json "could not import current endpoint bypass IP"
+
+  P_NAME="Current $P_HOST:$P_PORT"
+  P_ID="$(profile_id_from_current)"
+  write_profile_file
+  printf '%s\n' "$P_ID" > "$SELECTED_FILE"
+}
+
+init_route_files() {
+  local tmp item selected_ip
+
+  mkdir -p /etc/xray
+  selected_ip="$(detect_vps_ip_from_transparent)"
+
+  if [ ! -f "$DOMAINS_FILE" ]; then
+    {
+      printf '# One Xray domain matcher per line. Blank lines and comments are ignored.\n'
+      printf '# Examples: example.com, regexp:^.*\\.example\\.com$, geosite:alibaba\n'
+      extract_direct_array domain "$XRAY_CONFIG"
+    } > "$DOMAINS_FILE"
+  fi
+
+  if [ ! -f "$IPS_FILE" ]; then
+    tmp="/tmp/vpn-ui-ips.$$"
+    extract_direct_array ip "$XRAY_CONFIG" > "$tmp"
+    {
+      printf '# Extra public IPv4/CIDR bypasses, one per line.\n'
+      while IFS= read -r item || [ -n "$item" ]; do
+        [ -n "$item" ] || continue
+        is_builtin_direct_ip "$item" "$selected_ip" && continue
+        printf '%s\n' "$item"
+      done < "$tmp"
+    } > "$IPS_FILE"
+    rm -f "$tmp"
+  fi
+}
+
+init_device_bypass_file() {
+  mkdir -p /etc/xray
+  [ -f "$DEVICE_BYPASS_FILE" ] || {
+    {
+      printf '# Device MAC addresses whose traffic should bypass Xray/VPN.\n'
+      printf '# Managed by the LuCI VPN panel.\n'
+    } > "$DEVICE_BYPASS_FILE"
+    chmod 600 "$DEVICE_BYPASS_FILE"
+  }
+}
+
+init_subscription_state() {
+  mkdir -p "$SUBSCRIPTION_DIR" "$PING_DIR"
+  chmod 700 "$SUBSCRIPTION_DIR"
+  if [ ! -f "$AUTO_CONFIG" ]; then
+    cat > "$AUTO_CONFIG" <<'EOF'
+AUTO_FAILOVER='0'
+AUTO_PERIODIC='0'
+AUTO_PERIODIC_HOURS='12'
+AUTO_FAILURE_LIMIT='3'
+EOF
+    chmod 600 "$AUTO_CONFIG"
+  fi
+  [ -f "$AUTO_POOL_FILE" ] || : > "$AUTO_POOL_FILE"
+  chmod 600 "$AUTO_POOL_FILE"
+}
+
+init_state() {
+  local first
+  detect_xray_paths
+  mkdir -p "$PROFILE_DIR"
+  init_route_files
+  init_device_bypass_file
+  init_subscription_state
+
+  first="$(find "$PROFILE_DIR" -type f -name '*.conf' 2>/dev/null | sed -n '1p')"
+  if [ -z "$first" ]; then
+    [ -s "$XRAY_CONFIG" ] && import_current_profile
+  elif [ ! -s "$SELECTED_FILE" ]; then
+    basename "$first" .conf > "$SELECTED_FILE"
+  fi
+}
+
+file_bytes() {
+  [ -f "$1" ] || {
+    printf '0'
+    return
+  }
+  wc -c < "$1" 2>/dev/null | tr -d ' ' || printf '0'
+}
+
+cap_runtime_file() {
+  local file="$1"
+  local max_bytes="$2"
+  local keep_bytes="$3"
+  local bytes tmp
+
+  [ -f "$file" ] || return 0
+  bytes="$(file_bytes "$file")"
+  [ "${bytes:-0}" -gt "$max_bytes" ] 2>/dev/null || return 0
+  tmp="/tmp/vpn-ui-truncate.$$"
+  if tail -c "$keep_bytes" "$file" > "$tmp" 2>/dev/null; then
+    cat "$tmp" > "$file" 2>/dev/null || : > "$file"
+  else
+    : > "$file"
+  fi
+  rm -f "$tmp"
+}
+
+harden_adguard_querylog() {
+  local tmp backup changed
+
+  [ -f "$ADGUARD_CONFIG" ] || return 0
+  tmp="/tmp/vpn-ui-adguardhome.$$"
+  awk '
+    /^querylog:/ {
+      in_querylog = 1
+      print
+      next
+    }
+    in_querylog && /^[^[:space:]][^:]*:/ {
+      in_querylog = 0
+    }
+    in_querylog && /^[[:space:]]*interval:/ {
+      print "  interval: 24h"
+      next
+    }
+    in_querylog && /^[[:space:]]*file_enabled:/ {
+      print "  file_enabled: false"
+      next
+    }
+    { print }
+  ' "$ADGUARD_CONFIG" > "$tmp" 2>/dev/null || {
+    rm -f "$tmp"
+    return 0
+  }
+
+  changed=0
+  cmp -s "$ADGUARD_CONFIG" "$tmp" 2>/dev/null || changed=1
+  if [ "$changed" = "1" ] && command -v AdGuardHome >/dev/null 2>&1; then
+    AdGuardHome --check-config -c "$tmp" -w /var/lib/adguardhome \
+      >/tmp/vpn-ui-adguard-check.log 2>&1 || {
+        rm -f "$tmp"
+        return 0
+      }
+  fi
+
+  if [ "$changed" = "1" ]; then
+    backup="$ADGUARD_CONFIG.bak.vpn-ui.$(date +%Y%m%d-%H%M%S)"
+    cp "$ADGUARD_CONFIG" "$backup" 2>/dev/null || true
+    mv "$tmp" "$ADGUARD_CONFIG"
+    chmod 600 "$ADGUARD_CONFIG" 2>/dev/null || true
+    [ -x /etc/init.d/adguardhome ] &&
+      /etc/init.d/adguardhome restart >/tmp/vpn-ui-adguard-restart.log 2>&1 || true
+  else
+    rm -f "$tmp"
+  fi
+
+  rm -f "$ADGUARD_QUERYLOG" "$ADGUARD_QUERYLOG".* 2>/dev/null || true
+}
+
+runtime_memory_maintenance() {
+  cap_runtime_file "$XRAY_ACCESS_LOG" "$XRAY_ACCESS_LOG_MAX_BYTES" "$XRAY_ACCESS_LOG_KEEP_BYTES"
+  cap_runtime_file "$XRAY_ERROR_LOG" "$XRAY_ERROR_LOG_MAX_BYTES" "$XRAY_ERROR_LOG_KEEP_BYTES"
+  harden_adguard_querylog
+}
+
+subscription_id_from_url() {
+  printf '%s' "$1" | sha256sum | awk '{ print substr($1, 1, 16) }'
+}
+
+subscription_name_from_url() {
+  local value="$1"
+  value="${value#*://}"
+  value="${value%%/*}"
+  value="${value%%\?*}"
+  printf '%s' "$value"
+}
+
+write_subscription_file() {
+  local id="$1"
+  local name="$2"
+  local url="$3"
+  local count="$4"
+  local file="$SUBSCRIPTION_DIR/$id.conf"
+
+  {
+    printf 'S_ID=%s\n' "$(shell_quote "$id")"
+    printf 'S_NAME=%s\n' "$(shell_quote "$name")"
+    printf 'S_URL=%s\n' "$(shell_quote "$url")"
+    printf 'S_COUNT=%s\n' "$(shell_quote "$count")"
+    printf 'S_UPDATED=%s\n' "$(shell_quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  } > "$file"
+  chmod 600 "$file"
+}
+
+load_subscription_file() {
+  local file="$1"
+  S_ID=""
+  S_NAME=""
+  S_URL=""
+  S_COUNT="0"
+  S_UPDATED=""
+  # shellcheck disable=SC1090
+  . "$file"
+}
+
+decode_base64_file() {
+  local src="$1"
+  local dst="$2"
+
+  awk '
+    BEGIN {
+      alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+      data = ""
+    }
+    {
+      gsub(/[ \t\r\n]/, "", $0)
+      gsub(/-/, "+", $0)
+      gsub(/_/, "/", $0)
+      data = data $0
+    }
+    END {
+      for (i = 1; i <= length(data); i += 4) {
+        c1 = substr(data, i, 1)
+        c2 = substr(data, i + 1, 1)
+        c3 = substr(data, i + 2, 1)
+        c4 = substr(data, i + 3, 1)
+        v1 = index(alphabet, c1) - 1
+        v2 = index(alphabet, c2) - 1
+        v3 = c3 == "=" || c3 == "" ? 0 : index(alphabet, c3) - 1
+        v4 = c4 == "=" || c4 == "" ? 0 : index(alphabet, c4) - 1
+        if (v1 < 0 || v2 < 0 || v3 < 0 || v4 < 0) exit 2
+        printf "%c", int(v1 * 4 + v2 / 16)
+        if (c3 != "=" && c3 != "") printf "%c", int((v2 % 16) * 16 + v3 / 4)
+        if (c4 != "=" && c4 != "") printf "%c", int((v3 % 4) * 64 + v4)
+      }
+    }
+  ' "$src" > "$dst"
+}
+
+fetch_subscription_links() {
+  local url="$1"
+  local out="$2"
+  local raw="/tmp/vpn-ui-sub-raw.$$"
+  local bytes
+
+  case "$url" in
+    https://*) ;;
+    *) die_json "subscription URL must use https://" ;;
+  esac
+
+  curl -fsSL --proto '=https' --connect-timeout 10 --max-time 45 "$url" -o "$raw" ||
+    die_json "could not download subscription"
+  bytes="$(wc -c < "$raw" | tr -d ' ')"
+  [ "$bytes" -gt 0 ] && [ "$bytes" -le 1048576 ] || {
+    rm -f "$raw"
+    die_json "subscription response size is invalid"
+  }
+
+  if grep -q '^vless://' "$raw" 2>/dev/null; then
+    cp "$raw" "$out"
+  elif decode_base64_file "$raw" "$out" 2>/dev/null && grep -q '^vless://' "$out" 2>/dev/null; then
+    :
+  else
+    rm -f "$raw" "$out"
+    die_json "subscription did not contain supported VLESS links"
+  fi
+  rm -f "$raw"
+}
+
+sync_subscription() {
+  local id="$1"
+  local name="$2"
+  local url="$3"
+  local links="/tmp/vpn-ui-sub-links.$$"
+  local seen="/tmp/vpn-ui-sub-seen.$$"
+  local selected line profile_id count f old_id
+
+  fetch_subscription_links "$url" "$links"
+  : > "$seen"
+  count=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="$(trim_input "$line")"
+    [ -n "$line" ] || continue
+    case "$line" in vless://*|vless%3A*|vless%3a*) ;; *) continue ;; esac
+    sh "$0" validate-vless "$line" 2>/dev/null | grep -q '"ok":true' || continue
+    parse_vless_url "$line"
+    P_SOURCE_ID="$id"
+    write_profile_file
+    printf '%s\n' "$P_ID" >> "$seen"
+    count=$((count + 1))
+  done < "$links"
+  rm -f "$links"
+  [ "$count" -gt 0 ] || {
+    rm -f "$seen"
+    die_json "subscription contained no usable VLESS Reality TCP profiles"
+  }
+
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    [ "$P_SOURCE_ID" = "$id" ] || continue
+    old_id="$(basename "$f" .conf)"
+    grep -qxF "$old_id" "$seen" 2>/dev/null && continue
+    [ "$old_id" = "$selected" ] && continue
+    rm -f "$f"
+    sed -i "\|^$old_id\$|d" "$AUTO_POOL_FILE" 2>/dev/null || true
+  done
+  rm -f "$seen"
+  write_subscription_file "$id" "$name" "$url" "$count"
+}
+
+subscription_json() {
+  local first f
+  first=1
+  printf '['
+  for f in "$SUBSCRIPTION_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_subscription_file "$f"
+    if [ "$first" = "1" ]; then first=0; else printf ','; fi
+    printf '{"id":'
+    json_string "$S_ID"
+    printf ',"name":'
+    json_string "$S_NAME"
+    printf ',"count":%s,"updated":' "${S_COUNT:-0}"
+    json_string "$S_UPDATED"
+    printf '}'
+  done
+  printf ']'
+}
+
+render_xray_config() {
+  local out="$1"
+  local domains_src="$2"
+  local ips_src="$3"
+  local host_json sni_json fp_json pbk_json sid_json spx_json uuid_json
+  local extra_direct_ip_json direct_domain_json direct_domain_rule_json flow_json
+
+  host_json="$(json_config_escape "$P_HOST")"
+  sni_json="$(json_config_escape "$P_SNI")"
+  fp_json="$(json_config_escape "$P_FINGERPRINT")"
+  pbk_json="$(json_config_escape "$P_PUBLIC_KEY")"
+  sid_json="$(json_config_escape "$P_SHORT_ID")"
+  spx_json="$(json_config_escape "$P_SPIDERX")"
+  uuid_json="$(json_config_escape "$P_UUID")"
+  extra_direct_ip_json="$(json_tail_from_file "$ips_src")"
+  direct_domain_json="$(json_list_from_file "$domains_src")"
+  direct_domain_rule_json=""
+  if [ -n "$direct_domain_json" ]; then
+    direct_domain_rule_json="$(cat <<EOF
+,
+      {
+        "type": "field",
+        "domain": [$direct_domain_json
+        ],
+        "outboundTag": "direct"
+      }
+EOF
+)"
+  fi
+  flow_json=""
+  if [ -n "$P_FLOW" ]; then
+    flow_json="$(printf ',\n                "flow": "%s"' "$(json_config_escape "$P_FLOW")")"
+  fi
+
+  cat > "$out" <<EOF
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/tmp/xray-access.log",
+    "error": "/tmp/xray-error.log"
+  },
+  "dns": {
+    "servers": ["1.1.1.1", "1.0.0.1", "8.8.8.8"],
+    "queryStrategy": "UseIPv4"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "$LAN_IP",
+      "port": 11808,
+      "protocol": "socks",
+      "settings": {"auth": "noauth", "udp": true},
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
+      }
+    },
+    {
+      "tag": "http-in",
+      "listen": "$LAN_IP",
+      "port": 11809,
+      "protocol": "http",
+      "settings": {},
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "routeOnly": false
+      }
+    },
+    {
+      "tag": "transparent-in",
+      "listen": "0.0.0.0",
+      "port": 12345,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "$host_json",
+            "port": $P_PORT,
+            "users": [
+              {
+                "id": "$uuid_json",
+                "encryption": "none"$flow_json
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "$sni_json",
+          "fingerprint": "$fp_json",
+          "publicKey": "$pbk_json",
+          "shortId": "$sid_json",
+          "spiderX": "$spx_json"
+        },
+        "tcpSettings": {}
+      }
+    },
+    {"tag": "direct", "protocol": "freedom"},
+    {"tag": "block", "protocol": "blackhole"}
+  ],
+  "routing": {
+    "domainMatcher": "hybrid",
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "port": "8080",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4",
+          "$P_VPS_IP/32"$extra_direct_ip_json
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "ipify.org",
+          "api.ipify.org",
+          "api4.ipify.org",
+          "checkip.amazonaws.com",
+          "ifconfig.me",
+          "2ip.ru"
+        ],
+        "outboundTag": "proxy"
+      }$direct_domain_rule_json,
+      {
+        "type": "field",
+        "inboundTag": ["socks-in", "http-in", "transparent-in"],
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}
+EOF
+}
+
+xray_test() {
+  local config="$1"
+  "$XRAY_BIN" run -test -config "$config" >/tmp/vpn-ui-xray-test.log 2>&1
+}
+
+restart_xray() {
+  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
+    /etc/init.d/"$XRAY_SERVICE" restart >/tmp/vpn-ui-xray-restart.log 2>&1
+  elif [ -x /etc/init.d/xray ]; then
+    /etc/init.d/xray restart >/tmp/vpn-ui-xray-restart.log 2>&1
+  else
+    return 1
+  fi
+}
+
+update_transparent_endpoint() {
+  local ip="$1"
+  local ts="$2"
+  local tmp="/tmp/vpn-ui-transparent.$$"
+
+  [ -f "$TRANSPARENT_INIT" ] || return 0
+  grep -q '^[[:space:]]*FIN0_IP=' "$TRANSPARENT_INIT" || return 0
+  cp "$TRANSPARENT_INIT" "$TRANSPARENT_INIT.bak.vpn-ui.$ts" 2>/dev/null || true
+  sed 's/^[[:space:]]*FIN0_IP=.*/FIN0_IP="'"$ip"'"/' "$TRANSPARENT_INIT" > "$tmp" ||
+    return 1
+  mv "$tmp" "$TRANSPARENT_INIT"
+  chmod 755 "$TRANSPARENT_INIT"
+  /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-restart.log 2>&1 || true
+}
+
+render_and_apply() {
+  local id="$1"
+  local domains_src="$2"
+  local ips_src="$3"
+  local commit_routes="$4"
+  local ts tmpcfg backup_config backup_domains backup_ips test_out restart_out
+
+  init_state
+  load_profile_id "$id"
+  ts="$(date +%Y%m%d-%H%M%S)"
+  tmpcfg="/tmp/vpn-ui-xray-$ts.$$.json"
+  backup_config="$XRAY_CONFIG.bak.vpn-ui.$ts"
+  backup_domains="$DOMAINS_FILE.bak.vpn-ui.$ts"
+  backup_ips="$IPS_FILE.bak.vpn-ui.$ts"
+
+  ensure_domain_rule_data "$domains_src"
+  render_xray_config "$tmpcfg" "$domains_src" "$ips_src"
+  if ! xray_test "$tmpcfg"; then
+    test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
+    rm -f "$tmpcfg"
+    die_json "Xray validation failed: $(one_line "$test_out")"
+  fi
+
+  cp "$XRAY_CONFIG" "$backup_config" 2>/dev/null || true
+  if [ "$commit_routes" = "1" ]; then
+    cp "$DOMAINS_FILE" "$backup_domains" 2>/dev/null || true
+    cp "$IPS_FILE" "$backup_ips" 2>/dev/null || true
+    cp "$domains_src" "$DOMAINS_FILE"
+    cp "$ips_src" "$IPS_FILE"
+  fi
+  cp "$tmpcfg" "$XRAY_CONFIG"
+  rm -f "$tmpcfg"
+
+  if ! restart_xray; then
+    restart_out="$(cat /tmp/vpn-ui-xray-restart.log 2>/dev/null || true)"
+    [ -f "$backup_config" ] && cp "$backup_config" "$XRAY_CONFIG"
+    if [ "$commit_routes" = "1" ]; then
+      [ -f "$backup_domains" ] && cp "$backup_domains" "$DOMAINS_FILE"
+      [ -f "$backup_ips" ] && cp "$backup_ips" "$IPS_FILE"
+    fi
+    restart_xray >/dev/null 2>&1 || true
+    die_json "Xray restart failed; previous config restored: $(one_line "$restart_out")"
+  fi
+
+  update_transparent_endpoint "$P_VPS_IP" "$ts" || true
+  printf '%s\n' "$id" > "$SELECTED_FILE"
+}
+
+format_duration() {
+  local seconds="$1"
+  local days hours mins secs out
+
+  [ "$seconds" -gt 0 ] 2>/dev/null || {
+    printf 'expired'
+    return
+  }
+
+  days=$((seconds / 86400))
+  seconds=$((seconds % 86400))
+  hours=$((seconds / 3600))
+  seconds=$((seconds % 3600))
+  mins=$((seconds / 60))
+  secs=$((seconds % 60))
+
+  out=""
+  [ "$days" -gt 0 ] && out="${out}${days}d "
+  [ "$hours" -gt 0 ] && out="${out}${hours}h "
+  [ "$mins" -gt 0 ] && out="${out}${mins}m "
+  if [ -z "$out" ]; then
+    out="${secs}s"
+  fi
+  printf '%s' "$(printf '%s' "$out" | sed 's/[[:space:]]*$//')"
+}
+
+device_mac_disabled() {
+  local mac="$1"
+  [ -f "$DEVICE_BYPASS_FILE" ] || return 1
+  grep -iqxF "$mac" "$DEVICE_BYPASS_FILE" 2>/dev/null
+}
+
+append_disabled_mac() {
+  local mac="$1"
+  init_device_bypass_file
+  device_mac_disabled "$mac" || printf '%s\n' "$mac" >> "$DEVICE_BYPASS_FILE"
+}
+
+delete_disabled_mac() {
+  local mac="$1"
+  local tmp="/tmp/vpn-ui-device-macs.$$"
+  init_device_bypass_file
+  grep -ivxF "$mac" "$DEVICE_BYPASS_FILE" > "$tmp" 2>/dev/null || true
+  mv "$tmp" "$DEVICE_BYPASS_FILE"
+  chmod 600 "$DEVICE_BYPASS_FILE"
+}
+
+prerouting_chains() {
+  nft list table "$NFT_FAMILY" "$NFT_TABLE" 2>/dev/null |
+    awk '
+      /^[[:space:]]*chain / { c=$2 }
+      /hook prerouting/ { print c }
+    ' |
+    sort -u
+}
+
+ensure_device_bypass_nft() {
+  local chains chain expiry mac ip host rest
+
+  nft list table "$NFT_FAMILY" "$NFT_TABLE" >/dev/null 2>&1 || return 0
+
+  if ! nft list set "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" >/dev/null 2>&1; then
+    nft add set "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" '{ type ipv4_addr; flags interval; }' 2>/dev/null || true
+  fi
+
+  chains="$(prerouting_chains)"
+  for chain in $chains; do
+    if ! nft -a list chain "$NFT_FAMILY" "$NFT_TABLE" "$chain" 2>/dev/null | grep -q "ip saddr @$NFT_DEVICE_BYPASS_SET"; then
+      nft insert rule "$NFT_FAMILY" "$NFT_TABLE" "$chain" ip saddr "@$NFT_DEVICE_BYPASS_SET" counter accept 2>/dev/null || true
+    fi
+  done
+
+  nft flush set "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" 2>/dev/null || true
+
+  [ -f "$DHCP_LEASES_FILE" ] || return 0
+  while read -r expiry mac ip host rest; do
+    [ -n "${mac:-}" ] || continue
+    is_ipv4 "$ip" || continue
+    mac="$(normalize_mac "$mac")"
+    device_mac_disabled "$mac" || continue
+    nft add element "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" "{ $ip }" 2>/dev/null || true
+  done < "$DHCP_LEASES_FILE"
+}
+
+flush_device_conntrack() {
+  local ip="$1"
+  command -v conntrack >/dev/null 2>&1 || return 0
+  conntrack -D -s "$ip" 2>/dev/null || true
+  conntrack -D -d "$ip" 2>/dev/null || true
+}
+
+set_device_bypass() {
+  local mode="$1"
+  local mac="$2"
+  local ip="${3:-}"
+
+  valid_mac "$mac" || die_json "invalid MAC address: $mac"
+  [ -z "$ip" ] || is_ipv4 "$ip" || die_json "invalid IPv4 address: $ip"
+  mac="$(normalize_mac "$mac")"
+
+  case "$mode" in
+    disable)
+      append_disabled_mac "$mac"
+      ;;
+    enable)
+      delete_disabled_mac "$mac"
+      ;;
+    *)
+      die_json "device mode must be enable or disable"
+      ;;
+  esac
+
+  ensure_device_bypass_nft
+  [ -n "$ip" ] && flush_device_conntrack "$ip"
+}
+
+start_xray_services() {
+  init_state
+  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
+    /etc/init.d/"$XRAY_SERVICE" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+      die_json "could not start $XRAY_SERVICE: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
+  elif [ -x /etc/init.d/xray ]; then
+    /etc/init.d/xray start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+      die_json "could not start xray: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
+  else
+    die_json "could not find Xray init script"
+  fi
+
+  if [ -x /etc/init.d/xray-transparent ]; then
+    /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-start.log 2>&1 ||
+      die_json "could not start xray-transparent: $(cat /tmp/vpn-ui-transparent-start.log 2>/dev/null)"
+  fi
+  ensure_device_bypass_nft
+}
+
+stop_xray_services() {
+  init_state
+  [ -x /etc/init.d/xray-transparent ] &&
+    /etc/init.d/xray-transparent stop >/tmp/vpn-ui-transparent-stop.log 2>&1 || true
+
+  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
+    /etc/init.d/"$XRAY_SERVICE" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
+  elif [ -x /etc/init.d/xray ]; then
+    /etc/init.d/xray stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
+  fi
+}
+
+tcp_probe_ms() {
+  local host="$1"
+  local port="$2"
+  local value
+
+  value="$(curl -k -sS -o /dev/null \
+    --connect-timeout 3 --max-time 4 \
+    -w '%{time_connect}' "https://$host:$port/" 2>/dev/null || true)"
+  awk -v value="$value" 'BEGIN {
+    if (value + 0 <= 0) {
+      print "timeout"
+      exit
+    }
+    printf "%d ms\n", (value * 1000) + 0.5
+  }'
+}
+
+active_proxy_probe_ms() {
+  local value
+
+  detect_xray_paths
+  value="$(curl -k -4 -sS -o /dev/null \
+    --connect-timeout 4 --max-time 8 \
+    -x "socks5h://$LAN_IP:11808" \
+    -w '%{time_starttransfer}' "https://api.ipify.org/" 2>/dev/null || true)"
+  awk -v value="$value" 'BEGIN {
+    if (value + 0 <= 0) {
+      print "timeout"
+      exit
+    }
+    printf "%d ms\n", (value * 1000) + 0.5
+  }'
+}
+
+profile_ping_cached() {
+  local id="$1"
+  local file="$PING_DIR/$id"
+  [ -f "$file" ] && cat "$file" || printf 'not tested'
+}
+
+refresh_profile_ping() {
+  local id="$1"
+  local host="$2"
+  local port="$3"
+  local selected probe
+  mkdir -p "$PING_DIR"
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  if [ "$id" = "$selected" ]; then
+    active_proxy_probe_ms > "$PING_DIR/$id"
+    return
+  fi
+  probe="$(tcp_probe_ms "$host" "$port")"
+  case "$probe" in
+    timeout) printf '%s\n' "$probe" > "$PING_DIR/$id" ;;
+    *) printf 'tcp %s\n' "$probe" > "$PING_DIR/$id" ;;
+  esac
+}
+
+ping_numeric() {
+  printf '%s' "$1" | sed -n 's/^\([0-9][0-9]*\) ms$/\1/p'
+}
+
+pool_has_id() {
+  grep -qxF "$1" "$AUTO_POOL_FILE" 2>/dev/null
+}
+
+load_auto_config() {
+  AUTO_FAILOVER="0"
+  AUTO_PERIODIC="0"
+  AUTO_PERIODIC_HOURS="12"
+  AUTO_FAILURE_LIMIT="3"
+  [ -f "$AUTO_CONFIG" ] && . "$AUTO_CONFIG"
+}
+
+auto_json() {
+  local first id
+  load_auto_config
+  printf '{"failover":%s,"periodic":%s,"periodic_hours":%s,"failure_limit":%s,"pool":[' \
+    "$([ "$AUTO_FAILOVER" = "1" ] && printf true || printf false)" \
+    "$([ "$AUTO_PERIODIC" = "1" ] && printf true || printf false)" \
+    "${AUTO_PERIODIC_HOURS:-12}" "${AUTO_FAILURE_LIMIT:-3}"
+  first=1
+  while IFS= read -r id || [ -n "$id" ]; do
+    [ -n "$id" ] || continue
+    if [ "$first" = "1" ]; then first=0; else printf ','; fi
+    json_string "$id"
+  done < "$AUTO_POOL_FILE"
+  printf ']}'
+}
+
+tailscale_json() {
+  local running ip prefs control hostname status_file version tailnet
+  running="false"
+  pidof tailscaled >/dev/null 2>&1 && running="true"
+  ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+  prefs="$(tailscale debug prefs 2>/dev/null || true)"
+  control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
+  hostname="$(printf '%s\n' "$prefs" | jsonfilter -e '@.Hostname' 2>/dev/null || true)"
+  version="$(tailscale version 2>/dev/null | sed -n '1p')"
+  status_file="/tmp/vpn-ui-tailscale-status.$$"
+  if tailscale status --json > "$status_file" 2>/dev/null; then
+    tailnet="$(jsonfilter -i "$status_file" -e '@.CurrentTailnet.Name' 2>/dev/null || true)"
+  else
+    : > "$status_file"
+    tailnet=""
+  fi
+  printf '{"running":%s,"connected":%s,"ip":' "$running" "$([ -n "$ip" ] && printf true || printf false)"
+  json_string "$ip"
+  printf ',"control_url":'
+  json_string "$control"
+  printf ',"hostname":'
+  json_string "$hostname"
+  printf ',"version":'
+  json_string "$version"
+  printf ',"tailnet":'
+  json_string "$tailnet"
+  printf ',"peers":'
+  tailscale_peers_json "$status_file"
+  printf '}'
+  rm -f "$status_file"
+}
+
+tailscale_peers_json() {
+  local status_file="$1"
+  local first peer hostname dns_name os ip online active exit_node
+  local exit_option relay direct_address last_seen
+
+  printf '['
+  first=1
+  jsonfilter -i "$status_file" -e '@.Peer.*' 2>/dev/null |
+    while IFS= read -r peer || [ -n "$peer" ]; do
+      [ -n "$peer" ] || continue
+      hostname="$(printf '%s\n' "$peer" | jsonfilter -e '@.HostName' 2>/dev/null || true)"
+      dns_name="$(printf '%s\n' "$peer" | jsonfilter -e '@.DNSName' 2>/dev/null || true)"
+      os="$(printf '%s\n' "$peer" | jsonfilter -e '@.OS' 2>/dev/null || true)"
+      ip="$(printf '%s\n' "$peer" | jsonfilter -e '@.TailscaleIPs[0]' 2>/dev/null || true)"
+      online="$(printf '%s\n' "$peer" | jsonfilter -e '@.Online' 2>/dev/null || printf false)"
+      active="$(printf '%s\n' "$peer" | jsonfilter -e '@.Active' 2>/dev/null || printf false)"
+      exit_node="$(printf '%s\n' "$peer" | jsonfilter -e '@.ExitNode' 2>/dev/null || printf false)"
+      exit_option="$(printf '%s\n' "$peer" | jsonfilter -e '@.ExitNodeOption' 2>/dev/null || printf false)"
+      relay="$(printf '%s\n' "$peer" | jsonfilter -e '@.Relay' 2>/dev/null || true)"
+      direct_address="$(printf '%s\n' "$peer" | jsonfilter -e '@.CurAddr' 2>/dev/null || true)"
+      last_seen="$(printf '%s\n' "$peer" | jsonfilter -e '@.LastSeen' 2>/dev/null || true)"
+      case "$last_seen" in 0001-01-01T*) last_seen="" ;; esac
+      [ "$online" = "true" ] || online="false"
+      [ "$active" = "true" ] || active="false"
+      [ "$exit_node" = "true" ] || exit_node="false"
+      [ "$exit_option" = "true" ] || exit_option="false"
+
+      if [ "$first" = "1" ]; then first=0; else printf ','; fi
+      printf '{"hostname":'
+      json_string "$hostname"
+      printf ',"dns_name":'
+      json_string "$dns_name"
+      printf ',"os":'
+      json_string "$os"
+      printf ',"ip":'
+      json_string "$ip"
+      printf ',"online":%s,"active":%s,"exit_node":%s,"exit_node_option":%s' \
+        "$online" "$active" "$exit_node" "$exit_option"
+      printf ',"relay":'
+      json_string "$relay"
+      printf ',"direct_address":'
+      json_string "$direct_address"
+      printf ',"last_seen":'
+      json_string "$last_seen"
+      printf '}'
+    done
+  printf ']'
+}
+
+tailscale_status_json() {
+  printf '{"ok":true,"tailscale":'
+  tailscale_json
+  printf '}\n'
+}
+
+service_state() {
+  local xray_state transparent_state vpn_enabled
+  xray_state="stopped"
+  transparent_state="inactive"
+  vpn_enabled="false"
+  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
+    xray_state="running"
+  fi
+  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
+  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
+  printf '"services":{"xray":'
+  json_string "$xray_state"
+  printf ',"transparent":'
+  json_string "$transparent_state"
+  printf ',"vpn_enabled":%s' "$vpn_enabled"
+  printf '}'
+}
+
+normalize_domain_input() {
+  local value="$1"
+
+  value="$(printf '%s' "$value" | tr 'A-Z' 'a-z')"
+  case "$value" in
+    *://*) value="${value#*://}" ;;
+  esac
+  value="${value%%/*}"
+  value="${value%%\?*}"
+  value="${value%%#*}"
+  value="${value##*@}"
+  case "$value" in
+    *:*) value="${value%%:*}" ;;
+  esac
+  value="${value%.}"
+  printf '%s' "$value" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+valid_domain_name() {
+  local domain="$1"
+
+  [ ${#domain} -le 253 ] || return 1
+  printf '%s' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+}
+
+dns_ips_json() {
+  local domain="$1"
+  local first ip
+
+  first=1
+  printf '['
+  nslookup "$domain" 2>/dev/null |
+    awk '
+      /^Address [0-9]+: [0-9]/ { print $3 }
+      /^Address: [0-9]/ { print $2 }
+    ' |
+    grep -E '^[0-9]+(\.[0-9]+){3}$' |
+    awk '!seen[$0]++' |
+    while IFS= read -r ip; do
+      if [ "$first" = "1" ]; then
+        first=0
+      else
+        printf ','
+      fi
+      json_string "$ip"
+    done
+  printf ']'
+}
+
+file_line_count() {
+  local file="$1"
+  [ -f "$file" ] || {
+    printf '0'
+    return
+  }
+  wc -l < "$file" | tr -d ' '
+}
+
+access_log_since() {
+  local start="$1"
+  local begin
+
+  [ -f "$XRAY_ACCESS_LOG" ] || return 0
+  begin=$((start + 1))
+  sed -n "${begin},\$p" "$XRAY_ACCESS_LOG" 2>/dev/null
+}
+
+extract_outbound_tag() {
+  sed -n 's/.*\[socks-in -> \([^]]*\)\].*/\1/p' | sed -n '1p'
+}
+
+run_domain_probe() {
+  local domain="$1"
+  local scheme="$2"
+  local before metrics err rc line
+
+  before="$(file_line_count "$XRAY_ACCESS_LOG")"
+  err="/tmp/vpn-ui-domain-test-err.$$"
+  metrics="$(curl -4 -k -sS --connect-timeout 5 --max-time 12 \
+    -o /dev/null \
+    -w 'http_code=%{http_code}\ntime_total=%{time_total}\n' \
+    -x "socks5h://$LAN_IP:11808" \
+    "$scheme://$domain/" 2>"$err")"
+  rc=$?
+
+  TEST_SCHEME="$scheme"
+  TEST_CURL_EXIT="$rc"
+  TEST_HTTP_CODE="$(printf '%s\n' "$metrics" | sed -n 's/^http_code=//p' | sed -n '1p')"
+  TEST_TIME_TOTAL="$(printf '%s\n' "$metrics" | sed -n 's/^time_total=//p' | sed -n '1p')"
+  TEST_CURL_ERROR="$(one_line "$(cat "$err" 2>/dev/null || true)")"
+  rm -f "$err"
+
+  line="$(access_log_since "$before" | grep -F "accepted tcp:$domain:" | grep -F '[socks-in ->' | tail -n 1)"
+  [ -n "$line" ] || line="$(access_log_since "$before" | grep -F '[socks-in ->' | tail -n 1)"
+  TEST_ACCESS_LINE="$line"
+  TEST_OUTBOUND="$(printf '%s\n' "$line" | extract_outbound_tag)"
+}
+
+public_ip_probe() {
+  local mode="$1"
+  local url value
+
+  for url in \
+    https://api.ipify.org \
+    https://ifconfig.me/ip \
+    https://icanhazip.com \
+    https://checkip.amazonaws.com
+  do
+    case "$mode" in
+      proxy)
+        value="$(curl -4 -k -sS --connect-timeout 4 --max-time 10 \
+          -x "socks5h://$LAN_IP:11808" "$url" 2>/dev/null || true)"
+        ;;
+      *)
+        value="$(curl -4 -k -sS --connect-timeout 4 --max-time 8 \
+          "$url" 2>/dev/null || true)"
+        ;;
+    esac
+
+    value="$(one_line "$value")"
+    if is_ipv4 "$value"; then
+      printf '%s' "$value"
+      return
+    fi
+  done
+
+  printf 'unavailable'
+}
+
+cmd_test_domain() {
+  local raw="$1"
+  local domain route selected direct_ip proxy_ip
+
+  init_state
+  ensure_domain_rule_data "$DOMAINS_FILE"
+
+  domain="$(normalize_domain_input "$raw")"
+  [ -n "$domain" ] || die_json "enter a domain to test"
+  case "$domain" in
+    geosite:*|regexp:*) die_json "enter a concrete domain, not a matcher" ;;
+  esac
+  valid_domain_name "$domain" || die_json "invalid domain: $domain"
+
+  TEST_SCHEME=""
+  TEST_CURL_EXIT=""
+  TEST_HTTP_CODE=""
+  TEST_TIME_TOTAL=""
+  TEST_CURL_ERROR=""
+  TEST_ACCESS_LINE=""
+  TEST_OUTBOUND=""
+
+  run_domain_probe "$domain" https
+  if [ -z "$TEST_OUTBOUND" ] && [ "$TEST_CURL_EXIT" != "0" ]; then
+    run_domain_probe "$domain" http
+  fi
+
+  route="unknown"
+  case "$TEST_OUTBOUND" in
+    direct) route="direct" ;;
+    proxy) route="vpn" ;;
+    "") route="unknown" ;;
+    *) route="$TEST_OUTBOUND" ;;
+  esac
+
+  direct_ip="$(public_ip_probe direct)"
+  proxy_ip="$(public_ip_probe proxy)"
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  if [ -n "$selected" ]; then
+    load_profile_id "$selected"
+  else
+    reset_profile_vars
+  fi
+
+  printf '{"ok":true,"test":{"domain":'
+  json_string "$domain"
+  printf ',"route":'
+  json_string "$route"
+  printf ',"outbound":'
+  json_string "${TEST_OUTBOUND:-unknown}"
+  printf ',"scheme":'
+  json_string "$TEST_SCHEME"
+  printf ',"http_code":'
+  json_string "$TEST_HTTP_CODE"
+  printf ',"time_total":'
+  json_string "$TEST_TIME_TOTAL"
+  printf ',"curl_exit":'
+  json_string "$TEST_CURL_EXIT"
+  printf ',"curl_error":'
+  json_string "$TEST_CURL_ERROR"
+  printf ',"access_log":'
+  json_string "$TEST_ACCESS_LINE"
+  printf ',"resolved_ips":'
+  dns_ips_json "$domain"
+  printf ',"public_ips":{"direct":'
+  json_string "$direct_ip"
+  printf ',"vpn":'
+  json_string "$proxy_ip"
+  printf '},"profile":{"id":'
+  json_string "$selected"
+  printf ',"name":'
+  json_string "$P_NAME"
+  printf ',"endpoint":'
+  json_string "$P_HOST:$P_PORT"
+  printf ',"vps_ip":'
+  json_string "$P_VPS_IP"
+  printf '},'
+  service_state
+  printf '}}\n'
+}
+
+json_array_from_file() {
+  local file="$1"
+  local first item
+
+  first=1
+  printf '['
+  [ -f "$file" ] || {
+    printf ']'
+    return 0
+  }
+  awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!seen[$0]++) print
+    }
+  ' "$file" | while IFS= read -r item; do
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      printf ','
+    fi
+    json_string "$item"
+  done
+  printf ']'
+}
+
+dhcp_devices_json() {
+  local now first expiry mac ip host rest disabled remaining label
+
+  ensure_device_bypass_nft
+  now="$(date +%s)"
+  first=1
+  printf '['
+  [ -f "$DHCP_LEASES_FILE" ] || {
+    printf ']'
+    return 0
+  }
+
+  while read -r expiry mac ip host rest; do
+    [ -n "${mac:-}" ] || continue
+    is_ipv4 "$ip" || continue
+    valid_mac "$mac" || continue
+
+    mac="$(normalize_mac "$mac")"
+    label="$host"
+    [ -n "$label" ] || label="-"
+    [ "$label" = "*" ] && label="-"
+
+    if [ "${expiry:-0}" = "0" ]; then
+      remaining="static"
+    else
+      remaining="$(format_duration $((expiry - now)))"
+    fi
+
+    disabled="false"
+    device_mac_disabled "$mac" && disabled="true"
+
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      printf ','
+    fi
+
+    printf '{"hostname":'
+    json_string "$label"
+    printf ',"ip":'
+    json_string "$ip"
+    printf ',"mac":'
+    json_string "$mac"
+    printf ',"lease_remaining":'
+    json_string "$remaining"
+    printf ',"vpn_disabled":%s}' "$disabled"
+  done < "$DHCP_LEASES_FILE"
+
+  printf ']'
+}
+
+status_json() {
+  local selected first f id active ping protocol in_pool
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+
+  printf '{"ok":true,'
+  printf '"selected":'
+  json_string "$selected"
+  printf ',"profiles":['
+  first=1
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    id="$(basename "$f" .conf)"
+    active="false"
+    [ "$id" = "$selected" ] && active="true"
+    ping="$(profile_ping_cached "$id")"
+    protocol="vless $P_NETWORK $P_SECURITY"
+    in_pool="false"
+    pool_has_id "$id" && in_pool="true"
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      printf ','
+    fi
+    printf '{"id":'
+    json_string "$id"
+    printf ',"name":'
+    json_string "$P_NAME"
+    printf ',"host":'
+    json_string "$P_HOST"
+    printf ',"port":'
+    json_string "$P_PORT"
+    printf ',"vps_ip":'
+    json_string "$P_VPS_IP"
+    printf ',"protocol":'
+    json_string "$protocol"
+    printf ',"ping":'
+    json_string "$ping"
+    printf ',"source_id":'
+    json_string "$P_SOURCE_ID"
+    printf ',"auto_pool":%s' "$in_pool"
+    printf ',"selected":%s}' "$active"
+  done
+  printf '],"subscriptions":'
+  subscription_json
+  printf ',"auto":'
+  auto_json
+  printf ',"domains":'
+  json_array_from_file "$DOMAINS_FILE"
+  printf ',"ips":'
+  json_array_from_file "$IPS_FILE"
+  printf ',"devices":'
+  dhcp_devices_json
+  printf ','
+  service_state
+  printf '}\n'
+}
+
+vpn_summary_json() {
+  local selected file domain_count ping xray_state transparent_state vpn_enabled
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  file="$PROFILE_DIR/$selected.conf"
+  [ -n "$selected" ] && [ -f "$file" ] ||
+    die_json "no selected VPN profile is available"
+  load_profile_file "$file"
+  domain_count="$(awk '
+    {
+      sub(/\r$/, "")
+      sub(/^[[:space:]]+/, "")
+      sub(/[[:space:]]+$/, "")
+    }
+    NF && $0 !~ /^#/ { count++ }
+    END { print count + 0 }
+  ' "$DOMAINS_FILE" 2>/dev/null)"
+  ping="$(profile_ping_cached "$selected")"
+  xray_state="stopped"
+  transparent_state="inactive"
+  vpn_enabled="false"
+  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
+    xray_state="running"
+  fi
+  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
+  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
+
+  printf '{"ok":true,"working":%s,"xray":' "$vpn_enabled"
+  json_string "$xray_state"
+  printf ',"transparent":'
+  json_string "$transparent_state"
+  printf ',"selected_id":'
+  json_string "$selected"
+  printf ',"selected_name":'
+  json_string "$P_NAME"
+  printf ',"endpoint":'
+  json_string "$P_HOST:$P_PORT"
+  printf ',"ip":'
+  json_string "$P_VPS_IP"
+  printf ',"direct_domain_rules":%s,"ping":' "${domain_count:-0}"
+  json_string "$ping"
+  printf '}\n'
+}
+
+cmd_add() {
+  local url="$1"
+  init_state
+  parse_vless_url "$url"
+  write_profile_file
+  status_json
+}
+
+cmd_select() {
+  local id="$1"
+  render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+  status_json
+}
+
+cmd_delete() {
+  local id="$1"
+  local selected
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ "$id" != "$selected" ] || die_json "refusing to delete the selected profile"
+  [ -f "$PROFILE_DIR/$id.conf" ] || die_json "unknown VLESS profile: $id"
+  rm -f "$PROFILE_DIR/$id.conf"
+  status_json
+}
+
+cmd_apply_rules() {
+  local selected domains_text ips_text tmp_domains tmp_ips
+
+  domains_text="${1:-}"
+  ips_text="${2:-}"
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ -n "$selected" ] || die_json "no selected VLESS profile"
+  tmp_domains="/tmp/vpn-ui-domains.$$"
+  tmp_ips="/tmp/vpn-ui-ips.$$"
+  normalize_text_to_file "$domains_text" "$tmp_domains"
+  normalize_text_to_file "$ips_text" "$tmp_ips"
+  render_and_apply "$selected" "$tmp_domains" "$tmp_ips" "1"
+  rm -f "$tmp_domains" "$tmp_ips"
+  status_json
+}
+
+cmd_check() {
+  local selected tmpcfg test_out
+
+  init_state
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ -n "$selected" ] || die_json "no selected VLESS profile"
+  load_profile_id "$selected"
+  tmpcfg="/tmp/vpn-ui-check.$$.json"
+  ensure_domain_rule_data "$DOMAINS_FILE"
+  render_xray_config "$tmpcfg" "$DOMAINS_FILE" "$IPS_FILE"
+  if ! xray_test "$tmpcfg"; then
+    test_out="$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null || true)"
+    rm -f "$tmpcfg"
+    die_json "Xray validation failed: $(one_line "$test_out")"
+  fi
+  rm -f "$tmpcfg"
+  printf '{"ok":true,"message":"configuration validates"}\n'
+}
+
+cmd_device() {
+  local mode="$1"
+  local mac="$2"
+  local ip="${3:-}"
+
+  init_state
+  set_device_bypass "$mode" "$mac" "$ip"
+  status_json
+}
+
+cmd_xray() {
+  local mode="$1"
+
+  case "$mode" in
+    on|enable|enabled)
+      start_xray_services
+      ;;
+    off|disable|disabled)
+      stop_xray_services
+      ;;
+    *)
+      die_json "xray mode must be on or off"
+      ;;
+  esac
+  status_json
+}
+
+cmd_refresh_pings() {
+  local f id running
+  init_state
+  running=0
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    id="$(basename "$f" .conf)"
+    refresh_profile_ping "$id" "$P_HOST" "$P_PORT" &
+    running=$((running + 1))
+    if [ "$running" -ge 6 ]; then
+      wait
+      running=0
+    fi
+  done
+  wait
+  status_json
+}
+
+cmd_subscription_add() {
+  local url="$1"
+  local id name
+  init_state
+  url="$(trim_input "$url")"
+  case "$url" in https://*) ;; *) die_json "subscription URL must use https://" ;; esac
+  id="$(subscription_id_from_url "$url")"
+  name="$(subscription_name_from_url "$url")"
+  sync_subscription "$id" "$name" "$url"
+  status_json
+}
+
+cmd_subscription_sync() {
+  local id="$1"
+  local file="$SUBSCRIPTION_DIR/$id.conf"
+  init_state
+  [ -f "$file" ] || die_json "unknown subscription"
+  load_subscription_file "$file"
+  sync_subscription "$S_ID" "$S_NAME" "$S_URL"
+  status_json
+}
+
+cmd_subscription_delete() {
+  local id="$1"
+  local file="$SUBSCRIPTION_DIR/$id.conf"
+  local selected f profile_id
+  init_state
+  [ -f "$file" ] || die_json "unknown subscription"
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    [ "$P_SOURCE_ID" = "$id" ] || continue
+    profile_id="$(basename "$f" .conf)"
+    [ "$profile_id" = "$selected" ] && continue
+    rm -f "$f"
+    sed -i "\|^$profile_id\$|d" "$AUTO_POOL_FILE" 2>/dev/null || true
+  done
+  rm -f "$file"
+  status_json
+}
+
+cmd_validate_vless() {
+  parse_vless_url "$1"
+  printf '{"ok":true,"profile":{"id":'
+  json_string "$P_ID"
+  printf ',"name":'
+  json_string "$P_NAME"
+  printf ',"host":'
+  json_string "$P_HOST"
+  printf ',"port":'
+  json_string "$P_PORT"
+  printf '}}\n'
+}
+
+cmd_subscription_preview() {
+  local url="$1"
+  local links="/tmp/vpn-ui-sub-preview.$$"
+  local line count
+  fetch_subscription_links "$url" "$links"
+  count=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="$(trim_input "$line")"
+    case "$line" in vless://*|vless%3A*|vless%3a*) ;; *) continue ;; esac
+    sh "$0" validate-vless "$line" 2>/dev/null | grep -q '"ok":true' || continue
+    parse_vless_url "$line"
+    count=$((count + 1))
+  done < "$links"
+  rm -f "$links"
+  [ "$count" -gt 0 ] || die_json "subscription contained no usable VLESS profiles"
+  printf '{"ok":true,"count":%s}\n' "$count"
+}
+
+cmd_auto_config() {
+  local failover="$1"
+  local periodic="$2"
+  local hours="$3"
+  local pool_text="$4"
+  local tmp="/tmp/vpn-ui-auto-pool.$$"
+  local id
+
+  init_state
+  case "$failover" in 0|1) ;; *) die_json "invalid failover setting" ;; esac
+  case "$periodic" in 0|1) ;; *) die_json "invalid periodic setting" ;; esac
+  printf '%s' "$hours" | grep -Eq '^[0-9]+$' || die_json "periodic interval must be a number"
+  [ "$hours" -ge 6 ] && [ "$hours" -le 168 ] || die_json "periodic interval must be between 6 and 168 hours"
+
+  printf '%s\n' "$pool_text" | awk 'NF && !seen[$0]++ { print }' > "$tmp"
+  while IFS= read -r id || [ -n "$id" ]; do
+    [ -f "$PROFILE_DIR/$id.conf" ] || {
+      rm -f "$tmp"
+      die_json "auto-switch pool contains an unknown profile"
+    }
+  done < "$tmp"
+  if [ "$failover" = "1" ] || [ "$periodic" = "1" ]; then
+    [ -s "$tmp" ] || {
+      rm -f "$tmp"
+      die_json "select at least one profile for the auto-switch pool"
+    }
+  fi
+
+  cat > "$AUTO_CONFIG" <<EOF
+AUTO_FAILOVER='$failover'
+AUTO_PERIODIC='$periodic'
+AUTO_PERIODIC_HOURS='$hours'
+AUTO_FAILURE_LIMIT='3'
+EOF
+  mv "$tmp" "$AUTO_POOL_FILE"
+  chmod 600 "$AUTO_CONFIG" "$AUTO_POOL_FILE"
+  status_json
+}
+
+best_pool_profile() {
+  local exclude="${1:-}"
+  local id f probe numeric best_id="" best_ms=""
+  while IFS= read -r id || [ -n "$id" ]; do
+    [ -n "$id" ] || continue
+    [ "$id" = "$exclude" ] && continue
+    f="$PROFILE_DIR/$id.conf"
+    [ -f "$f" ] || continue
+    load_profile_file "$f"
+    probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
+    printf '%s\n' "$probe" > "$PING_DIR/$id"
+    numeric="$(ping_numeric "$probe")"
+    [ -n "$numeric" ] || continue
+    if [ -z "$best_ms" ] || [ "$numeric" -lt "$best_ms" ]; then
+      best_id="$id"
+      best_ms="$numeric"
+    fi
+  done < "$AUTO_POOL_FILE"
+  printf '%s %s\n' "$best_id" "$best_ms"
+}
+
+cmd_auto_tick() {
+  local selected selected_file probe current_ms now fail_count last_optimize
+  local best_id best_ms due threshold
+
+  init_state
+  runtime_memory_maintenance
+  load_auto_config
+  [ "$AUTO_FAILOVER" = "1" ] || [ "$AUTO_PERIODIC" = "1" ] || exit 0
+  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  [ -n "$selected" ] || exit 0
+  selected_file="$PROFILE_DIR/$selected.conf"
+  [ -f "$selected_file" ] || exit 0
+
+  FAIL_COUNT=0
+  LAST_OPTIMIZE=0
+  [ -f "$AUTO_STATE" ] && . "$AUTO_STATE"
+  fail_count="${FAIL_COUNT:-0}"
+  last_optimize="${LAST_OPTIMIZE:-0}"
+  now="$(date +%s)"
+
+  load_profile_file "$selected_file"
+  probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
+  printf '%s\n' "$probe" > "$PING_DIR/$selected"
+  current_ms="$(ping_numeric "$probe")"
+
+  if [ "$AUTO_FAILOVER" = "1" ]; then
+    if [ -z "$current_ms" ]; then
+      fail_count=$((fail_count + 1))
+      if [ "$fail_count" -ge "${AUTO_FAILURE_LIMIT:-3}" ]; then
+        read -r best_id best_ms <<EOF
+$(best_pool_profile "$selected")
+EOF
+        if [ -n "$best_id" ]; then
+          render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+          selected="$best_id"
+          current_ms="$best_ms"
+        fi
+        fail_count=0
+      fi
+    else
+      fail_count=0
+    fi
+  fi
+
+  due=$((last_optimize + AUTO_PERIODIC_HOURS * 3600))
+  if [ "$AUTO_PERIODIC" = "1" ] && [ "$now" -ge "$due" ] && [ -n "$current_ms" ]; then
+    read -r best_id best_ms <<EOF
+$(best_pool_profile "$selected")
+EOF
+    if [ -n "$best_id" ] && [ -n "$best_ms" ]; then
+      threshold=$((current_ms * 65 / 100))
+      if [ "$best_ms" -le "$threshold" ] && [ $((current_ms - best_ms)) -ge 30 ]; then
+        render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+      fi
+    fi
+    last_optimize="$now"
+  fi
+
+  cat > "$AUTO_STATE" <<EOF
+FAIL_COUNT='$fail_count'
+LAST_OPTIMIZE='$last_optimize'
+EOF
+}
+
+cmd_tailscale_up() {
+  local login_server="$1"
+  local hostname="$2"
+  local auth_key="$3"
+  local advertise_routes="$4"
+  local advertise_exit="$5"
+
+  case "$login_server" in https://*) ;; *) die_json "Tailscale login server must use https://" ;; esac
+  [ -n "$hostname" ] || hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || printf openwrt)"
+  /etc/init.d/tailscale enable >/dev/null 2>&1 || true
+  /etc/init.d/tailscale restart >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
+    /etc/init.d/tailscale start >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
+    die_json "could not start tailscaled"
+
+  set -- \
+    "--login-server=$login_server" \
+    "--hostname=$hostname" \
+    "--accept-dns=false" \
+    "--netfilter-mode=off"
+  [ -n "$auth_key" ] && set -- "$@" "--auth-key=$auth_key"
+  [ -n "$advertise_routes" ] && set -- "$@" "--advertise-routes=$advertise_routes"
+  [ "$advertise_exit" = "1" ] && set -- "$@" "--advertise-exit-node"
+  tailscale up "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
+    tailscale up --reset "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
+    die_json "tailscale up failed: $(one_line "$(cat /tmp/vpn-ui-tailscale-up.log 2>/dev/null)")"
+  tailscale_status_json
+}
+
+cmd_tailscale_logout() {
+  tailscale logout >/tmp/vpn-ui-tailscale-logout.log 2>&1 ||
+    die_json "tailscale logout failed"
+  tailscale_status_json
+}
+
+cmd_tailscale_restart() {
+  /etc/init.d/tailscale restart >/tmp/vpn-ui-tailscale-restart.log 2>&1 ||
+    die_json "could not restart tailscale"
+  tailscale_status_json
+}
+
+cmd_tailscale_stop() {
+  /etc/init.d/tailscale stop >/tmp/vpn-ui-tailscale-stop.log 2>&1 ||
+    die_json "could not stop tailscale"
+  /etc/init.d/tailscale disable >/dev/null 2>&1 || true
+  tailscale_status_json
+}
+
+cmd_tailscale_ping() {
+  local target="$1"
+  local status_file="/tmp/vpn-ui-tailscale-ping-status.$$"
+  local output reachable latency route
+
+  printf '%s' "$target" | grep -Eq '^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' ||
+    die_json "invalid Tailscale IPv4 address"
+  tailscale status --json > "$status_file" 2>/dev/null ||
+    die_json "could not read Tailscale peer state"
+  jsonfilter -i "$status_file" -e '@.Peer.*.TailscaleIPs[0]' 2>/dev/null |
+    grep -qxF "$target" || {
+      rm -f "$status_file"
+      die_json "target is not a visible Tailscale peer"
+    }
+  rm -f "$status_file"
+
+  output="$(tailscale ping -c 3 --timeout=5s "$target" 2>&1 || true)"
+  reachable="false"
+  printf '%s\n' "$output" | grep -q '^pong from ' && reachable="true"
+  latency="$(printf '%s\n' "$output" | sed -n 's/^pong from .* in \([0-9][0-9]*ms\)$/\1/p' | tail -n 1)"
+  route="$(printf '%s\n' "$output" | sed -n 's/^pong from .* via \(.*\) in [0-9][0-9]*ms$/\1/p' | tail -n 1)"
+  printf '{"ok":true,"target":'
+  json_string "$target"
+  printf ',"reachable":%s,"latency":' "$reachable"
+  json_string "$latency"
+  printf ',"route":'
+  json_string "$route"
+  printf ',"output":'
+  json_string "$output"
+  printf '}\n'
+}
+
+cmd_update() {
+  local action="$1"
+  shift
+  [ -x /usr/sbin/vpn-ui-update ] || die_json "panel updater is not installed"
+  /usr/sbin/vpn-ui-update "$action" "$@"
+}
+
+case "${1:-status}" in
+  init)
+    init_state
+    runtime_memory_maintenance
+    status_json
+    ;;
+  status)
+    status_json
+    ;;
+  vpn-summary)
+    vpn_summary_json
+    ;;
+  refresh-pings)
+    cmd_refresh_pings
+    ;;
+  add)
+    [ -n "${2:-}" ] || die_json "add requires a VLESS link"
+    cmd_add "$2"
+    ;;
+  select)
+    [ -n "${2:-}" ] || die_json "select requires a profile id"
+    cmd_select "$2"
+    ;;
+  delete)
+    [ -n "${2:-}" ] || die_json "delete requires a profile id"
+    cmd_delete "$2"
+    ;;
+  apply-rules)
+    cmd_apply_rules "${2:-}" "${3:-}"
+    ;;
+  check)
+    cmd_check
+    ;;
+  device)
+    [ -n "${2:-}" ] || die_json "device requires enable or disable"
+    [ -n "${3:-}" ] || die_json "device requires a MAC address"
+    cmd_device "$2" "$3" "${4:-}"
+    ;;
+  xray)
+    [ -n "${2:-}" ] || die_json "xray requires on or off"
+    cmd_xray "$2"
+    ;;
+  subscription-add)
+    [ -n "${2:-}" ] || die_json "subscription-add requires an HTTPS URL"
+    cmd_subscription_add "$2"
+    ;;
+  subscription-sync)
+    [ -n "${2:-}" ] || die_json "subscription-sync requires an id"
+    cmd_subscription_sync "$2"
+    ;;
+  subscription-delete)
+    [ -n "${2:-}" ] || die_json "subscription-delete requires an id"
+    cmd_subscription_delete "$2"
+    ;;
+  validate-vless)
+    [ -n "${2:-}" ] || die_json "validate-vless requires a VLESS link"
+    cmd_validate_vless "$2"
+    ;;
+  subscription-preview)
+    [ -n "${2:-}" ] || die_json "subscription-preview requires an HTTPS URL"
+    cmd_subscription_preview "$2"
+    ;;
+  auto-config)
+    cmd_auto_config "${2:-0}" "${3:-0}" "${4:-12}" "${5:-}"
+    ;;
+  auto-tick)
+    cmd_auto_tick
+    ;;
+  tailscale-up)
+    cmd_tailscale_up "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-0}"
+    ;;
+  tailscale-status)
+    tailscale_status_json
+    ;;
+  tailscale-ping)
+    [ -n "${2:-}" ] || die_json "tailscale-ping requires a peer IPv4 address"
+    cmd_tailscale_ping "$2"
+    ;;
+  tailscale-logout)
+    cmd_tailscale_logout
+    ;;
+  tailscale-restart)
+    cmd_tailscale_restart
+    ;;
+  tailscale-stop)
+    cmd_tailscale_stop
+    ;;
+  update-status)
+    cmd_update status
+    ;;
+  update-check-start)
+    cmd_update check-start
+    ;;
+  update-apply-start)
+    cmd_update apply-start
+    ;;
+  update-auto)
+    cmd_update set-auto "${2:-}"
+    ;;
+  test-domain)
+    [ -n "${2:-}" ] || die_json "test-domain requires a domain"
+    cmd_test_domain "$2"
+    ;;
+  *)
+    die_json "unknown command: ${1:-}"
+    ;;
+esac

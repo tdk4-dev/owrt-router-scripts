@@ -7,7 +7,7 @@
 set -u
 
 OWRT_HOST="${OWRT_HOST:-owrt}"
-REMOTE_SSH="${REMOTE_SSH:-relay-ru1}"
+REMOTE_SSH="${REMOTE_SSH:-remote-iperf-host}"
 IPERF_SERVER="${IPERF_SERVER:-}"
 IPERF_PORT="${IPERF_PORT:-5201}"
 DURATION="${DURATION:-35}"

@@ -1,0 +1,35 @@
+{
+	"admin/network/vpn": {
+		"title": "VPN Panel",
+		"order": 55,
+		"action": {
+			"type": "view",
+			"path": "network/vpn-0-7-6"
+		},
+		"depends": {
+			"acl": [ "luci-app-vpn-ui" ]
+		}
+	},
+	"admin/network/tailscale": {
+		"title": "Tailscale",
+		"order": 56,
+		"action": {
+			"type": "view",
+			"path": "network/tailscale-0-7-5"
+		},
+		"depends": {
+			"acl": [ "luci-app-vpn-ui" ]
+		}
+	},
+	"admin/update": {
+		"title": "Update",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "system/update-0-7-3"
+		},
+		"depends": {
+			"acl": [ "luci-app-vpn-ui" ]
+		}
+	}
+}

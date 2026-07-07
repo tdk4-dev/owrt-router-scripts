@@ -19,7 +19,7 @@ DEFAULT_DHCP_START="${LAN_DHCP_START:-100}"
 DEFAULT_DHCP_LIMIT="${LAN_DHCP_LIMIT:-150}"
 DEFAULT_WAN_PROTO="${WAN_PROTO:-dhcp}"
 DEFAULT_TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-openwrt-fin0}"
-DEFAULT_TAILSCALE_LOGIN_SERVER="${TAILSCALE_LOGIN_SERVER:-https://tdk4.duckdns.org}"
+DEFAULT_TAILSCALE_LOGIN_SERVER="${TAILSCALE_LOGIN_SERVER:--}"
 DEFAULT_ADGUARD_USER="${ADGUARD_USER:-root}"
 
 LAN_IP=""
@@ -54,7 +54,7 @@ REALITY_FINGERPRINT="${REALITY_FINGERPRINT:-firefox}"
 REALITY_SPIDERX="${REALITY_SPIDERX:-/}"
 EXTRA_DIRECT_IPS="${EXTRA_DIRECT_IPS:-}"
 EXTRA_DIRECT_DOMAINS="${EXTRA_DIRECT_DOMAINS:-}"
-TORRENT_DIRECT_CLIENTS="${TORRENT_DIRECT_CLIENTS:-10.20.0.181}"
+TORRENT_DIRECT_CLIENTS="${TORRENT_DIRECT_CLIENTS:-}"
 TORRENT_DIRECT_PORTS="${TORRENT_DIRECT_PORTS:-51413}"
 LOCAL_DNS_OVERRIDES="${LOCAL_DNS_OVERRIDES:-}"
 TAILSCALE_HOSTNAME=""
@@ -66,6 +66,11 @@ OVERWRITE_ADGUARD="${OVERWRITE_ADGUARD:-1}"
 BLOCK_QUIC="${BLOCK_QUIC:-0}"
 ALLOW_LOW_SPACE="${ALLOW_LOW_SPACE:-0}"
 MIN_FREE_MB="${MIN_FREE_MB:-250}"
+XRAY_DATADIR="${XRAY_DATADIR:-/usr/share/xray}"
+INSTALL_GEOSITE="${INSTALL_GEOSITE:-1}"
+UPDATE_GEOSITE="${UPDATE_GEOSITE:-0}"
+GEOSITE_URL="${GEOSITE_URL:-https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat}"
+GEOSITE_MIN_BYTES="${GEOSITE_MIN_BYTES:-1048576}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -238,6 +243,31 @@ json_list_from_file() {
   done < "$file"
 }
 
+file_has_rule_prefix() {
+  local file="$1"
+  local prefix="$2"
+  local item
+
+  [ -f "$file" ] || return 1
+  while IFS= read -r item || [ -n "$item" ]; do
+    item="$(printf '%s' "$item" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$item" ] || continue
+    case "$item" in
+      "$prefix"*) return 0 ;;
+    esac
+  done < "$file"
+  return 1
+}
+
+ensure_domain_rule_data() {
+  local file="$1"
+
+  if file_has_rule_prefix "$file" "geosite:"; then
+    [ -s "$XRAY_DATADIR/geosite.dat" ] ||
+      die "geosite rules require $XRAY_DATADIR/geosite.dat; install or copy Xray geosite data, then apply routes again"
+  fi
+}
+
 append_unique_line() {
   local file="$1"
   local item="$2"
@@ -366,6 +396,10 @@ backup_configs() {
   cp -a /etc/init.d/xray-exit-st "$dir/etc/init.d/" 2>/dev/null || true
   cp -a /etc/adguardhome.yaml "$dir/etc/" 2>/dev/null || true
   cp -a /etc/dropbear "$dir/etc/dropbear" 2>/dev/null || true
+  if [ -n "$XRAY_DATADIR" ] && [ -f "$XRAY_DATADIR/geosite.dat" ]; then
+    mkdir -p "$dir$XRAY_DATADIR"
+    cp -a "$XRAY_DATADIR/geosite.dat" "$dir$XRAY_DATADIR/geosite.dat" 2>/dev/null || true
+  fi
   tar -czf "$archive" -C "$dir" . 2>/dev/null || true
   echo "$archive" > /root/LAST_OPENWRT_X86_FIN0_PRE_SETUP_BACKUP
 }
@@ -807,6 +841,48 @@ install_packages() {
     adguardhome
 }
 
+download_file() {
+  local url="$1"
+  local dst="$2"
+
+  mkdir -p "$(dirname "$dst")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$dst"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dst" "$url"
+  elif command -v uclient-fetch >/dev/null 2>&1; then
+    uclient-fetch -q -O "$dst" "$url"
+  else
+    die "curl, wget, or uclient-fetch is required to install Xray geosite data"
+  fi
+}
+
+file_size() {
+  wc -c < "$1" | tr -d ' '
+}
+
+install_geosite_data() {
+  local geosite_file tmp bytes
+
+  [ "$INSTALL_GEOSITE" = "1" ] || return 0
+  geosite_file="$XRAY_DATADIR/geosite.dat"
+  if [ -s "$geosite_file" ] && [ "$UPDATE_GEOSITE" != "1" ]; then
+    info "Using existing Xray geosite data at $geosite_file"
+    return 0
+  fi
+
+  info "Installing Xray geosite data"
+  mkdir -p "$XRAY_DATADIR"
+  tmp="/tmp/openwrt-fin0-geosite.$$"
+  rm -f "$tmp"
+  download_file "$GEOSITE_URL" "$tmp"
+  bytes="$(file_size "$tmp")"
+  [ "$bytes" -ge "$GEOSITE_MIN_BYTES" ] ||
+    die "downloaded geosite data is too small: $bytes bytes"
+  mv "$tmp" "$geosite_file"
+  chmod 644 "$geosite_file"
+}
+
 wait_for_http() {
   local url="$1"
   local i
@@ -915,10 +991,10 @@ tls:
 querylog:
   dir_path: ""
   ignored: []
-  interval: 2160h
+  interval: 24h
   size_memory: 1000
   enabled: true
-  file_enabled: true
+  file_enabled: false
 statistics:
   dir_path: ""
   ignored: []
@@ -1074,6 +1150,7 @@ write_xray_route_files() {
 # Examples:
 #   example.ru
 #   regexp:^.*\.example\.ru$
+#   geosite:alibaba
 regexp:^.*\.ru$
 regexp:^.*\.su$
 regexp:^.*\.xn--p1ai$
@@ -1260,6 +1337,11 @@ REALITY_SPIDERX=$(shell_quote "$REALITY_SPIDERX")
 TORRENT_DIRECT_CLIENTS=$(shell_quote "$TORRENT_DIRECT_CLIENTS")
 TORRENT_DIRECT_PORTS=$(shell_quote "$TORRENT_DIRECT_PORTS")
 BLOCK_QUIC=$(shell_quote "$BLOCK_QUIC")
+XRAY_DATADIR=$(shell_quote "$XRAY_DATADIR")
+INSTALL_GEOSITE=$(shell_quote "$INSTALL_GEOSITE")
+UPDATE_GEOSITE=$(shell_quote "$UPDATE_GEOSITE")
+GEOSITE_URL=$(shell_quote "$GEOSITE_URL")
+GEOSITE_MIN_BYTES=$(shell_quote "$GEOSITE_MIN_BYTES")
 EOF
   chmod 600 /etc/xray/exit-st-cf.vars
 }
@@ -1301,6 +1383,7 @@ Usage:
 Domain matcher examples:
   gosuslugi.ru
   regexp:^.*\\.gosuslugi\\.ru$
+  geosite:alibaba
 
 After editing, run:
   vpn-routes apply
@@ -1396,6 +1479,7 @@ write_xray_config() {
   spx_json="$(json_escape "$REALITY_SPIDERX")"
   uuid_json="$(json_escape "$VLESS_UUID")"
   extra_direct_ip_json="$(json_tail_from_file /etc/xray/direct-ips.txt)"
+  ensure_domain_rule_data /etc/xray/direct-domains.txt
   direct_domain_json="$(json_list_from_file /etc/xray/direct-domains.txt)"
 
   mkdir -p /etc/xray
@@ -1627,6 +1711,7 @@ configure_xray() {
   write_xray_route_files
   write_xray_vars
   install_vpn_routes_helper
+  install_geosite_data
   write_xray_config
   xray run -test -config /etc/xray/exit-st-cf.json
 
@@ -1634,7 +1719,7 @@ configure_xray() {
   uci set xray.enabled.enabled='1'
   uci set xray.config='xray'
   uci set xray.config.conffiles='/etc/xray/exit-st-cf.json'
-  uci set xray.config.datadir='/usr/share/xray'
+  uci set xray.config.datadir="$XRAY_DATADIR"
   uci set xray.config.format='json'
   uci -q delete xray.config.confdir
   uci commit xray
@@ -1653,6 +1738,7 @@ render_xray_from_saved_state() {
   [ -f /etc/xray/exit-st-cf.vars ] || die "missing /etc/xray/exit-st-cf.vars; run full setup first"
   . /etc/xray/exit-st-cf.vars
   write_xray_route_files
+  install_geosite_data
   write_xray_config
   xray run -test -config /etc/xray/exit-st-cf.json
   write_xray_transparent_init
