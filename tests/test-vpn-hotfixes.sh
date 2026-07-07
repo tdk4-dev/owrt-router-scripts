@@ -3,7 +3,7 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 HELPER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
-VIEW="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn-0-7-6.js"
+VIEW="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js"
 SETUP_CGI="$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
 SETUP_APP="$ROOT_DIR/firstboot-wizard/www/app.js"
 SETUP_SERVER="$ROOT_DIR/firstboot-wizard/server.mjs"
@@ -37,4 +37,4 @@ grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.8 hotfix static checks passed\n'
+printf 'VPN 0.7.9 hotfix static checks passed\n'

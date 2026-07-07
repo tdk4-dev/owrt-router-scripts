@@ -1,5 +1,11 @@
-Router UI 0.7.8
+Router UI 0.7.9
 
+• Uses stable LuCI asset names (`vpn.js`, `tailscale.js`, `update.js`,
+  `35_vpn.js`) instead of embedding Router UI versions in filenames.
+• Removes stale versioned LuCI assets during install so future releases do not
+  require filename churn or workflow edits.
+• Adds release checks that fail if current LuCI asset filenames become
+  versioned again.
 • Stops RAM-backed router log growth by capping `/tmp/xray-access.log` and
   `/tmp/xray-error.log` during install init and the existing one-minute
   Router UI auto-tick.

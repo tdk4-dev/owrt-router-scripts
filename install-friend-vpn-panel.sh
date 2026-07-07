@@ -43,16 +43,17 @@ UPDATE_GEOSITE=0 \
 printf '\nValidating VPN and Tailscale panels on %s...\n' "$ROUTER_HOST"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER_HOST" '
   set -eu
-  test "$(cat /usr/share/vpn-ui/version)" = "0.7.5"
+  test "$(cat /usr/share/vpn-ui/version)" = "0.7.9"
   /usr/sbin/vpn-ui check | grep -q "\"ok\":true"
   /usr/sbin/vpn-ui tailscale-status | grep -q "\"tailscale\":"
-  grep -q "network/vpn-0-7-0" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  grep -q "network/tailscale-0-7-5" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  grep -q "system/update-0-7-3" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-  test -f /www/luci-static/resources/view/network/vpn-0-7-0.js
-  test -f /www/luci-static/resources/view/network/tailscale-0-7-5.js
-  test -f /www/luci-static/resources/view/system/update-0-7-3.js
-  test -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
+  grep -q "\"path\":[[:space:]]*\"network/vpn\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  grep -q "\"path\":[[:space:]]*\"network/tailscale\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  grep -q "\"path\":[[:space:]]*\"system/update\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+  test -f /www/luci-static/resources/view/network/vpn.js
+  test -f /www/luci-static/resources/view/network/tailscale.js
+  test -f /www/luci-static/resources/view/system/update.js
+  test -f /www/luci-static/resources/view/status/include/35_vpn.js
+  test -f /www/luci-static/resources/view/status/include/_35_vpn.js
 '
 
 printf '\nFriend router panel installation completed.\n'
