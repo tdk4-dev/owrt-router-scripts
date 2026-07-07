@@ -11,7 +11,7 @@ if (!String.prototype.format) {
 }
 
 const source = await fs.readFile(
-	new URL('../luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale-0-7-5.js', import.meta.url),
+	new URL('../luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js', import.meta.url),
 	'utf8'
 );
 
