@@ -1,5 +1,13 @@
-Router UI 0.7.7
+Router UI 0.7.8
 
+• Stops RAM-backed router log growth by capping `/tmp/xray-access.log` and
+  `/tmp/xray-error.log` during install init and the existing one-minute
+  Router UI auto-tick.
+• Disables AdGuardHome file-backed query logging on OpenWrt, where
+  `/var/lib/adguardhome` lives under tmpfs, and removes the accumulated
+  querylog file during update.
+• New x86 first-boot/setup installs use a 24-hour in-memory AdGuard query log
+  without writing `querylog.json` into RAM.
 • Fixes imported subscription profile switching on Xray 25 by omitting empty
   direct-domain routing rules from generated Xray configs.
 • First-boot setup accepts HTTPS subscription links as well as direct

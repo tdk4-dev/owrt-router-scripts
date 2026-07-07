@@ -19,6 +19,14 @@ NFT_FAMILY="inet"
 NFT_TABLE="xray_transparent"
 NFT_DEVICE_BYPASS_SET="vpn_ui_device_bypass4"
 DEFAULT_XRAY_DATADIR="/usr/share/xray"
+XRAY_ACCESS_LOG="/tmp/xray-access.log"
+XRAY_ERROR_LOG="/tmp/xray-error.log"
+XRAY_ACCESS_LOG_MAX_BYTES=1048576
+XRAY_ACCESS_LOG_KEEP_BYTES=262144
+XRAY_ERROR_LOG_MAX_BYTES=262144
+XRAY_ERROR_LOG_KEEP_BYTES=65536
+ADGUARD_CONFIG="/etc/adguardhome.yaml"
+ADGUARD_QUERYLOG="/tmp/lib/adguardhome/data/querylog.json"
 
 XRAY_SERVICE=""
 XRAY_BIN=""
@@ -617,6 +625,90 @@ init_state() {
   elif [ ! -s "$SELECTED_FILE" ]; then
     basename "$first" .conf > "$SELECTED_FILE"
   fi
+}
+
+file_bytes() {
+  [ -f "$1" ] || {
+    printf '0'
+    return
+  }
+  wc -c < "$1" 2>/dev/null | tr -d ' ' || printf '0'
+}
+
+cap_runtime_file() {
+  local file="$1"
+  local max_bytes="$2"
+  local keep_bytes="$3"
+  local bytes tmp
+
+  [ -f "$file" ] || return 0
+  bytes="$(file_bytes "$file")"
+  [ "${bytes:-0}" -gt "$max_bytes" ] 2>/dev/null || return 0
+  tmp="/tmp/vpn-ui-truncate.$$"
+  if tail -c "$keep_bytes" "$file" > "$tmp" 2>/dev/null; then
+    cat "$tmp" > "$file" 2>/dev/null || : > "$file"
+  else
+    : > "$file"
+  fi
+  rm -f "$tmp"
+}
+
+harden_adguard_querylog() {
+  local tmp backup changed
+
+  [ -f "$ADGUARD_CONFIG" ] || return 0
+  tmp="/tmp/vpn-ui-adguardhome.$$"
+  awk '
+    /^querylog:/ {
+      in_querylog = 1
+      print
+      next
+    }
+    in_querylog && /^[^[:space:]][^:]*:/ {
+      in_querylog = 0
+    }
+    in_querylog && /^[[:space:]]*interval:/ {
+      print "  interval: 24h"
+      next
+    }
+    in_querylog && /^[[:space:]]*file_enabled:/ {
+      print "  file_enabled: false"
+      next
+    }
+    { print }
+  ' "$ADGUARD_CONFIG" > "$tmp" 2>/dev/null || {
+    rm -f "$tmp"
+    return 0
+  }
+
+  changed=0
+  cmp -s "$ADGUARD_CONFIG" "$tmp" 2>/dev/null || changed=1
+  if [ "$changed" = "1" ] && command -v AdGuardHome >/dev/null 2>&1; then
+    AdGuardHome --check-config -c "$tmp" -w /var/lib/adguardhome \
+      >/tmp/vpn-ui-adguard-check.log 2>&1 || {
+        rm -f "$tmp"
+        return 0
+      }
+  fi
+
+  if [ "$changed" = "1" ]; then
+    backup="$ADGUARD_CONFIG.bak.vpn-ui.$(date +%Y%m%d-%H%M%S)"
+    cp "$ADGUARD_CONFIG" "$backup" 2>/dev/null || true
+    mv "$tmp" "$ADGUARD_CONFIG"
+    chmod 600 "$ADGUARD_CONFIG" 2>/dev/null || true
+    [ -x /etc/init.d/adguardhome ] &&
+      /etc/init.d/adguardhome restart >/tmp/vpn-ui-adguard-restart.log 2>&1 || true
+  else
+    rm -f "$tmp"
+  fi
+
+  rm -f "$ADGUARD_QUERYLOG" "$ADGUARD_QUERYLOG".* 2>/dev/null || true
+}
+
+runtime_memory_maintenance() {
+  cap_runtime_file "$XRAY_ACCESS_LOG" "$XRAY_ACCESS_LOG_MAX_BYTES" "$XRAY_ACCESS_LOG_KEEP_BYTES"
+  cap_runtime_file "$XRAY_ERROR_LOG" "$XRAY_ERROR_LOG_MAX_BYTES" "$XRAY_ERROR_LOG_KEEP_BYTES"
+  harden_adguard_querylog
 }
 
 subscription_id_from_url() {
@@ -1445,9 +1537,9 @@ access_log_since() {
   local start="$1"
   local begin
 
-  [ -f /tmp/xray-access.log ] || return 0
+  [ -f "$XRAY_ACCESS_LOG" ] || return 0
   begin=$((start + 1))
-  sed -n "${begin},\$p" /tmp/xray-access.log 2>/dev/null
+  sed -n "${begin},\$p" "$XRAY_ACCESS_LOG" 2>/dev/null
 }
 
 extract_outbound_tag() {
@@ -1459,7 +1551,7 @@ run_domain_probe() {
   local scheme="$2"
   local before metrics err rc line
 
-  before="$(file_line_count /tmp/xray-access.log)"
+  before="$(file_line_count "$XRAY_ACCESS_LOG")"
   err="/tmp/vpn-ui-domain-test-err.$$"
   metrics="$(curl -4 -k -sS --connect-timeout 5 --max-time 12 \
     -o /dev/null \
@@ -2023,6 +2115,7 @@ cmd_auto_tick() {
   local best_id best_ms due threshold
 
   init_state
+  runtime_memory_maintenance
   load_auto_config
   [ "$AUTO_FAILOVER" = "1" ] || [ "$AUTO_PERIODIC" = "1" ] || exit 0
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
@@ -2170,6 +2263,7 @@ cmd_update() {
 case "${1:-status}" in
   init)
     init_state
+    runtime_memory_maintenance
     status_json
     ;;
   status)

@@ -16,6 +16,13 @@ grep -q 'active_proxy_probe_ms' "$HELPER"
 grep -q 'tcp %s\\n' "$HELPER"
 grep -q 'direct_domain_rule_json=""' "$HELPER"
 grep -q '\[ -n "$direct_domain_json" \]' "$HELPER"
+grep -q 'XRAY_ACCESS_LOG_MAX_BYTES=1048576' "$HELPER"
+grep -q 'cap_runtime_file "$XRAY_ACCESS_LOG"' "$HELPER"
+grep -q 'harden_adguard_querylog' "$HELPER"
+grep -q 'file_enabled: false' "$ROOT_DIR/setup-openwrt-x86-fin0.sh"
+grep -q 'interval: 24h' "$ROOT_DIR/setup-openwrt-x86-fin0.sh"
+grep -q 'file_enabled: false' "$SETUP_CGI"
+grep -q 'interval: 24h' "$SETUP_CGI"
 
 count="$(grep -c 'ui.addNotification' "$VIEW")"
 [ "$count" -eq 1 ] || {
@@ -30,4 +37,4 @@ grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.7 hotfix static checks passed\n'
+printf 'VPN 0.7.8 hotfix static checks passed\n'

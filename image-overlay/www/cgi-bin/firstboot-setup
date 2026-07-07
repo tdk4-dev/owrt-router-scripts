@@ -170,6 +170,22 @@ rewrite_adguard_filters() {
     fail "Select at least one AdGuard blocklist."
   }
   awk -v filters="$yaml" '
+    /^querylog:/ {
+      in_querylog = 1
+      print
+      next
+    }
+    in_querylog && /^[^[:space:]][^:]*:/ {
+      in_querylog = 0
+    }
+    in_querylog && /^[[:space:]]*interval:/ {
+      print "  interval: 24h"
+      next
+    }
+    in_querylog && /^[[:space:]]*file_enabled:/ {
+      print "  file_enabled: false"
+      next
+    }
     /^filters:/ {
       print "filters:"
       while ((getline line < filters) > 0) print line

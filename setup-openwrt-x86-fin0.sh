@@ -991,10 +991,10 @@ tls:
 querylog:
   dir_path: ""
   ignored: []
-  interval: 2160h
+  interval: 24h
   size_memory: 1000
   enabled: true
-  file_enabled: true
+  file_enabled: false
 statistics:
   dir_path: ""
   ignored: []
