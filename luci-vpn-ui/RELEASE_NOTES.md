@@ -1,5 +1,8 @@
-Router UI 0.7.9
+Router UI 0.7.10
 
+• Fixes updates from 0.7.8 to stable LuCI asset releases by installing
+  transitional legacy asset aliases during the update. This prevents the old
+  0.7.8 post-install validator from rolling back a successful 0.7.9+ install.
 • Uses stable LuCI asset names (`vpn.js`, `tailscale.js`, `update.js`,
   `35_vpn.js`) instead of embedding Router UI versions in filenames.
 • Removes stale versioned LuCI assets during install so future releases do not

@@ -314,20 +314,20 @@ copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/lu
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale-0-7-5.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update-0-7-3.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js 644
 rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js
-rm -f /www/luci-static/resources/view/network/vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
-rm -f /www/luci-static/resources/view/network/tailscale-0-7-5.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-0.js
-rm -f /www/luci-static/resources/view/system/update-0-7-3.js
 rm -f /www/luci-static/resources/view/system/update-0-6-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-1.js
 rm -f /www/luci-static/resources/view/system/update-0-7-2.js
-rm -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
-rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-5-2.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
