@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "hotfix/**"
+      - "docs/**"
+      - "test/**"
+      - "chore/**"
+      - "codex/**"
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: |
+          sh -n \
+            luci-vpn-ui/install.sh \
+            luci-vpn-ui/files/usr/sbin/vpn-ui \
+            luci-vpn-ui/files/usr/sbin/vpn-ui-update \
+            install-router-ui-release.sh \
+            install-openwrt-vpn-ui.sh \
+            install-friend-vpn-panel.sh \
+            make-vpn-ui-release-bundle.sh
+
+      - name: Validate JavaScript
+        run: |
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/_35_vpn.js
+          node --check firstboot-wizard/server.mjs
+          node --check firstboot-wizard/www/app.js
+
+      - name: Run local tests
+        run: |
+          sh tests/test-vpn-hotfixes.sh
+          sh tests/test-luci-stable-assets.sh
+          node tests/test-tailscale-ping-ui.mjs

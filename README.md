@@ -102,3 +102,17 @@ set +a
 - Use `.env`/local config files for deployment-specific values.
 - File transfer to OpenWrt uses `ssh` + `cat` or `ssh` + `tar`, avoiding
   OpenWrt-incompatible SFTP assumptions.
+
+## Development and Release Safety
+
+Project workflow and release rules are documented in:
+
+- [AGENTS.md](AGENTS.md)
+- [docs/development-workflow.md](docs/development-workflow.md)
+- [docs/custom-image-release-guide.md](docs/custom-image-release-guide.md)
+- [docs/vm-release-testing-methodology.md](docs/vm-release-testing-methodology.md)
+- [docs/customer-owner-policy.md](docs/customer-owner-policy.md)
+- [docs/footer-branding.md](docs/footer-branding.md)
+
+Do not publish a tag, GitHub Release, or release asset unless the current task
+explicitly says `PUBLISH RELEASE <version>`.
