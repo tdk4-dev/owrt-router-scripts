@@ -249,9 +249,9 @@ write_core_scripts "$CORE_CONTROL"
 LUCI_ROOT="$BUILD_DIR/luci-app-premier-router/root"
 LUCI_CONTROL="$BUILD_DIR/luci-app-premier-router/control"
 copy_tree_file_modes "$ROOT_DIR/luci-vpn-ui/files/www" "$LUCI_ROOT/www"
-if [ -d "$ROOT_DIR/luci-vpn-ui/files/usr/share/ucode" ]; then
-  copy_tree_file_modes "$ROOT_DIR/luci-vpn-ui/files/usr/share/ucode" "$LUCI_ROOT/usr/share/ucode"
-fi
+# Footer templates live in source for legacy/manual install experiments, but
+# they overlap files owned by LuCI theme packages. Do not ship them in IPKs
+# until a package-safe hook or diversion strategy is runtime-validated.
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" 644
 write_control \

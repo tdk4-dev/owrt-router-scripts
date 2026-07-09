@@ -50,20 +50,18 @@ fi
 
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset.js" ]
-[ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ]
-grep -q 'Router Scripts v0.8.0' "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut"
+[ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/luci/menu.d/luci-app-vpn-ui.json" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]
 
 [ -x "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup" ]
-if [ -f "$ROOT_DIR/image-overlay/www/cgi-bin/router-prep" ]; then
-  [ -x "$TMP_DIR/premier-router-setup/data/www/cgi-bin/router-prep" ]
-fi
-if [ -f "$ROOT_DIR/image-overlay/usr/sbin/router-prep" ]; then
-  [ -x "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep" ]
-fi
+[ -x "$TMP_DIR/premier-router-setup/data/www/cgi-bin/router-prep" ]
+[ -x "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep" ]
 [ ! -f "$TMP_DIR/premier-router-setup/data/www/index.html" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/setup/app.js" ]
+[ -f "$TMP_DIR/premier-router-setup/data/www/prepare/index.html" ]
+[ -f "$TMP_DIR/premier-router-setup/data/www/prepare/app.js" ]
+[ -f "$TMP_DIR/premier-router-setup/data/www/prepare/styles.css" ]
 grep -q 'rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot' "$TMP_DIR/premier-router-setup/control/postinst"
 
 for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
