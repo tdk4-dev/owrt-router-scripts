@@ -39,10 +39,10 @@ for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
   grep -qx "Architecture: all" "$TMP_DIR/$pkg/control/control"
   grep -q '^Depends: ' "$TMP_DIR/$pkg/control/control"
   if [ "$pkg" = "premier-router-core" ]; then
+    grep -qx '/etc/config/premier_router' "$TMP_DIR/$pkg/control/conffiles"
     grep -qx '/etc/vpn-ui-update.conf' "$TMP_DIR/$pkg/control/conffiles"
+    grep -q 'vpn-ui metadata-init' "$TMP_DIR/$pkg/control/postinst"
   fi
-  find "$TMP_DIR/$pkg/data" -type f |
-    grep -Ev '/(\.DS_Store|id_rsa|known_hosts|authorized_keys|\.env|backup|cache|log|pcap|secret|token)' >/dev/null || true
 done
 
 [ -x "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui" ]
@@ -51,15 +51,28 @@ done
 [ -f "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/version" ]
 [ -f "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/legacy-files.list" ]
 [ -f "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf" ]
+[ -f "$TMP_DIR/premier-router-core/data/etc/config/premier_router" ]
+grep -q 'metadata|router-metadata|footer-info' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
+grep -q 'metadata-set)' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
+grep -q "option install_method 'manual-ipk-install'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
+grep -q "option support_level 'self-managed'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
+grep -q "option registration_state 'local-only'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
 if command -v stat >/dev/null 2>&1; then
   mode="$(stat -c '%a' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf" 2>/dev/null ||
     stat -f '%Lp' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf")"
   [ "$mode" = "600" ]
+  metadata_mode="$(stat -c '%a' "$TMP_DIR/premier-router-core/data/etc/config/premier_router" 2>/dev/null ||
+    stat -f '%Lp' "$TMP_DIR/premier-router-core/data/etc/config/premier_router")"
+  [ "$metadata_mode" = "600" ]
 fi
 
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset.js" ]
+[ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" ]
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ]
+[ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ]
+grep -q "\['footer-info'\]" "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/35_vpn.js"
+grep -q 'router_metadata' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js"
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/luci/menu.d/luci-app-vpn-ui.json" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]
 
@@ -72,12 +85,19 @@ fi
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/app.js" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/styles.css" ]
 grep -q 'rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot' "$TMP_DIR/premier-router-setup/control/postinst"
+grep -q 'metadata-set self-managed-image self-managed local-only' "$TMP_DIR/premier-router-setup/data/etc/uci-defaults/99-openwrt-fin0-firstboot"
+grep -q 'SUPPORT_LEVEL' "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep"
+grep -q 'REGISTRATION_STATE' "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep"
 
 for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
   (
     cd "$TMP_DIR/$pkg/data"
     if find . -type f | grep -E '(^|/)(tmp|root)/|\.tar\.gz$|\.img(\.gz)?$|\.pcap$|\.env$'; then
       printf '%s package contains local/generated artifacts\n' "$pkg" >&2
+      exit 1
+    fi
+    if find . -type f | grep -Ei '(id_rsa|known_hosts|authorized_keys|backup|cache|log|pcap|secret|token|private.?key)'; then
+      printf '%s package contains secret-shaped or generated paths\n' "$pkg" >&2
       exit 1
     fi
   )

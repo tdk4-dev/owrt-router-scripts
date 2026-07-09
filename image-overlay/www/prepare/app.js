@@ -65,6 +65,8 @@ async function seal() {
 
 function policyForm(policy = {}) {
   const installMode = policy.installMode || 'owner-prepared-standard';
+  const supportLevel = policy.supportLevel || 'standard';
+  const registrationState = policy.registrationState || 'support-disabled';
   const checked = value => value ? 'checked' : '';
   return `
     <div class="stack">
@@ -73,6 +75,22 @@ function policyForm(policy = {}) {
         <select id="install-mode">
           ${['owner-prepared-standard', 'owner-prepared-managed', 'self-managed-image', 'manual-ipk-install', 'dev-vm', 'unknown'].map(mode => `
             <option value="${mode}" ${mode === installMode ? 'selected' : ''}>${mode}</option>
+          `).join('')}
+        </select>
+      </div>
+      <div>
+        <label for="support-level">Support level</label>
+        <select id="support-level">
+          ${['none', 'self-managed', 'standard', 'managed', 'priority', 'developer'].map(level => `
+            <option value="${level}" ${level === supportLevel ? 'selected' : ''}>${level}</option>
+          `).join('')}
+        </select>
+      </div>
+      <div>
+        <label for="registration-state">Registration/support state</label>
+        <select id="registration-state">
+          ${['unregistered', 'local-only', 'support-registered', 'support-enabled', 'support-disabled', 'unknown'].map(registration => `
+            <option value="${registration}" ${registration === registrationState ? 'selected' : ''}>${registration}</option>
           `).join('')}
         </select>
       </div>
@@ -120,7 +138,7 @@ function render() {
   app.innerHTML = `
     <div class="eyebrow">Owner prep</div>
     <h1>Router preparation</h1>
-    <p class="lede">Use this local-only panel before customer handoff. Secrets are not displayed or stored here.</p>
+    <p class="lede">Use this local-only panel before customer handoff. Support state is explicit metadata only; this panel never creates a hidden tunnel. Secrets are not displayed or stored here.</p>
     ${state.error ? `<p class="lede">${escapeHtml(state.error)}</p>` : ''}
     <section class="grid">
       <div class="panel">
@@ -161,6 +179,8 @@ app.addEventListener('click', event => {
   if (action === 'save-policy') {
     savePolicy({
       installMode: document.querySelector('#install-mode')?.value || 'owner-prepared-standard',
+      supportLevel: document.querySelector('#support-level')?.value || 'standard',
+      registrationState: document.querySelector('#registration-state')?.value || 'support-disabled',
       customerVpn: document.querySelector('#customerVpn')?.checked || false,
       customerTailscale: document.querySelector('#customerTailscale')?.checked || false,
       customerUpdates: document.querySelector('#customerUpdates')?.checked || false,

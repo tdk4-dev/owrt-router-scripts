@@ -99,6 +99,18 @@ creates a full OpenWrt backup, migrates old tar.gz-installed files when
 detected, installs only this project's packages, and validates the result. It
 does not run global `opkg upgrade`.
 
+Package installs keep non-secret installation/support metadata in
+`/etc/config/premier_router`. Inspect the public-safe summary with:
+
+```sh
+vpn-ui router-metadata
+vpn-ui footer-info
+```
+
+The LuCI Status Overview and VPN page show the Router Scripts version,
+installation method, support level, registration state, and only a shortened
+local router ID. The packages do not replace LuCI theme footer templates.
+
 ### Owner Preparation Panel
 
 The custom image includes a preparation panel that is separate from the
@@ -121,6 +133,7 @@ The panel provides:
 - simulated 2.4 and 5 GHz radios for previewing the complete Wi-Fi wizard
 - owner Headscale/Tailscale enrollment without exposing the preauth key later
 - customer access policy for VPN, Tailscale, updates, packages, and AdGuard
+- explicit support level and registration/support metadata with no hidden tunnel
 - verified pre-handoff `sysupgrade` backups
 - a seal action that removes preview radios and disables the preparation API
 

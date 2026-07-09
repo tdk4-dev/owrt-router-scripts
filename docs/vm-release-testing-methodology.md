@@ -51,7 +51,10 @@ the project packages.
 - System > Update panel.
 - System > Reset panel.
 - Status overview VPN card/include.
-- Footer branding: `Router Scripts vX.Y.Z`.
+- Package-safe Router Scripts metadata in Status Overview and Router UI.
+- `vpn-ui footer-info` compact label with version, install method, support
+  level, and registration state.
+- No project package ownership of LuCI theme `footer.ut` files.
 - Stable LuCI asset names:
   - `network/vpn.js`
   - `network/tailscale.js`
@@ -169,7 +172,9 @@ For every x86 release candidate:
 5. Verify setup completion:
    - LuCI login works with the configured password;
    - Status page loads without JS/XHR errors;
-   - footer includes `Router Scripts vX.Y.Z`;
+   - Status Overview includes the `Router Scripts vX.Y.Z` metadata label;
+   - `vpn-ui footer-info` matches the displayed installation/support state;
+   - `opkg files luci-app-premier-router` contains no theme `footer.ut` path;
    - AdGuardHome loads;
    - VPN panel loads;
    - Tailscale panel loads or is hidden according to policy;
@@ -262,7 +267,8 @@ IPK testing is required in a VM before release.
    - `opkg files` owns project files;
    - LuCI pages are available;
    - setup wizard is available;
-   - footer version appears;
+   - Status Overview and `vpn-ui footer-info` show the same metadata version;
+   - no project IPK owns a LuCI theme `footer.ut` file;
    - services and cron jobs are configured;
    - no generated secrets, logs, backups, VLESS URLs, or machine identity are
      included in package contents.

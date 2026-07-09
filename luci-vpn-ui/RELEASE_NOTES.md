@@ -17,6 +17,12 @@ Router UI 0.8.0
 • Converts release staging to real OpenWrt IPK packages with opkg feed
   metadata, package-first running-router updates, legacy tar.gz migration, and
   images built from the same package artifacts.
+• Adds preserved UCI router metadata for installation method, support level,
+  registration/support state, local random router ID, owner-prep state, and
+  sealing. Only a shortened router ID is exposed by helpers and UI.
+• Shows a non-secret Router Scripts metadata label on Status Overview and the
+  VPN page. IPKs intentionally do not own LuCI theme footer files; literal
+  footer injection remains deferred until a package-safe hook is proven.
 • Fixes first-boot root password handling so LuCI and SSH authenticate with the
   password entered in the setup wizard.
 • Fixes first-boot VLESS enablement when direct routing rules are empty, and

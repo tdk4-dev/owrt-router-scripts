@@ -6,6 +6,7 @@ TOKEN_FILE="$STATE_DIR/token"
 POLICY_FILE="$STATE_DIR/customer-policy.conf"
 SEALED_FILE="$STATE_DIR/sealed"
 PLACEHOLDER_WIFI_FILE="$STATE_DIR/placeholder-wifi"
+VPN_UI_BIN="${ROUTER_PREP_VPN_UI_BIN:-/usr/sbin/vpn-ui}"
 
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
@@ -27,9 +28,68 @@ CUSTOMER_UPDATES='1'
 CUSTOMER_PACKAGES='0'
 CUSTOMER_ADGUARD='1'
 SUPPORT_ACCESS='0'
+SUPPORT_LEVEL='standard'
+REGISTRATION_STATE='support-disabled'
 EOF
     chmod 600 "$POLICY_FILE"
   fi
+  migrate_policy_metadata_fields
+}
+
+policy_value() {
+  sed -n "s/^$1='\([^']*\)'/\1/p" "$POLICY_FILE" | sed -n '1p'
+}
+
+default_support_level() {
+  case "$1" in
+    owner-prepared-standard) printf standard ;;
+    owner-prepared-managed) printf managed ;;
+    self-managed-image|manual-ipk-install|legacy-migrated) printf self-managed ;;
+    dev-vm) printf developer ;;
+    *) printf none ;;
+  esac
+}
+
+default_registration_state() {
+  case "$1" in
+    owner-prepared-standard|owner-prepared-managed)
+      [ "$2" = "1" ] && printf support-enabled || printf support-disabled
+      ;;
+    *) printf local-only ;;
+  esac
+}
+
+migrate_policy_metadata_fields() {
+  local mode support_access support_level registration
+  mode="$(policy_value INSTALL_MODE)"
+  support_access="$(policy_value SUPPORT_ACCESS)"
+  [ -n "$mode" ] || mode="owner-prepared-standard"
+  [ "$support_access" = "1" ] || support_access=0
+  support_level="$(policy_value SUPPORT_LEVEL)"
+  registration="$(policy_value REGISTRATION_STATE)"
+  if [ -z "$support_level" ]; then
+    printf "SUPPORT_LEVEL='%s'\n" "$(default_support_level "$mode")" >> "$POLICY_FILE"
+  fi
+  if [ -z "$registration" ]; then
+    printf "REGISTRATION_STATE='%s'\n" "$(default_registration_state "$mode" "$support_access")" >> "$POLICY_FILE"
+  fi
+  chmod 600 "$POLICY_FILE"
+}
+
+valid_support_level() {
+  case "$1" in none|self-managed|standard|managed|priority|developer) return 0 ;; esac
+  return 1
+}
+
+valid_registration_state() {
+  case "$1" in unregistered|local-only|support-registered|support-enabled|support-disabled|unknown) return 0 ;; esac
+  return 1
+}
+
+sync_router_metadata() {
+  local mode="$1" support_level="$2" registration="$3"
+  [ -x "$VPN_UI_BIN" ] || return 0
+  "$VPN_UI_BIN" metadata-set "$mode" "$support_level" "$registration" 1 0 >/dev/null
 }
 
 new_token() {
@@ -74,7 +134,11 @@ status_json() {
   [ -f "$PLACEHOLDER_WIFI_FILE" ] && printf true || printf false
   printf ',"policy":{'
   printf '"installMode":'
-  json_string "$(sed -n "s/^INSTALL_MODE='\([^']*\)'/\1/p" "$POLICY_FILE" | sed -n '1p')"
+  json_string "$(policy_value INSTALL_MODE)"
+  printf ',"supportLevel":'
+  json_string "$(policy_value SUPPORT_LEVEL)"
+  printf ',"registrationState":'
+  json_string "$(policy_value REGISTRATION_STATE)"
   printf ',"customerVpn":'
   grep -q "^CUSTOMER_VPN='1'" "$POLICY_FILE" && printf true || printf false
   printf ',"customerTailscale":'
@@ -92,11 +156,22 @@ status_json() {
 
 write_policy() {
   local mode="${1:-owner-prepared-standard}" vpn="${2:-1}" tailscale="${3:-0}" updates="${4:-1}" packages="${5:-0}" adguard="${6:-1}" support="${7:-0}"
+  local support_level="${8:-}" registration="${9:-}"
   ensure_state
   case "$mode" in
-    owner-prepared-managed|owner-prepared-standard|self-managed-image|manual-ipk-install|dev-vm|unknown) ;;
+    owner-prepared-managed|owner-prepared-standard|self-managed-image|manual-ipk-install|legacy-migrated|dev-vm|unknown) ;;
     *) printf 'invalid install mode: %s\n' "$mode" >&2; exit 1 ;;
   esac
+  [ -n "$support_level" ] || support_level="$(default_support_level "$mode")"
+  [ -n "$registration" ] || registration="$(default_registration_state "$mode" "$support")"
+  valid_support_level "$support_level" || {
+    printf 'invalid support level: %s\n' "$support_level" >&2
+    exit 1
+  }
+  valid_registration_state "$registration" || {
+    printf 'invalid registration state: %s\n' "$registration" >&2
+    exit 1
+  }
   cat > "$POLICY_FILE" <<EOF
 INSTALL_MODE='$mode'
 CUSTOMER_VPN='$vpn'
@@ -105,8 +180,11 @@ CUSTOMER_UPDATES='$updates'
 CUSTOMER_PACKAGES='$packages'
 CUSTOMER_ADGUARD='$adguard'
 SUPPORT_ACCESS='$support'
+SUPPORT_LEVEL='$support_level'
+REGISTRATION_STATE='$registration'
 EOF
   chmod 600 "$POLICY_FILE"
+  sync_router_metadata "$mode" "$support_level" "$registration"
 }
 
 apply_policy() {
@@ -121,12 +199,14 @@ seal() {
   rm -f "$TOKEN_FILE" "$PLACEHOLDER_WIFI_FILE"
   : > "$SEALED_FILE"
   chmod 600 "$SEALED_FILE"
+  [ ! -x "$VPN_UI_BIN" ] || "$VPN_UI_BIN" metadata-sealed 1 >/dev/null
 }
 
 unseal() {
   ensure_state
   rm -f "$SEALED_FILE"
   new_token >/dev/null
+  [ ! -x "$VPN_UI_BIN" ] || "$VPN_UI_BIN" metadata-sealed 0 >/dev/null
 }
 
 case "${1:-status}" in
@@ -170,7 +250,7 @@ case "${1:-status}" in
     ;;
   *)
     cat >&2 <<'EOF'
-usage: router-prep token|new-token|authorize TOKEN|status|policy MODE VPN TAILSCALE UPDATES PACKAGES ADGUARD SUPPORT|apply-policy|placeholder-wifi on|off|seal|unseal
+usage: router-prep token|new-token|authorize TOKEN|status|policy MODE VPN TAILSCALE UPDATES PACKAGES ADGUARD SUPPORT [SUPPORT_LEVEL] [REGISTRATION_STATE]|apply-policy|placeholder-wifi on|off|seal|unseal
 EOF
     exit 1
     ;;

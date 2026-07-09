@@ -82,13 +82,15 @@ case "$action" in
     packages="$(json_get_bool customerPackages)"
     adguard="$(json_get_bool customerAdguard)"
     support="$(json_get_bool supportAccess)"
+    support_level="$(json_get_string supportLevel)"
+    registration="$(json_get_string registrationState)"
     [ "$vpn" = "true" ] && vpn=1 || vpn=0
     [ "$tailscale" = "true" ] && tailscale=1 || tailscale=0
     [ "$updates" = "true" ] && updates=1 || updates=0
     [ "$packages" = "true" ] && packages=1 || packages=0
     [ "$adguard" = "true" ] && adguard=1 || adguard=0
     [ "$support" = "true" ] && support=1 || support=0
-    "$ROUTER_PREP_BIN" policy "${mode:-owner-prepared-standard}" "$vpn" "$tailscale" "$updates" "$packages" "$adguard" "$support" >/dev/null 2>&1 ||
+    "$ROUTER_PREP_BIN" policy "${mode:-owner-prepared-standard}" "$vpn" "$tailscale" "$updates" "$packages" "$adguard" "$support" "${support_level:-}" "${registration:-}" >/dev/null 2>&1 ||
       fail "Could not save preparation policy."
     ok
     ;;

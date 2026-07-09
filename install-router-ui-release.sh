@@ -254,6 +254,7 @@ validate_install() {
   /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui tailscale-status 2>/dev/null | grep -q '"ok":true' || return 1
+  /usr/sbin/vpn-ui footer-info 2>/dev/null | grep -q '"footer_label":"Router Scripts v' || return 1
   [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
   [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
   [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
@@ -359,6 +360,12 @@ printf 'Installing Premier Router packages %s\n' "$PACKAGE_VERSION"
 if ! install_ipks; then
   rollback_ipk_install "$MIGRATION_SNAPSHOT"
   die "package installation failed safely; inspect $LOG_FILE"
+fi
+
+if [ "$INSTALL_TYPE" = "legacy-tar" ] &&
+  ! /usr/sbin/vpn-ui metadata-set legacy-migrated self-managed local-only 0 0 >>"$LOG_FILE" 2>&1; then
+  rollback_ipk_install "$MIGRATION_SNAPSHOT"
+  die "legacy metadata migration failed safely; inspect $LOG_FILE"
 fi
 
 if ! validate_install; then

@@ -7,6 +7,13 @@ HOSTNAME="openwrt-fin0"
 uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
 uci commit system 2>/dev/null || true
 
+# Package installs default to manual-ipk-install. A first boot through this
+# image-only uci-defaults script is the positive signal for self-managed-image.
+if [ -x /usr/sbin/vpn-ui ]; then
+  /usr/sbin/vpn-ui metadata-set self-managed-image self-managed local-only 0 0 \
+    >/tmp/premier-router-image-metadata.log 2>&1 || true
+fi
+
 uci set network.lan.ipaddr="$LAN_IP"
 uci set network.lan.netmask="255.255.255.0"
 uci set network.lan.proto="static"

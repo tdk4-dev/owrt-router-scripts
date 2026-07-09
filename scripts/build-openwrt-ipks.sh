@@ -86,6 +86,7 @@ set -eu
 chmod 755 /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update 2>/dev/null || true
 
 if [ -x /usr/sbin/vpn-ui ]; then
+  /usr/sbin/vpn-ui metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
   /usr/sbin/vpn-ui init >/tmp/premier-router-core-init.log 2>&1 || true
 fi
 
@@ -115,7 +116,8 @@ fi
 exit 0
 EOF
   chmod 755 "$control_dir/postinst" "$control_dir/postrm"
-  cat > "$control_dir/conffiles" <<'EOF'
+cat > "$control_dir/conffiles" <<'EOF'
+/etc/config/premier_router
 /etc/vpn-ui-update.conf
 EOF
 }
@@ -250,6 +252,7 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" "$CORE_ROOT/usr/sbin/vpn
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" "$CORE_ROOT/usr/sbin/vpn-ui-update" 755
 copy_file "$ROOT_DIR/install-router-ui-release.sh" "$CORE_ROOT/usr/sbin/install-router-ui-release" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
 mkdir -p "$CORE_ROOT/etc"
 cat > "$CORE_ROOT/etc/vpn-ui-update.conf" <<'EOF'
 AUTO_UPDATE='0'
@@ -267,9 +270,9 @@ write_core_scripts "$CORE_CONTROL"
 LUCI_ROOT="$BUILD_DIR/luci-app-premier-router/root"
 LUCI_CONTROL="$BUILD_DIR/luci-app-premier-router/control"
 copy_tree_file_modes "$ROOT_DIR/luci-vpn-ui/files/www" "$LUCI_ROOT/www"
-# Footer templates live in source for legacy/manual install experiments, but
-# they overlap files owned by LuCI theme packages. Do not ship them in IPKs
-# until a package-safe hook or diversion strategy is runtime-validated.
+# LuCI theme footer templates are deliberately not package-owned. Router
+# metadata is shown through package-owned Status Overview and Router UI assets
+# until a supported footer hook is runtime-validated.
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" 644
 write_control \

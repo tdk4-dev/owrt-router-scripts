@@ -32,9 +32,6 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /www/luci-static/resources/view/system/reset.js
 /www/luci-static/resources/view/status/include/35_vpn.js
 /www/luci-static/resources/view/status/include/_35_vpn.js
-/usr/share/ucode/luci/template/themes/bootstrap/footer.ut
-/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut
-/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut
 /www/luci-static/resources/view/network/vpn-0-7-0.js
 /www/luci-static/resources/view/network/tailscale-0-7-5.js
 /www/luci-static/resources/view/network/tailscale-0-7-4.js
@@ -54,6 +51,7 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/share/luci/menu.d/luci-app-vpn-ui.json
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
 /usr/share/vpn-ui/version
+/etc/config/premier_router
 /etc/vpn-ui-update.conf
 /etc/crontabs/root
 /etc/xray/vless-profiles.d
@@ -138,12 +136,10 @@ fetch_branch_files() {
     www/luci-static/resources/view/system/update.js \
     www/luci-static/resources/view/status/include/_35_vpn.js \
     www/luci-static/resources/view/status/include/35_vpn.js \
-    usr/share/ucode/luci/template/themes/bootstrap/footer.ut \
-    usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut \
-    usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
-    usr/share/vpn-ui/version
+    usr/share/vpn-ui/version \
+    etc/config/premier_router
   do
     download_file "${VPN_UI_RAW_BASE%/}/$path" "$dst/$path"
   done
@@ -159,12 +155,10 @@ ensure_source_files() {
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
-    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" ] &&
-    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ] &&
-    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
-    [ -f "$SRC_DIR/usr/share/vpn-ui/version" ]; then
+    [ -f "$SRC_DIR/usr/share/vpn-ui/version" ] &&
+    [ -f "$SRC_DIR/etc/config/premier_router" ]; then
     return 0
   fi
 
@@ -327,9 +321,6 @@ copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-st
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
-copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap/footer.ut 644
-copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut 644
-copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut 644
 # Transitional aliases let pre-0.7.9 updaters validate the install after
 # stable LuCI filenames are introduced.
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
@@ -351,6 +342,10 @@ rm -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
+[ -f /etc/config/premier_router ] ||
+  copy_file "$SRC_DIR/etc/config/premier_router" /etc/config/premier_router 600
+/usr/sbin/vpn-ui metadata-set legacy-migrated self-managed local-only 0 0 >/tmp/vpn-ui-metadata-init.log 2>&1 ||
+  die "could not initialize router installation metadata"
 [ ! -x /usr/sbin/router-prep ] || [ ! -f /etc/router-prep/customer-policy.conf ] ||
   /usr/sbin/router-prep apply-policy
 ensure_geosite_data

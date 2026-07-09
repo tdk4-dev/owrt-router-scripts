@@ -55,6 +55,7 @@ jobs:
           sh tests/test-firstboot-vless-import.sh
           sh tests/test-firstboot-wifi.sh
           sh tests/test-router-prep-policy.sh
+          sh tests/test-router-metadata.sh
           sh tests/test-vpn-ui-empty-direct-domains.sh
           node tests/test-tailscale-ping-ui.mjs
 

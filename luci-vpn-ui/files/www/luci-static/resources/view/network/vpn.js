@@ -417,6 +417,28 @@ return view.extend({
 		return this.callHelper(['status']);
 	},
 
+	renderRouterMetadata: function(data) {
+		var metadata = data.router_metadata || {};
+		var rows = [
+			[_('Router Scripts'), metadata.footer_label || '-'],
+			[_('Installation method'), metadata.install_method || '-'],
+			[_('Support level'), metadata.support_level || '-'],
+			[_('Registration state'), metadata.registration_state || '-'],
+			[_('Router ID'), metadata.router_id_short || '-']
+		];
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Installation and support')),
+			E('p', { 'class': 'vpn-muted vpn-section-note' }, _('Support access is explicit metadata. This display does not create a remote tunnel.')),
+			E('table', { 'class': 'table' }, rows.map(function(row) {
+				return E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left', 'width': '33%' }, row[0]),
+					E('td', { 'class': 'td left' }, row[1])
+				]);
+			}))
+		]);
+	},
+
 	renderGlobal: function(data) {
 		var services = data.services || {};
 		var enabled = !!services.vpn_enabled;
@@ -826,6 +848,7 @@ return view.extend({
 
 	renderBody: function(data) {
 		return [
+			this.renderRouterMetadata(data),
 			this.renderGlobal(data),
 			this.renderSubscriptions(data),
 			this.renderProfiles(data),
