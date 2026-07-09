@@ -135,13 +135,19 @@ Recommended VM layout:
 - Create one fresh VM per release candidate, named with the version, for
   example `PremierRouter-0.8.0-rc1-x86`.
 - Use the built x86 image archive as the VM disk.
-- Use a NAT adapter with explicit port forwards for browser testing:
+- Give the router an isolated internal LAN and attach a disposable client VM
+  to that same LAN. Direct access from that client to `http://10.77.0.1/` or
+  `http://10.77.0.1/setup/` is the customer-LAN proof.
+- A NAT adapter may also use explicit port forwards for host browser testing:
   - host `127.0.0.1:8787` -> guest `80`
   - host `127.0.0.1:2225` -> guest `22`
   - host `127.0.0.1:3000` -> guest `3000` when AdGuardHome is included
+- Treat a host-forwarded URL as a manual VM trial only. A port forward or SSH
+  tunnel is not evidence that a customer connected to router LAN/Wi-Fi can
+  reach the setup assistant.
 - Do not change Mac Pro host IP addresses for VM testing.
-- If LAN reachability from other machines is required, use VirtualBox NAT
-  forwarding or a VM network mode that does not require host IP changes.
+- Never bridge the router LAN to the production LAN merely to test setup;
+  guest DHCP must remain contained in the isolated VirtualBox LAN.
 
 Record for every VM run:
 
@@ -160,8 +166,12 @@ For every x86 release candidate:
 
 1. Import or recreate the VirtualBox VM from the built x86 image.
 2. Boot and wait for HTTP/SSH availability.
-3. Open setup wizard through the forwarded URL.
-4. Complete first-boot setup with:
+3. From an isolated disposable client VM, open `http://10.77.0.1/` and
+   `http://10.77.0.1/setup/`, and verify the setup status endpoint returns
+   valid JSON. No SSH tunnel may be used for this customer-LAN check.
+4. Optionally open the setup wizard through a forwarded host URL for a manual
+   browser trial, recording that as a separate result.
+5. Complete first-boot setup with:
    - root password;
    - at least one SSH public key when available;
    - Wi-Fi disabled path if no radio exists;
@@ -170,7 +180,7 @@ For every x86 release candidate:
    - VPN enabled with HTTPS subscription link in a separate run;
    - Tailscale disabled path;
    - Tailscale enabled path in a separate run.
-5. Verify setup completion:
+6. Verify setup completion:
    - LuCI login works with the configured password;
    - Status page loads without JS/XHR errors;
    - Status Overview includes the `Router Scripts vX.Y.Z` metadata label;
@@ -181,7 +191,7 @@ For every x86 release candidate:
    - Tailscale panel loads or is hidden according to policy;
    - Update panel loads;
    - Reset panel loads.
-6. Verify reset:
+7. Verify reset:
    - confirm reset in System > Reset;
    - browser is redirected or recoverable to setup;
    - previous root password no longer authenticates;

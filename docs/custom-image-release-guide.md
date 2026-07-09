@@ -163,7 +163,10 @@ node tests/test-tailscale-ping-ui.mjs
 For x86 VirtualBox validation, reinstall from the staged image archive and
 verify:
 
-- `http://10.20.0.181:8787/setup/`;
+- `http://10.77.0.1/` and `http://10.77.0.1/setup/` from a disposable client
+  on an isolated router LAN, without an SSH tunnel;
+- an optional host-forwarded URL such as
+  `http://10.20.0.181:8787/setup/` only as a separate manual VM trial;
 - setup wizard end to end;
 - LuCI Status;
 - `Network > VPN Panel`;

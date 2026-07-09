@@ -53,9 +53,11 @@ Install a release image:
    http://10.77.0.1/
    ```
 
-5. For VirtualBox testing, create a 64-bit Linux VM, attach the extracted x86
-   disk image, add a LAN or NAT/port-forward path to the guest, then open the
-   setup assistant in the browser.
+5. For VirtualBox testing, create a 64-bit Linux router VM and attach the
+   extracted x86 disk image. Prove the customer path from a disposable client
+   on an isolated VirtualBox LAN by opening `http://10.77.0.1/` or
+   `http://10.77.0.1/setup/`. A NAT HTTP forward may also be used for a manual
+   host-browser trial, but it does not prove customer LAN reachability.
 
 For Xiaomi AX3000T / RD23 builds, choose the archive that matches the router's
 boot layout:

@@ -24,7 +24,7 @@ uci set dhcp.lan.limit="150"
 uci set dhcp.lan.leasetime="12h"
 uci commit dhcp
 
-uci -q delete firewall.lan_wan_forward
+uci -q delete firewall.lan_wan_forward || true
 uci set firewall.lan_wan_forward="forwarding"
 uci set firewall.lan_wan_forward.src="lan"
 uci set firewall.lan_wan_forward.dest="wan"

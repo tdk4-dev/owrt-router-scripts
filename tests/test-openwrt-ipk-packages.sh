@@ -108,6 +108,7 @@ grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstbo
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/styles.css" ]
 grep -q 'rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot' "$TMP_DIR/premier-router-setup/control/postinst"
 grep -q 'metadata-set self-managed-image self-managed local-only' "$TMP_DIR/premier-router-setup/data/etc/uci-defaults/99-openwrt-fin0-firstboot"
+grep -Fq 'uci -q delete firewall.lan_wan_forward || true' "$TMP_DIR/premier-router-setup/data/etc/uci-defaults/99-openwrt-fin0-firstboot"
 grep -q 'SUPPORT_LEVEL' "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep"
 grep -q 'REGISTRATION_STATE' "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep"
 
