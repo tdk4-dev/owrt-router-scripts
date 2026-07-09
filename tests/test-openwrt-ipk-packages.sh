@@ -90,6 +90,8 @@ grep -q 'router_metadata' "$TMP_DIR/luci-app-premier-router/data/www/luci-static
 grep -q 'adguard_available' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q '"adguardEnabled":false' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'existing service and DNS state were left unchanged' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
+grep -q '^ROUTER_HOSTNAME="${ROUTER_HOSTNAME:-openwrt-fin0}"' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
+! grep -q '^HOSTNAME=' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'AdGuardHome is not installed' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'name="adguard-enabled"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"

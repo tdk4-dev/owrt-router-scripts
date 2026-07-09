@@ -3,7 +3,7 @@ set -u
 
 LAN_IP="${LAN_IP:-10.77.0.1}"
 LAN_CIDR="${LAN_CIDR:-10.77.0.0/24}"
-HOSTNAME="${HOSTNAME:-openwrt-fin0}"
+ROUTER_HOSTNAME="${ROUTER_HOSTNAME:-openwrt-fin0}"
 STATE_DIR="${STATE_DIR:-/etc/firstboot-wizard}"
 COMPLETE_FILE="$STATE_DIR/complete"
 IN_PROGRESS_FILE="$STATE_DIR/in-progress"
@@ -180,9 +180,9 @@ write_selected_filters_yaml() {
 }
 
 configure_network() {
-  uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
+  uci set system.@system[0].hostname="$ROUTER_HOSTNAME" 2>/dev/null || true
   uci commit system 2>/dev/null || true
-  hostname "$HOSTNAME" 2>/dev/null || true
+  hostname "$ROUTER_HOSTNAME" 2>/dev/null || true
 
   uci set network.lan.ipaddr="$LAN_IP"
   uci set network.lan.netmask="255.255.255.0"
@@ -623,7 +623,7 @@ configure_tailscale() {
   set -- \
     "--login-server=$login_server" \
     "--auth-key=$auth_key" \
-    "--hostname=$HOSTNAME" \
+    "--hostname=$ROUTER_HOSTNAME" \
     "--advertise-exit-node" \
     "--advertise-routes=$LAN_CIDR" \
     "--accept-dns=false" \
