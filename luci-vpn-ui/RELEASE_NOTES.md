@@ -27,6 +27,9 @@ Router UI 0.8.0
   password entered in the setup wizard.
 • Fixes first-boot VLESS enablement when direct routing rules are empty, and
   improves Apply setup progress feedback.
+• Makes AdGuardHome an explicit opt-in first-boot component, defaulting off for
+  memory-constrained routers. Skipping it preserves existing service and DNS
+  state; images that include AdGuardHome can enable it and choose filters.
 • Fixes the LuCI Status overview VPN include by installing both cache-safe and
   compatibility module names.
 • Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,
