@@ -24,10 +24,18 @@ EXISTING_BACKUP="${ROUTER_UI_EXISTING_BACKUP:-}"
 
 LEGACY_PACKAGE_FILES="/usr/sbin/vpn-ui
 /usr/sbin/vpn-ui-update
+/usr/sbin/install-router-ui-release
+/usr/sbin/router-prep
 /usr/share/vpn-ui/version
 /usr/share/vpn-ui/legacy-files.list
 /usr/share/luci/menu.d/luci-app-vpn-ui.json
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+/www/luci-static/resources/view/network/vpn.js
+/www/luci-static/resources/view/network/tailscale.js
+/www/luci-static/resources/view/status/include/35_vpn.js
+/www/luci-static/resources/view/status/include/_35_vpn.js
+/www/luci-static/resources/view/system/update.js
+/www/luci-static/resources/view/system/reset.js
 /www/luci-static/resources/view/network/vpn-0-7-0.js
 /www/luci-static/resources/view/network/tailscale-0-7-5.js
 /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
@@ -43,7 +51,16 @@ LEGACY_PACKAGE_FILES="/usr/sbin/vpn-ui
 /www/luci-static/resources/view/system/update-0-6-0.js
 /www/luci-static/resources/view/system/update-0-7-0.js
 /www/luci-static/resources/view/system/update-0-7-1.js
-/www/luci-static/resources/view/system/update-0-7-2.js"
+/www/luci-static/resources/view/system/update-0-7-2.js
+/etc/uci-defaults/99-openwrt-fin0-firstboot
+/www/cgi-bin/firstboot-setup
+/www/cgi-bin/router-prep
+/www/setup/index.html
+/www/setup/styles.css
+/www/setup/app.js
+/www/prepare/index.html
+/www/prepare/styles.css
+/www/prepare/app.js"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -158,7 +175,7 @@ remove_legacy_files() {
   printf '%s\n' "$LEGACY_PACKAGE_FILES" | while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
-      /usr/sbin/vpn-ui|/usr/sbin/vpn-ui-update|/usr/share/vpn-ui/*|/usr/share/luci/menu.d/luci-app-vpn-ui.json|/usr/share/rpcd/acl.d/luci-app-vpn-ui.json|/www/luci-static/resources/view/*)
+      /usr/sbin/vpn-ui|/usr/sbin/vpn-ui-update|/usr/sbin/install-router-ui-release|/usr/sbin/router-prep|/usr/share/vpn-ui/*|/usr/share/luci/menu.d/luci-app-vpn-ui.json|/usr/share/rpcd/acl.d/luci-app-vpn-ui.json|/etc/uci-defaults/99-openwrt-fin0-firstboot|/www/cgi-bin/firstboot-setup|/www/cgi-bin/router-prep|/www/setup/*|/www/prepare/*|/www/luci-static/resources/view/*)
         rm -f "$path"
         ;;
       *)

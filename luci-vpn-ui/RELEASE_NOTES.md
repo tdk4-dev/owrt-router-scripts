@@ -34,6 +34,8 @@ Router UI 0.8.0
   rendered once instead of once per compatibility alias.
 • Lets the package-first installer validate a clean router before a VLESS
   profile exists, while retaining live VPN checks for configured profiles.
+• Expands legacy migration snapshots so a failed package conversion restores
+  canonical LuCI, setup, preparation, CGI, and helper files as well as aliases.
 • Fixes the LuCI Status overview VPN include by installing both cache-safe and
   compatibility module names.
 • Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,
