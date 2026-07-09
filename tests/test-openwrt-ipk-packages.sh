@@ -23,6 +23,18 @@ for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
   tar -tzf "$ipk" | grep -qx './debian-binary'
   tar -tzf "$ipk" | grep -qx './control.tar.gz'
   tar -tzf "$ipk" | grep -qx './data.tar.gz'
+  if gzip -dc "$ipk" | grep -aEq 'PaxHeader|SCHILY\.xattr|LIBARCHIVE\.xattr|com\.apple'; then
+    printf 'package outer archive contains unsupported PAX/macOS metadata: %s\n' "$ipk" >&2
+    exit 1
+  fi
+  if tar -xzOf "$ipk" ./control.tar.gz | gzip -dc | grep -aEq 'PaxHeader|SCHILY\.xattr|LIBARCHIVE\.xattr|com\.apple'; then
+    printf 'package control archive contains unsupported PAX/macOS metadata: %s\n' "$ipk" >&2
+    exit 1
+  fi
+  if tar -xzOf "$ipk" ./data.tar.gz | gzip -dc | grep -aEq 'PaxHeader|SCHILY\.xattr|LIBARCHIVE\.xattr|com\.apple'; then
+    printf 'package data archive contains unsupported PAX/macOS metadata: %s\n' "$ipk" >&2
+    exit 1
+  fi
   mkdir -p "$TMP_DIR/$pkg/control" "$TMP_DIR/$pkg/data"
   tar -xzOf "$ipk" ./control.tar.gz | tar -xzf - -C "$TMP_DIR/$pkg/control"
   tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$TMP_DIR/$pkg/data"

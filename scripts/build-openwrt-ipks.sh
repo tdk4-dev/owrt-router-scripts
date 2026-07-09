@@ -223,7 +223,8 @@ create_tar_gz() {
       tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" \
         --owner=0 --group=0 --numeric-owner -cf - "$@" | gzip -n > "$dst"
     else
-      tar --owner=0 --group=0 --numeric-owner -czf "$dst" "$@"
+      COPYFILE_DISABLE=1 tar --format ustar --no-xattrs --no-mac-metadata \
+        --owner=0 --group=0 --numeric-owner -czf "$dst" "$@"
     fi
   )
 }
