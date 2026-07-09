@@ -203,9 +203,27 @@ create_package() {
   create_tar_gz "$control" "$work/control.tar.gz"
   create_tar_gz "$root" "$work/data.tar.gz"
   rm -f "$ipk"
-  create_tar_gz "$work" "$ipk" ./debian-binary ./control.tar.gz ./data.tar.gz
+  (
+    cd "$work"
+    ar -rc "$ipk" debian-binary control.tar.gz data.tar.gz
+  )
   cp "$ipk" "$FEED_DIR/"
   printf '%s\n' "$ipk"
+}
+
+extract_ipk_control() {
+  ipk="$1"
+  dst="$2"
+  mkdir -p "$dst"
+  tmp="$BUILD_DIR/extract-control.$$"
+  rm -rf "$tmp"
+  mkdir -p "$tmp"
+  (
+    cd "$tmp"
+    ar -x "$ipk" control.tar.gz
+    tar -xzf control.tar.gz -C "$dst"
+  )
+  rm -rf "$tmp"
 }
 
 create_tar_gz() {
@@ -298,7 +316,7 @@ SETUP_IPK="$(create_package premier-router-setup)"
     control_tmp="$BUILD_DIR/feed-control"
     rm -rf "$control_tmp"
     mkdir -p "$control_tmp"
-    tar -xzOf "$file" ./control.tar.gz | tar -xzf - -C "$control_tmp"
+    extract_ipk_control "$FEED_DIR/$file" "$control_tmp"
     size="$(wc -c < "$file" | tr -d ' ')"
     sha="$(sha256sum "$file" | awk '{ print $1 }')"
     cat "$control_tmp/control"

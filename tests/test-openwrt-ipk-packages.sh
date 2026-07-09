@@ -19,12 +19,21 @@ for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
     printf 'missing package: %s\n' "$ipk" >&2
     exit 1
   }
-  tar -tzf "$ipk" | grep -qx './debian-binary'
-  tar -tzf "$ipk" | grep -qx './control.tar.gz'
-  tar -tzf "$ipk" | grep -qx './data.tar.gz'
+  if file "$ipk" | grep -qi 'gzip compressed data'; then
+    printf 'package is a gzip/tar wrapper, not an ar-format OpenWrt IPK: %s\n' "$ipk" >&2
+    file "$ipk" >&2
+    exit 1
+  fi
+  ar -t "$ipk" | grep -qx 'debian-binary'
+  ar -t "$ipk" | grep -qx 'control.tar.gz'
+  ar -t "$ipk" | grep -qx 'data.tar.gz'
   mkdir -p "$TMP_DIR/$pkg/control" "$TMP_DIR/$pkg/data"
-  tar -xzOf "$ipk" ./control.tar.gz | tar -xzf - -C "$TMP_DIR/$pkg/control"
-  tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$TMP_DIR/$pkg/data"
+  (
+    cd "$TMP_DIR/$pkg"
+    ar -x "$ipk" control.tar.gz data.tar.gz
+    tar -xzf control.tar.gz -C control
+    tar -xzf data.tar.gz -C data
+  )
   grep -qx "Package: $pkg" "$TMP_DIR/$pkg/control/control"
   grep -qx "Version: $PKG_VERSION" "$TMP_DIR/$pkg/control/control"
   grep -qx "Architecture: all" "$TMP_DIR/$pkg/control/control"
