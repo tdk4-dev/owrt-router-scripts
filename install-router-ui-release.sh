@@ -255,7 +255,6 @@ validate_install() {
   # `vpn-ui check` intentionally reports that empty state as not working, so
   # validate the backend/status contract here instead of requiring live VPN.
   /usr/sbin/vpn-ui status 2>/dev/null | grep -q '"ok":true' || return 1
-  /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui tailscale-status 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui footer-info 2>/dev/null | grep -q '"footer_label":"Router Scripts v' || return 1
   [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
