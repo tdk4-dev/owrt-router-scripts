@@ -22,6 +22,8 @@
 *.rej
 *.pid
 run.log
+*.pcap
+*.pcapng
 
 # Archives, OpenWrt images, and generated bundles
 *.tar
@@ -35,6 +37,14 @@ run.log
 *.iso
 *.qcow2
 *.vmdk
+/dist/
+/release-staging/
+/.package-build/
+/Packages
+/Packages.gz
+/Packages.sig
+/SHA256SUMS
+/router-release-manifest.json
 
 # Local secrets/configs. Keep checked-in examples only.
 .env
