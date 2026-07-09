@@ -130,6 +130,10 @@ set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
+rm -f \
+  /www/luci-static/resources/view/status/include/_35_vpn.js \
+  /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js \
+  /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 /etc/init.d/rpcd restart >/dev/null 2>&1 || true
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
@@ -260,8 +264,6 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vp
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js" "$LUCI_ROOT/www/luci-static/resources/view/network/tailscale-0-7-5.js" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/update.js" "$LUCI_ROOT/www/luci-static/resources/view/system/update-0-7-3.js" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js" "$LUCI_ROOT/www/luci-static/resources/view/system/reset-0-8-0.js" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js" "$LUCI_ROOT/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/status/include/_35_vpn.js" "$LUCI_ROOT/www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js" 644
 # LuCI theme footer templates are deliberately not package-owned. Router
 # metadata is shown through package-owned Status Overview and Router UI assets
 # until a supported footer hook is runtime-validated.

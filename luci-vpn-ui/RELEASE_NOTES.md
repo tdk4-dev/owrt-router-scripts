@@ -30,6 +30,8 @@ Router UI 0.8.0
 • Makes AdGuardHome an explicit opt-in first-boot component, defaulting off for
   memory-constrained routers. Skipping it preserves existing service and DNS
   state; images that include AdGuardHome can enable it and choose filters.
+• Ships exactly one LuCI Status Overview include so Router Scripts metadata is
+  rendered once instead of once per compatibility alias.
 • Fixes the LuCI Status overview VPN include by installing both cache-safe and
   compatibility module names.
 • Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,

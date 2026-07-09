@@ -7,14 +7,12 @@ MENU="$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json"
 INSTALLER="$ROOT_DIR/luci-vpn-ui/install.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
 PLAIN_INCLUDE="$VIEW_DIR/status/include/35_vpn.js"
-UNDERSCORE_INCLUDE="$VIEW_DIR/status/include/_35_vpn.js"
 
 test -f "$VIEW_DIR/network/vpn.js"
 test -f "$VIEW_DIR/network/tailscale.js"
 test -f "$VIEW_DIR/system/update.js"
 test -f "$PLAIN_INCLUDE"
-test -f "$UNDERSCORE_INCLUDE"
-cmp -s "$PLAIN_INCLUDE" "$UNDERSCORE_INCLUDE"
+test "$(find "$VIEW_DIR/status/include" -maxdepth 1 -type f -name '*vpn*.js' | wc -l | tr -d ' ')" = 1
 
 versioned_assets="$(find "$VIEW_DIR" -type f -name '*[0-9]-[0-9]*.js' -print)"
 if [ -n "$versioned_assets" ]; then
@@ -31,11 +29,11 @@ grep -q 'resources/view/network/vpn.js' "$WORKFLOW"
 grep -q 'resources/view/network/tailscale.js' "$WORKFLOW"
 grep -q 'resources/view/system/update.js' "$WORKFLOW"
 grep -q 'resources/view/status/include/35_vpn.js' "$WORKFLOW"
-grep -q 'resources/view/status/include/_35_vpn.js' "$WORKFLOW"
+! grep -q 'resources/view/status/include/_35_vpn.js' "$WORKFLOW"
 
 grep -q 'network/vpn.js' "$INSTALLER"
 grep -q 'network/tailscale.js' "$INSTALLER"
 grep -q 'system/update.js' "$INSTALLER"
 grep -q 'status/include/35_vpn.js' "$INSTALLER"
-grep -q 'status/include/_35_vpn.js' "$INSTALLER"
+! grep -q 'copy_file.*status/include/_35_vpn.js' "$INSTALLER"
 printf 'Stable LuCI asset checks passed\n'

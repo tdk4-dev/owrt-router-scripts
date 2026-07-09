@@ -334,11 +334,15 @@ validate_install() {
   [ -f /www/luci-static/resources/view/system/reset.js ] ||
     [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
   [ -x /usr/sbin/install-router-ui-release ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ] ||
-    [ -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
-    find /www/luci-static/resources/view/status/include -name '35_vpn-*.js' -type f |
-      grep -q . || return 1
+  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] || return 1
+  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '_35_vpn*.js' |
+    grep -q .; then
+    return 1
+  fi
+  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '35_vpn-*.js' |
+    grep -q .; then
+    return 1
+  fi
 }
 
 apply_transaction() {

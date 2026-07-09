@@ -134,7 +134,6 @@ fetch_branch_files() {
     www/luci-static/resources/view/network/tailscale.js \
     www/luci-static/resources/view/system/reset.js \
     www/luci-static/resources/view/system/update.js \
-    www/luci-static/resources/view/status/include/_35_vpn.js \
     www/luci-static/resources/view/status/include/35_vpn.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
@@ -153,7 +152,6 @@ ensure_source_files() {
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/reset.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update.js" ] &&
-    [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
@@ -319,7 +317,6 @@ copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-sta
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
 # Transitional aliases let pre-0.7.9 updaters validate the install after
 # stable LuCI filenames are introduced.
@@ -327,8 +324,10 @@ copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-sta
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale-0-7-5.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset-0-8-0.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update-0-7-3.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js 644
+rm -f \
+  /www/luci-static/resources/view/status/include/_35_vpn.js \
+  /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js \
+  /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
@@ -380,8 +379,10 @@ grep -q '"path":[[:space:]]*"network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-u
   die "LuCI Reset view validation failed"
 [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
   die "LuCI VPN status include validation failed"
-[ -f /www/luci-static/resources/view/status/include/_35_vpn.js ] ||
-  die "LuCI VPN underscored status include validation failed"
+if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f \
+  \( -name '_35_vpn*.js' -o -name '35_vpn-*.js' \) | grep -q .; then
+  die "duplicate LuCI VPN status includes remain installed"
+fi
 
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 /etc/init.d/rpcd restart >/tmp/vpn-ui-install-rpcd.log 2>&1 || true

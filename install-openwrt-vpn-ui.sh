@@ -236,7 +236,9 @@ verify_install() {
     [ -f /www/luci-static/resources/view/system/update.js ]
     [ -f /www/luci-static/resources/view/system/reset.js ]
     [ -f /www/luci-static/resources/view/status/include/35_vpn.js ]
-    [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ]
+    [ ! -e /www/luci-static/resources/view/status/include/_35_vpn.js ]
+    [ ! -e /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js ]
+    [ ! -e /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js ]
   '
 
   lan_ip="$(ssh_router 'uci -q get network.lan.ipaddr 2>/dev/null || printf "%s" "10.20.0.1"')"

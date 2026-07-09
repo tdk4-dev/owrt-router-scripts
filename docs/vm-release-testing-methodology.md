@@ -61,8 +61,9 @@ the project packages.
   - `system/update.js`
   - `system/reset.js`
   - `status/include/35_vpn.js`
-  - `status/include/_35_vpn.js`
-- Transitional legacy LuCI asset aliases for older updaters.
+- Transitional legacy LuCI asset aliases for routable views only. Status
+  includes must never have aliases because LuCI auto-renders every file in the
+  include directory.
 
 ### VPN Features
 
