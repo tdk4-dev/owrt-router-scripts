@@ -227,12 +227,14 @@ verify_install() {
       -e "selected=@.selected" \
       -e "xray=@.services.xray" \
       -e "transparent=@.services.transparent"
-    grep -q "\"path\":[[:space:]]*\"network/vpn\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "\"path\":[[:space:]]*\"network/tailscale\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
-    grep -q "\"path\":[[:space:]]*\"system/update\"" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "network/vpn" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "network/tailscale" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "system/update" /usr/share/luci/menu.d/luci-app-vpn-ui.json
+    grep -q "system/reset" /usr/share/luci/menu.d/luci-app-vpn-ui.json
     [ -f /www/luci-static/resources/view/network/vpn.js ]
     [ -f /www/luci-static/resources/view/network/tailscale.js ]
     [ -f /www/luci-static/resources/view/system/update.js ]
+    [ -f /www/luci-static/resources/view/system/reset.js ]
     [ -f /www/luci-static/resources/view/status/include/35_vpn.js ]
     [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ]
   '

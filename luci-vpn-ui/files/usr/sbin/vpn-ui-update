@@ -4,8 +4,8 @@ set -u
 REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 RELEASE_BASE="${VPN_UI_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
 VERSION_FILE="${VPN_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
-BUNDLE_NAME="luci-vpn-ui.tar.gz"
-CHECKSUM_NAME="$BUNDLE_NAME.sha256"
+MANIFEST_NAME="router-release-manifest.json"
+PACKAGES_NAME="router-ui-packages.txt"
 REMOTE_VERSION_NAME="vpn-ui-version.txt"
 REMOTE_CHANGELOG_NAME="vpn-ui-changelog.txt"
 REMOTE_RELEASE_DATE_NAME="vpn-ui-release-date.txt"
@@ -197,16 +197,6 @@ download_file() {
   return 1
 }
 
-validate_archive_paths() {
-  local archive="$1"
-  tar -tzf "$archive" |
-    awk '
-      /^\// { bad=1 }
-      /(^|\/)\.\.(\/|$)/ { bad=1 }
-      END { exit bad ? 1 : 0 }
-    '
-}
-
 cache_release() {
   local version_file="$1"
   local changelog_file="$2"
@@ -238,6 +228,14 @@ check_transaction() {
     return 1
   }
   download_file "$RELEASE_BASE/$REMOTE_RELEASE_DATE_NAME" "$tmpdir/released_at" || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+  download_file "$RELEASE_BASE/$MANIFEST_NAME" "$tmpdir/manifest" || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+  download_file "$RELEASE_BASE/$PACKAGES_NAME" "$tmpdir/packages" || {
     rm -rf "$tmpdir"
     return 1
   }
@@ -322,95 +320,47 @@ create_full_backup() {
   printf '%s' "$backup"
 }
 
-run_rollback() {
-  local marker="$1"
-  local rollback=""
-  [ -f "$marker" ] && rollback="$(read_file "$marker" | sed -n '1p')"
-  [ -n "$rollback" ] && [ -x "$rollback" ] || return 1
-  sh "$rollback" >>"$LOG_FILE" 2>&1
-}
-
 validate_install() {
   local target="$1"
   [ "$(current_version)" = "$target" ] || return 1
   /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
-  grep -q '"admin/network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  grep -q '"admin/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  [ -f /www/luci-static/resources/view/network/vpn.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/tailscale.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/update.js ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/vpn.js ] ||
+    [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/tailscale.js ] ||
+    [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
+  [ -f /www/luci-static/resources/view/system/update.js ] ||
+    [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
+  [ -f /www/luci-static/resources/view/system/reset.js ] ||
+    [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
+  [ -x /usr/sbin/install-router-ui-release ] || return 1
+  [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ] ||
+    [ -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js ] || return 1
+  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
+    find /www/luci-static/resources/view/status/include -name '35_vpn-*.js' -type f |
+      grep -q . || return 1
 }
 
 apply_transaction() {
   local target="$1"
-  local tmpdir="/tmp/vpn-ui-update-apply.$$"
-  local archive checksum expected actual installer backup marker
-
-  mkdir -p "$tmpdir"
-  archive="$tmpdir/$BUNDLE_NAME"
-  checksum="$tmpdir/$CHECKSUM_NAME"
-  marker="$tmpdir/rollback-marker"
+  local backup
 
   set_state "running" "backup" "Creating and validating a full OpenWrt backup…" "$target" ""
   backup="$(create_full_backup "$target")" || {
-    rm -rf "$tmpdir"
     return 10
   }
-  set_state "running" "download" "Downloading the signed release assets…" "$target" "$backup"
-  download_file "$RELEASE_BASE/$BUNDLE_NAME" "$archive" || {
-    rm -rf "$tmpdir"
-    return 11
-  }
-  download_file "$RELEASE_BASE/$CHECKSUM_NAME" "$checksum" || {
-    rm -rf "$tmpdir"
-    return 12
-  }
+  set_state "running" "download" "Downloading and verifying package release metadata…" "$target" "$backup"
+  check_transaction >>"$LOG_FILE" 2>&1 || return 11
 
-  set_state "running" "verify" "Verifying checksum and archive paths…" "$target" "$backup"
-  expected="$(awk '{ print $1 }' "$checksum" | sed -n '1p')"
-  actual="$(sha256sum "$archive" | awk '{ print $1 }')"
-  [ -n "$expected" ] && [ "$expected" = "$actual" ] || {
-    rm -rf "$tmpdir"
-    return 13
-  }
-  validate_archive_paths "$archive" || {
-    rm -rf "$tmpdir"
-    return 14
-  }
-  tar -xzf "$archive" -C "$tmpdir" || {
-    rm -rf "$tmpdir"
-    return 15
-  }
-  installer="$tmpdir/luci-vpn-ui/install.sh"
-  [ -f "$installer" ] || {
-    rm -rf "$tmpdir"
-    return 16
-  }
-  [ "$(sed -n '1p' "$tmpdir/luci-vpn-ui/VERSION" | tr -d '\r\n')" = "$target" ] || {
-    rm -rf "$tmpdir"
-    return 17
-  }
+  [ -x /usr/sbin/install-router-ui-release ] || return 16
 
-  set_state "running" "install" "Installing transactionally; LuCI may restart briefly…" "$target" "$backup"
-  VPN_UI_ROLLBACK_MARKER="$marker" SKIP_SYSUPGRADE_BACKUP=1 \
-    INSTALL_GEOSITE=1 UPDATE_GEOSITE=0 sh "$installer" >>"$LOG_FILE" 2>&1 || {
-      set_state "running" "rollback" "Installation failed; restoring the pre-update snapshot…" "$target" "$backup"
-      run_rollback "$marker" || true
-      rm -rf "$tmpdir"
-      return 18
-    }
+  set_state "running" "install" "Installing Premier Router packages through opkg…" "$target" "$backup"
+  ROUTER_UI_VERSION="$target" ROUTER_UI_REPO="$REPO" \
+    ROUTER_UI_SKIP_BACKUP=1 ROUTER_UI_EXISTING_BACKUP="$backup" \
+    sh /usr/sbin/install-router-ui-release >>"$LOG_FILE" 2>&1 || return 18
 
   set_state "running" "validate" "Validating services, configuration, and LuCI files…" "$target" "$backup"
-  validate_install "$target" || {
-    set_state "running" "rollback" "Validation failed; restoring the pre-update snapshot…" "$target" "$backup"
-    run_rollback "$marker" || true
-    rm -rf "$tmpdir"
-    return 19
-  }
-  rm -rf "$tmpdir"
+  validate_install "$target" || return 19
   printf '%s' "$backup"
 }
 

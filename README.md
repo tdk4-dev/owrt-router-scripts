@@ -22,11 +22,115 @@ panel, and the dark first-boot setup assistant. It boots its LAN at
 Build it on an x86_64 Linux host:
 
 ```sh
+./scripts/build-openwrt-ipks.sh
 ./build-openwrt-x86-fin0-image-linux.sh
 ```
 
-The script uses the official OpenWrt 24.10.5 ImageBuilder and writes BIOS and
-EFI ext4 combined images to `dist/`.
+The image script uses the official OpenWrt 24.10.5 ImageBuilder and installs
+the already-built project IPKs into the image. It writes BIOS and EFI ext4
+combined images to `dist/`.
+
+Install a release image:
+
+1. Download the matching `premier-router-*-openwrt-*.tar.gz` archive from the
+   staged or published release directory.
+2. Verify the archive:
+
+   ```sh
+   shasum -a 256 -c SHA256SUMS
+   ```
+
+3. Extract the archive:
+
+   ```sh
+   tar -xzf premier-router-0.8.0-openwrt-24.10.5-x86-64.tar.gz
+   ```
+
+4. For x86/64 bare metal, write the EFI or BIOS `.img.gz` to the target SSD
+   with a disk imaging tool, then boot the router and open:
+
+   ```text
+   http://10.77.0.1/
+   ```
+
+5. For VirtualBox testing, create a 64-bit Linux VM, attach the extracted x86
+   disk image, add a LAN or NAT/port-forward path to the guest, then open the
+   setup assistant in the browser.
+
+For Xiaomi AX3000T / RD23 builds, choose the archive that matches the router's
+boot layout:
+
+- `xiaomi-ax3000t-openwrt-fin0` for the stock OpenWrt layout.
+- `xiaomi-ax3000t-ubootmod-openwrt-fin0` for routers converted to OpenWrt's
+  U-Boot layout.
+
+Use LuCI or `sysupgrade` with the extracted factory/sysupgrade image that
+matches the router's current installation method. Do not flash the ubootmod
+image onto a stock-layout router unless it has been converted first.
+
+The maintenance checklist for rebuilding and attaching images is in
+[docs/custom-image-release-guide.md](docs/custom-image-release-guide.md).
+
+### Package-First Updates
+
+Starting with v0.8.0, running routers update through real OpenWrt packages
+installed with `opkg`; release tarballs are legacy compatibility only.
+
+Build local IPKs and an opkg feed:
+
+```sh
+./scripts/build-openwrt-ipks.sh
+```
+
+Stage a complete local release directory without publishing:
+
+```sh
+./scripts/stage-router-release.sh
+```
+
+Manual update on a router:
+
+```sh
+ROUTER_UI_VERSION=0.8.0 sh install-router-ui-release.sh
+```
+
+The installer downloads the release manifest, verifies the IPK checksums,
+creates a full OpenWrt backup, migrates old tar.gz-installed files when
+detected, installs only this project's packages, and validates the result. It
+does not run global `opkg upgrade`.
+
+### Owner Preparation Panel
+
+The custom image includes a preparation panel that is separate from the
+customer first-boot wizard. Retrieve its temporary token over a trusted SSH or
+local console session:
+
+```sh
+router-prep token
+```
+
+Then open:
+
+```text
+http://10.77.0.1/prepare/#token=TOKEN
+```
+
+The panel provides:
+
+- WAN, DNS, SSH, Xray, AdGuard, and Tailscale health checks
+- simulated 2.4 and 5 GHz radios for previewing the complete Wi-Fi wizard
+- owner Headscale/Tailscale enrollment without exposing the preauth key later
+- customer access policy for VPN, Tailscale, updates, packages, and AdGuard
+- verified pre-handoff `sysupgrade` backups
+- a seal action that removes preview radios and disables the preparation API
+
+After sealing, the preparation panel can only be reopened from SSH or the
+local console:
+
+```sh
+router-prep unseal
+router-prep token
+```
 
 ## LuCI VPN Panel
 
@@ -59,7 +163,7 @@ OpenWrt backup, preserves existing VPN state, installs both
 menu, and validates the result.
 
 The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
-but normal installs and updates use bundles.
+but package-first release installs and updates should use the staged IPKs.
 
 The installer also installs Xray geosite data at `/usr/share/xray/geosite.dat`
 when it is missing, so `geosite:*` direct routing rules work by default. It

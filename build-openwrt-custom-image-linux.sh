@@ -9,14 +9,23 @@ PROFILE="${PROFILE:-generic}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-512}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.imagebuilder}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
-IB_NAME="openwrt-imagebuilder-$OPENWRT_VERSION-x86-64.Linux-x86_64"
+PACKAGE_FILE="${PACKAGE_FILE:-$ROOT_DIR/image/openwrt-fin0-packages.txt}"
+PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
+PROJECT_FEED_DIR="${PROJECT_FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
+PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
+IB_TARGET_NAME="$(printf '%s' "$TARGET_DIR" | tr '/' '-')"
+if [ "$TARGET_DIR" = "x86/64" ] && [ "$PROFILE" = "generic" ]; then
+  DEFAULT_ARTIFACT_PREFIX="premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64"
+else
+  DEFAULT_ARTIFACT_PREFIX="premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-${TARGET_DIR%/*}-${TARGET_DIR#*/}-$PROFILE"
+fi
+ARTIFACT_PREFIX="${ARTIFACT_PREFIX:-$DEFAULT_ARTIFACT_PREFIX}"
+IB_NAME="openwrt-imagebuilder-$OPENWRT_VERSION-$IB_TARGET_NAME.Linux-x86_64"
 IB_ARCHIVE="$IB_NAME.tar.zst"
 IB_URL="https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/$TARGET_DIR/$IB_ARCHIVE"
 IB_DIR="$WORK_DIR/$IB_NAME"
-OVERLAY="$WORK_DIR/overlay"
-PACKAGE_FILE="$ROOT_DIR/image/openwrt-fin0-packages.txt"
-PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
-PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
+OVERLAY="$WORK_DIR/overlay-$IB_TARGET_NAME-$PROFILE"
+BUILD_LOG="$OUT_DIR/$ARTIFACT_PREFIX.build.log"
 HOST_TOOLS_ROOT="${HOST_TOOLS_ROOT:-$ROOT_DIR/.host-tools/root}"
 
 if [ -x "$HOST_TOOLS_ROOT/usr/bin/gawk" ]; then
@@ -36,7 +45,7 @@ need() {
   }
 }
 
-for tool in curl tar zstd make sha256sum; do
+for tool in curl tar zstd make sha256sum awk find sort tee; do
   need "$tool"
 done
 
@@ -50,6 +59,11 @@ chmod 755 "$HOST_BIN/sha256"
 PATH="$HOST_BIN:$PATH"
 export PATH
 
+[ -f "$PACKAGE_FILE" ] || {
+  printf 'Missing package file: %s\n' "$PACKAGE_FILE" >&2
+  exit 1
+}
+
 mkdir -p "$WORK_DIR" "$OUT_DIR"
 
 for pkg in $PROJECT_PACKAGES; do
@@ -62,7 +76,7 @@ done
 
 if [ ! -d "$IB_DIR" ]; then
   if [ ! -f "$WORK_DIR/$IB_ARCHIVE" ]; then
-    printf 'Downloading ImageBuilder %s...\n' "$OPENWRT_VERSION"
+    printf 'Downloading ImageBuilder %s for %s...\n' "$OPENWRT_VERSION" "$TARGET_DIR"
     curl -fL --connect-timeout 15 --max-time 600 "$IB_URL" -o "$WORK_DIR/$IB_ARCHIVE"
   else
     printf 'Using preloaded ImageBuilder archive: %s\n' "$WORK_DIR/$IB_ARCHIVE"
@@ -71,7 +85,7 @@ if [ ! -d "$IB_DIR" ]; then
 fi
 
 install_project_feed() {
-  pkg_dir="$IB_DIR/packages"
+  local pkg_dir="$IB_DIR/packages"
   mkdir -p "$pkg_dir"
   cp "$PROJECT_PACKAGE_DIR"/*.ipk "$pkg_dir/"
   if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
@@ -101,28 +115,44 @@ fi
 
 PACKAGES="$(awk 'NF && $1 !~ /^#/ { printf "%s ", $1 }' "$PACKAGE_FILE") $PROJECT_PACKAGES"
 
-printf 'Building OpenWrt %s x86/64 image...\n' "$OPENWRT_VERSION"
-make -C "$IB_DIR" image \
-  PROFILE="$PROFILE" \
-  PACKAGES="$PACKAGES" \
-  FILES="$OVERLAY" \
-  ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE"
+printf 'Building OpenWrt %s %s profile %s...\n' "$OPENWRT_VERSION" "$TARGET_DIR" "$PROFILE"
+if [ "$TARGET_DIR" = "x86/64" ]; then
+  make -C "$IB_DIR" image \
+    PROFILE="$PROFILE" \
+    PACKAGES="$PACKAGES" \
+    FILES="$OVERLAY" \
+    ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" > "$BUILD_LOG" 2>&1 || {
+      cat "$BUILD_LOG"
+      exit 1
+    }
+else
+  make -C "$IB_DIR" image \
+    PROFILE="$PROFILE" \
+    PACKAGES="$PACKAGES" \
+    FILES="$OVERLAY" > "$BUILD_LOG" 2>&1 || {
+      cat "$BUILD_LOG"
+      exit 1
+    }
+fi
+cat "$BUILD_LOG"
 
-EFI_IMAGE="$(find "$IB_DIR/bin/targets/x86/64" -maxdepth 1 -type f \
-  -name '*generic-ext4-combined-efi.img.gz' | sort | tail -n 1)"
-BIOS_IMAGE="$(find "$IB_DIR/bin/targets/x86/64" -maxdepth 1 -type f \
-  -name '*generic-ext4-combined.img.gz' | sort | tail -n 1)"
-[ -n "$EFI_IMAGE" ] && [ -n "$BIOS_IMAGE" ] || {
-  printf 'ImageBuilder did not produce an ext4 combined EFI image.\n' >&2
-  exit 1
-}
+TARGET_OUT="$IB_DIR/bin/targets/$TARGET_DIR"
+MANIFEST_SRC="$(find "$TARGET_OUT" -maxdepth 1 -type f -name '*.manifest' | sort | tail -n 1)"
+PROFILE_ARTIFACT_DIR="$OUT_DIR/$ARTIFACT_PREFIX"
+ARCHIVE="$OUT_DIR/$ARTIFACT_PREFIX.tar.gz"
 
-EFI_DEST="$OUT_DIR/premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64-ext4-combined-efi.img.gz"
-BIOS_DEST="$OUT_DIR/premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64-ext4-combined.img.gz"
-cp "$EFI_IMAGE" "$EFI_DEST"
-cp "$BIOS_IMAGE" "$BIOS_DEST"
-sha256sum "$EFI_DEST" > "$EFI_DEST.sha256"
-sha256sum "$BIOS_DEST" > "$BIOS_DEST.sha256"
+rm -rf "$PROFILE_ARTIFACT_DIR"
+mkdir -p "$PROFILE_ARTIFACT_DIR"
+find "$TARGET_OUT" -maxdepth 1 -type f \
+  \( -name "*$PROFILE*" -o -name 'profiles.json' -o -name 'sha256sums' \) \
+  -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
+[ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
+cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
+cp "$ROOT_DIR/dist/ipk/router-ui-packages.txt" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
+sha256sum "$PROJECT_PACKAGE_DIR"/*.ipk > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
+cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
 
-printf 'Built EFI image: %s\n' "$EFI_DEST"
-printf 'Built BIOS image: %s\n' "$BIOS_DEST"
+tar -czf "$ARCHIVE" -C "$OUT_DIR" "$(basename "$PROFILE_ARTIFACT_DIR")"
+sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+printf 'Built artifact archive: %s\n' "$ARCHIVE"

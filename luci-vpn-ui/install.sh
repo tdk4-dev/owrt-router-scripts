@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$SCRIPT_DIR/files"
-VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
 TS="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/root/vpn-ui-preinstall-$TS"
 ROLLBACK="/root/rollback-vpn-ui-$TS.sh"
@@ -29,19 +29,23 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /www/luci-static/resources/view/network/vpn.js
 /www/luci-static/resources/view/network/tailscale.js
 /www/luci-static/resources/view/system/update.js
+/www/luci-static/resources/view/system/reset.js
 /www/luci-static/resources/view/status/include/35_vpn.js
 /www/luci-static/resources/view/status/include/_35_vpn.js
-/www/luci-static/resources/view/network/vpn-0-7-6.js
+/usr/share/ucode/luci/template/themes/bootstrap/footer.ut
+/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut
+/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut
 /www/luci-static/resources/view/network/vpn-0-7-0.js
 /www/luci-static/resources/view/network/tailscale-0-7-5.js
 /www/luci-static/resources/view/network/tailscale-0-7-4.js
 /www/luci-static/resources/view/network/tailscale-0-7-0.js
+/www/luci-static/resources/view/system/reset-0-8-0.js
 /www/luci-static/resources/view/system/update-0-7-3.js
 /www/luci-static/resources/view/system/update-0-7-2.js
 /www/luci-static/resources/view/system/update-0-7-1.js
 /www/luci-static/resources/view/system/update-0-7-0.js
-/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
+/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 /www/luci-static/resources/view/network/vpn-0-6-0.js
 /www/luci-static/resources/view/network/tailscale-0-6-0.js
 /www/luci-static/resources/view/system/update-0-6-0.js
@@ -130,9 +134,13 @@ fetch_branch_files() {
     usr/sbin/vpn-ui-update \
     www/luci-static/resources/view/network/vpn.js \
     www/luci-static/resources/view/network/tailscale.js \
+    www/luci-static/resources/view/system/reset.js \
     www/luci-static/resources/view/system/update.js \
-    www/luci-static/resources/view/status/include/35_vpn.js \
     www/luci-static/resources/view/status/include/_35_vpn.js \
+    www/luci-static/resources/view/status/include/35_vpn.js \
+    usr/share/ucode/luci/template/themes/bootstrap/footer.ut \
+    usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut \
+    usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
     usr/share/vpn-ui/version
@@ -147,9 +155,13 @@ ensure_source_files() {
     [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/system/reset.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update.js" ] &&
-    [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
+    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" ] &&
+    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ] &&
+    [ -f "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/vpn-ui/version" ]; then
@@ -191,9 +203,9 @@ create_full_backup() {
     die "sysupgrade is required to create the mandatory pre-install backup"
   mkdir -p "$FULL_BACKUP_DIR"
   chmod 700 "$FULL_BACKUP_DIR"
-  FULL_BACKUP="$FULL_BACKUP_DIR/openwrt-before-router-ui-${VERSION:-unknown}-$TS.tar.gz"
+  FULL_BACKUP="$FULL_BACKUP_DIR/openwrt-before-router-ui-${APP_VERSION:-unknown}-$TS.tar.gz"
   printf 'Creating mandatory OpenWrt backup: %s\n' "$FULL_BACKUP"
-  temporary="/tmp/openwrt-before-router-ui-${VERSION:-unknown}-$TS.tar.gz"
+  temporary="/tmp/openwrt-before-router-ui-${APP_VERSION:-unknown}-$TS.tar.gz"
   rm -f "$temporary"
   sysupgrade -b "$temporary" >/tmp/vpn-ui-sysupgrade-backup.log 2>&1 || {
     rm -f "$temporary"
@@ -229,8 +241,8 @@ create_full_backup() {
 }
 
 ensure_source_files
-[ -n "$VERSION" ] ||
-  VERSION="$(sed -n '1p' "$SRC_DIR/usr/share/vpn-ui/version" 2>/dev/null | tr -d '\r\n' || true)"
+[ -n "$APP_VERSION" ] ||
+  APP_VERSION="$(sed -n '1p' "$SRC_DIR/usr/share/vpn-ui/version" 2>/dev/null | tr -d '\r\n' || true)"
 create_full_backup
 
 mkdir -p "$BACKUP_DIR/files"
@@ -311,28 +323,36 @@ copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
-copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn.js 644
-rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js
-rm -f /www/luci-static/resources/view/network/vpn-0-7-0.js
+copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
+copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap/footer.ut 644
+copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut 644
+copy_file "$SRC_DIR/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" /usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut 644
+# Transitional aliases let pre-0.7.9 updaters validate the install after
+# stable LuCI filenames are introduced.
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale-0-7-5.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset-0-8-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update-0-7-3.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/_35_vpn.js" /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js 644
 rm -f /www/luci-static/resources/view/network/vpn-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
-rm -f /www/luci-static/resources/view/network/tailscale-0-7-5.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-0.js
-rm -f /www/luci-static/resources/view/system/update-0-7-3.js
 rm -f /www/luci-static/resources/view/system/update-0-6-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-1.js
 rm -f /www/luci-static/resources/view/system/update-0-7-2.js
-rm -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
-rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-5-2.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
+[ ! -x /usr/sbin/router-prep ] || [ ! -f /etc/router-prep/customer-policy.conf ] ||
+  /usr/sbin/router-prep apply-policy
 ensure_geosite_data
 
 mkdir -p /etc/crontabs
@@ -355,15 +375,18 @@ printf '%s\n' "$INIT_OUT" | grep -q '"ok":true' || {
 /usr/sbin/vpn-ui vpn-summary | grep -q '"ok":true' ||
   die "VPN status validation failed after installation"
 grep -q '"path":[[:space:]]*"network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI VPN menu validation failed"
-grep -q '"path":[[:space:]]*"network/tailscale"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Tailscale menu validation failed"
-grep -q '"path":[[:space:]]*"system/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Update menu validation failed"
+  grep -q "CUSTOMER_VPN='0'" /etc/router-prep/customer-policy.conf 2>/dev/null ||
+    die "LuCI VPN menu validation failed"
+[ -f /www/luci-static/resources/view/network/tailscale.js ] ||
+  die "LuCI Tailscale view validation failed"
+[ -f /www/luci-static/resources/view/system/update.js ] ||
+  die "LuCI Update view validation failed"
+[ -f /www/luci-static/resources/view/system/reset.js ] ||
+  die "LuCI Reset view validation failed"
 [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
   die "LuCI VPN status include validation failed"
 [ -f /www/luci-static/resources/view/status/include/_35_vpn.js ] ||
-  die "LuCI VPN status include validation failed"
+  die "LuCI VPN underscored status include validation failed"
 
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 /etc/init.d/rpcd restart >/tmp/vpn-ui-install-rpcd.log 2>&1 || true

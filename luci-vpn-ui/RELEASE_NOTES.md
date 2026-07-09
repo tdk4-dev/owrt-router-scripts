@@ -1,32 +1,27 @@
-Router UI 0.7.9
+Router UI 0.8.0
 
-• Uses stable LuCI asset names (`vpn.js`, `tailscale.js`, `update.js`,
-  `35_vpn.js`) instead of embedding Router UI versions in filenames.
-• Removes stale versioned LuCI assets during install so future releases do not
-  require filename churn or workflow edits.
-• Adds release checks that fail if current LuCI asset filenames become
-  versioned again.
-• Stops RAM-backed router log growth by capping `/tmp/xray-access.log` and
-  `/tmp/xray-error.log` during install init and the existing one-minute
-  Router UI auto-tick.
-• Disables AdGuardHome file-backed query logging on OpenWrt, where
-  `/var/lib/adguardhome` lives under tmpfs, and removes the accumulated
-  querylog file during update.
-• New x86 first-boot/setup installs use a 24-hour in-memory AdGuard query log
-  without writing `querylog.json` into RAM.
-• Fixes imported subscription profile switching on Xray 25 by omitting empty
-  direct-domain routing rules from generated Xray configs.
-• First-boot setup accepts HTTPS subscription links as well as direct
-  `vless://` links when VPN is enabled.
-• Fixes imported VLESS Reality profiles that do not specify `flow=` by
-  omitting the Xray `flow` field instead of forcing Vision mode.
-• Existing 0.7.5-imported profiles are corrected when loaded if their original
-  VLESS URL did not contain `flow=`.
-• Routes TCP port 8080 directly in generated Xray configs so Speedtest latency
-  probes do not fail through VPS paths that block outbound 8080.
-• Selected-profile health now checks the active SOCKS/Xray path; saved profiles
-  show endpoint TCP reachability as a muted `tcp ...` probe instead of a fake
-  VPN latency.
-• LuCI VPN notifications are collapsed to one visible banner.
-• Retains mandatory verified backups, background jobs, automatic rollback,
-  browser reload after LuCI restarts, and VPN health in Status Overview.
+• Adds System > Reset for custom images. It asks for explicit confirmation,
+  clears first-boot, VPN, AdGuardHome, Tailscale, Wi-Fi, SSH key, and root
+  password state, then reboots back to the setup assistant.
+• Polishes reset progress handling. If LuCI loses the XHR while the router is
+  rebooting, the page keeps waiting for the setup assistant instead of showing
+  a timeout warning.
+• Adds the dark first-boot setup assistant for custom images, including account,
+  Wi-Fi, VPN, AdGuardHome filter, Tailscale/Headscale, and review/apply steps.
+• Replaces the setup assistant's text badge with a consistent built-in burger
+  mark that does not depend on host emoji fonts.
+• Adds the owner preparation panel for pre-handoff checks, owner tailnet login,
+  customer access policy, backup validation, preview Wi-Fi radios, and sealing.
+• Adds custom ImageBuilder support for x86/64 and Xiaomi AX3000T/RD23 packages,
+  overlays, first-boot setup, router preparation, and generated image archives.
+• Converts release staging to real OpenWrt IPK packages with opkg feed
+  metadata, package-first running-router updates, legacy tar.gz migration, and
+  images built from the same package artifacts.
+• Fixes first-boot root password handling so LuCI and SSH authenticate with the
+  password entered in the setup wizard.
+• Fixes first-boot VLESS enablement when direct routing rules are empty, and
+  improves Apply setup progress feedback.
+• Fixes the LuCI Status overview VPN include by installing both cache-safe and
+  compatibility module names.
+• Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,
+  reachable/unreachable result, latency, and direct or DERP route.
