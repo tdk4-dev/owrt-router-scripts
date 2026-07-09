@@ -67,7 +67,13 @@ if command -v stat >/dev/null 2>&1; then
 fi
 
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn-0-7-0.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/tailscale-0-7-5.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset-0-8-0.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/update-0-7-3.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js" ]
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap/footer.ut" ]
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ]
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ]
