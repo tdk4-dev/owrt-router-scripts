@@ -251,7 +251,10 @@ validate_install() {
   for pkg in $PROJECT_PACKAGES; do
     package_installed "$pkg" || return 1
   done
-  /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
+  # A package-first install is valid before the owner adds a VLESS profile.
+  # `vpn-ui check` intentionally reports that empty state as not working, so
+  # validate the backend/status contract here instead of requiring live VPN.
+  /usr/sbin/vpn-ui status 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui tailscale-status 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui footer-info 2>/dev/null | grep -q '"footer_label":"Router Scripts v' || return 1

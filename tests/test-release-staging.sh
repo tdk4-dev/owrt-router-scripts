@@ -19,6 +19,9 @@ RELEASE_DIR="$ROOT_DIR/dist/release-v$APP_VERSION"
 [ -f "$RELEASE_DIR/opkg-feed/Packages" ]
 [ -f "$RELEASE_DIR/opkg-feed/Packages.gz" ]
 
+grep -q '/usr/sbin/vpn-ui status' "$RELEASE_DIR/install-router-ui-release.sh"
+! grep -q '/usr/sbin/vpn-ui check' "$RELEASE_DIR/install-router-ui-release.sh"
+
 for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
   ls "$RELEASE_DIR/packages/${pkg}_${APP_VERSION}-1_all.ipk" >/dev/null
   ls "$RELEASE_DIR/opkg-feed/${pkg}_${APP_VERSION}-1_all.ipk" >/dev/null

@@ -32,6 +32,8 @@ Router UI 0.8.0
   state; images that include AdGuardHome can enable it and choose filters.
 • Ships exactly one LuCI Status Overview include so Router Scripts metadata is
   rendered once instead of once per compatibility alias.
+• Lets the package-first installer validate a clean router before a VLESS
+  profile exists, while retaining live VPN checks for configured profiles.
 • Fixes the LuCI Status overview VPN include by installing both cache-safe and
   compatibility module names.
 • Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,
