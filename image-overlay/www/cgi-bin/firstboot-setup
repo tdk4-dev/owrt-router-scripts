@@ -252,10 +252,14 @@ bootstrap() {
   local radios adguard_available_json adguard_can_install_json storage_json router_hostname
   radios="$(wifi_radios_json)"
   adguard_available_json=false
-  adguard_available && adguard_available_json=true
-  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
-  adguard_can_install_json="$ADGUARD_CAN_INSTALL"
-  [ "$adguard_available_json" = false ] || adguard_can_install_json=false
+  if adguard_available; then
+    adguard_available_json=true
+    measure_adguard_storage 0
+    adguard_can_install_json=false
+  else
+    measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
+    adguard_can_install_json="$ADGUARD_CAN_INSTALL"
+  fi
   storage_json="$(adguard_storage_json)"
   router_hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || true)"
   [ -n "$router_hostname" ] || router_hostname="$ROUTER_HOSTNAME"

@@ -35,6 +35,7 @@ printf '%s\n' "$invalid_hostname" | grep -Fq 'cannot begin or end with a hyphen'
 
 grep -q 'adguard-install) install_adguard' "$SETUP"
 grep -q 'opkg install "$ADGUARD_PACKAGE"' "$SETUP"
+grep -A4 'if adguard_available; then' "$SETUP" | grep -q 'measure_adguard_storage 0'
 if grep -Eq 'opkg[[:space:]]+upgrade' "$SETUP"; then
   printf 'first-boot setup must not run a global opkg upgrade\n' >&2
   exit 1
