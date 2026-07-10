@@ -23,6 +23,7 @@ var css = '\
 .tailscale-ui .ts-peer-online { box-shadow:inset 3px 0 0 #2fb35d; }\
 .tailscale-ui .ts-peer-name { font-weight:700; }\
 .tailscale-ui .ts-peer-sub { display:block; opacity:.68; font-size:.9em; margin-top:.15rem; }\
+.tailscale-ui .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -41,16 +42,34 @@ function parseResponse(res) {
 	return data;
 }
 
+function renderPanelFooter(metadata) {
+	metadata = metadata || {};
+	if (metadata.footer_enabled === false)
+		return '';
+	return E('div', { 'class': 'router-panel-footer' }, [
+		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
+		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
+	]);
+}
+
 return view.extend({
 	callHelper: function(args) {
 		return fs.exec(helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return this.callHelper(['tailscale-status']);
+		return Promise.all([
+			this.callHelper(['tailscale-status']),
+			this.callHelper(['footer-info'])
+		]).then(function(result) {
+			result[0].metadata = result[1];
+			return result[0];
+		});
 	},
 
 	refresh: function(data) {
+		data.metadata = data.metadata || this.metadata || {};
+		this.metadata = data.metadata;
 		this.data = data;
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
 	},
@@ -303,11 +322,13 @@ return view.extend({
 				}, _('Apply / connect'))
 			])
 		]),
-		this.renderPeers(tailscale)
+		this.renderPeers(tailscale),
+		renderPanelFooter(data.metadata)
 		];
 	},
 
 	render: function(data) {
+		this.metadata = data.metadata || {};
 		this.data = data;
 
 		return E('div', { 'class': 'cbi-map tailscale-ui' }, [

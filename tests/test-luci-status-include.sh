@@ -12,6 +12,16 @@ grep -q 'metadata.footer_label' "$PLAIN_INCLUDE"
 grep -q 'metadata.support_level' "$PLAIN_INCLUDE"
 grep -q 'metadata.registration_state' "$PLAIN_INCLUDE"
 
+for panel in \
+  "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js" \
+  "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js" \
+  "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/update.js" \
+  "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js"
+do
+  grep -q 'Router Scripts v%s' "$panel"
+  grep -q 'Support: %s · Registration: %s' "$panel"
+done
+
 grep -q 'copy_file.*status/include/35_vpn.js' "$ROOT_DIR/luci-vpn-ui/install.sh"
 ! grep -q 'copy_file.*status/include/_35_vpn' "$ROOT_DIR/luci-vpn-ui/install.sh"
 grep -q 'duplicate LuCI VPN status includes' "$ROOT_DIR/luci-vpn-ui/install.sh"

@@ -1,7 +1,9 @@
 # Router Scripts Footer and Status Metadata
 
 The package-safe v0.8 implementation exposes Router Scripts metadata through
-`vpn-ui footer-info`, the LuCI Status Overview card, and the VPN Router UI.
+`vpn-ui footer-info`, the LuCI Status Overview card, the VPN Router UI, and a
+package-owned branding strip at the bottom of each project LuCI panel (VPN,
+Tailscale, Update, and Reset).
 Project IPKs deliberately do not own or overwrite LuCI theme `footer.ut`
 files, because those paths belong to the installed theme packages and would
 create removal and upgrade conflicts.
@@ -43,6 +45,8 @@ vpn-ui footer-info
 
 The complete router ID is never returned. Only `router_id_short` is exposed.
 The persistent source of truth is UCI package `/etc/config/premier_router`.
-Adding text to the literal LuCI page footer remains deferred until a supported
-hook or package-diversion mechanism is proven on clean install, upgrade, and
-removal. Do not copy theme footer templates from this project into an IPK.
+Adding text to the theme-owned global LuCI page footer remains deferred until a
+supported hook or package-diversion mechanism is proven on clean install,
+upgrade, and removal. The panel branding strip is the package-safe v0.8
+implementation. Do not copy theme footer templates from this project into an
+IPK.

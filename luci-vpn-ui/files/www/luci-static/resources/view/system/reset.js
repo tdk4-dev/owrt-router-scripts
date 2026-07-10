@@ -14,6 +14,7 @@ var css = '\
 .router-reset .reset-muted { opacity:.7; }\
 .router-reset-progress { min-width:22rem; }\
 .router-reset-progress .reset-wait { color:#aaa; margin-top:.7rem; }\
+.router-reset .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -32,13 +33,29 @@ function parseResponse(res) {
 	return data;
 }
 
+function renderPanelFooter(metadata) {
+	metadata = metadata || {};
+	if (metadata.footer_enabled === false)
+		return '';
+	return E('div', { 'class': 'router-panel-footer' }, [
+		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
+		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
+	]);
+}
+
 return view.extend({
 	callHelper: function(args) {
 		return fs.exec(helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return this.callHelper(['reset-status']);
+		return Promise.all([
+			this.callHelper(['reset-status']),
+			this.callHelper(['footer-info'])
+		]).then(function(result) {
+			result[0].metadata = result[1];
+			return result[0];
+		});
 	},
 
 	waitForSetup: function(startedAt) {
@@ -99,7 +116,8 @@ return view.extend({
 			E('div', { 'class': 'router-reset-progress' }, [
 				E('p', { 'class': 'spinning' }, _('Factory reset has been requested.')),
 				E('p', { 'class': 'reset-wait' }, _('Keep this tab open. The page will switch to the setup assistant when the router is ready.'))
-			])
+			]),
+			renderPanelFooter(data.metadata)
 		]);
 
 		return this.callHelper(['reset-to-setup', 'RESET']).then(function(result) {

@@ -2377,6 +2377,7 @@ cmd_tailscale_up() {
   local auth_key="$3"
   local advertise_routes="$4"
   local advertise_exit="$5"
+  local log="/tmp/vpn-ui-tailscale-up.$$"
 
   case "$login_server" in https://*) ;; *) die_json "Tailscale login server must use https://" ;; esac
   [ -n "$hostname" ] || hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || printf openwrt)"
@@ -2393,10 +2394,28 @@ cmd_tailscale_up() {
   [ -n "$auth_key" ] && set -- "$@" "--auth-key=$auth_key"
   [ -n "$advertise_routes" ] && set -- "$@" "--advertise-routes=$advertise_routes"
   [ "$advertise_exit" = "1" ] && set -- "$@" "--advertise-exit-node"
-  tailscale up "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
-    tailscale up --reset "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
-    die_json "tailscale up failed: $(one_line "$(cat /tmp/vpn-ui-tailscale-up.log 2>/dev/null)")"
+  if ! tailscale up "$@" >"$log" 2>&1; then
+    tailscale up --reset "$@" >"$log" 2>&1 || {
+      rm -f "$log"
+      die_json "tailscale up failed; verify the login server, TLS, and preauth key"
+    }
+  fi
+  rm -f "$log"
+  tailscale_registration_ready ||
+    die_json "tailscale did not reach a registered Running state; verify the login server, TLS, and preauth key"
   tailscale_status_json
+}
+
+tailscale_registration_ready() {
+  local attempt=0 backend ip
+  while [ "$attempt" -lt 20 ]; do
+    backend="$(tailscale status --json 2>/dev/null | jsonfilter -e '@.BackendState' 2>/dev/null || true)"
+    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 1
 }
 
 cmd_tailscale_logout() {

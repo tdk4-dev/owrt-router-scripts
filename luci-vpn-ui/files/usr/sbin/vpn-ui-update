@@ -201,6 +201,7 @@ cache_release() {
   local version_file="$1"
   local changelog_file="$2"
   local date_file="$3"
+  local compatible="$4"
   local version
   version="$(sed -n '1p' "$version_file" | tr -d '\r\n')"
   [ -n "$version" ] || return 1
@@ -208,16 +209,20 @@ cache_release() {
   cp "$version_file" "$CACHE_DIR/version.new"
   cp "$changelog_file" "$CACHE_DIR/changelog.new"
   cp "$date_file" "$CACHE_DIR/released_at.new"
+  printf '%s\n' "$compatible" > "$CACHE_DIR/compatible.new"
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$CACHE_DIR/checked_at.new"
   mv "$CACHE_DIR/version.new" "$CACHE_DIR/version"
   mv "$CACHE_DIR/changelog.new" "$CACHE_DIR/changelog"
   mv "$CACHE_DIR/released_at.new" "$CACHE_DIR/released_at"
+  mv "$CACHE_DIR/compatible.new" "$CACHE_DIR/compatible"
   mv "$CACHE_DIR/checked_at.new" "$CACHE_DIR/checked_at"
   chmod 600 "$CACHE_DIR"/* 2>/dev/null || true
 }
 
 check_transaction() {
   local tmpdir="/tmp/vpn-ui-update-check.$$"
+  local strict="${1:-0}"
+  local compatible=1
   mkdir -p "$tmpdir"
   download_file "$RELEASE_BASE/$REMOTE_VERSION_NAME" "$tmpdir/version" || {
     rm -rf "$tmpdir"
@@ -231,23 +236,20 @@ check_transaction() {
     rm -rf "$tmpdir"
     return 1
   }
-  download_file "$RELEASE_BASE/$MANIFEST_NAME" "$tmpdir/manifest" || {
-    rm -rf "$tmpdir"
-    return 1
-  }
-  download_file "$RELEASE_BASE/$PACKAGES_NAME" "$tmpdir/packages" || {
-    rm -rf "$tmpdir"
-    return 1
-  }
-  cache_release "$tmpdir/version" "$tmpdir/changelog" "$tmpdir/released_at" || {
+  download_file "$RELEASE_BASE/$MANIFEST_NAME" "$tmpdir/manifest" || compatible=0
+  if [ "$compatible" = "1" ]; then
+    download_file "$RELEASE_BASE/$PACKAGES_NAME" "$tmpdir/packages" || compatible=0
+  fi
+  cache_release "$tmpdir/version" "$tmpdir/changelog" "$tmpdir/released_at" "$compatible" || {
     rm -rf "$tmpdir"
     return 1
   }
   rm -rf "$tmpdir"
+  [ "$strict" != "1" ] || [ "$compatible" = "1" ]
 }
 
 check_worker() {
-  local target
+  local target compatible current
   acquire_lock || {
     set_state "failed" "check" "Another update task is already running." "" ""
     return 1
@@ -255,7 +257,15 @@ check_worker() {
   set_state "running" "check" "Checking the release server…" "" ""
   if check_transaction >>"$LOG_FILE" 2>&1; then
     target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-    set_state "success" "check" "Release information is current." "$target" ""
+    compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+    current="$(current_version)"
+    if [ "$compatible" = "1" ]; then
+      set_state "success" "check" "Release information is current." "$target" ""
+    elif version_is_newer "$current" "$target"; then
+      set_state "success" "check" "Release server is reachable. Installed software is newer than the published legacy-format release; no package-first update is available." "$target" ""
+    else
+      set_state "success" "check" "Release server is reachable, but the published release uses the legacy bundle format and cannot be installed by the package-first updater." "$target" ""
+    fi
     release_lock
     return 0
   fi
@@ -354,7 +364,7 @@ apply_transaction() {
     return 10
   }
   set_state "running" "download" "Downloading and verifying package release metadata…" "$target" "$backup"
-  check_transaction >>"$LOG_FILE" 2>&1 || return 11
+  check_transaction 1 >>"$LOG_FILE" 2>&1 || return 11
 
   [ -x /usr/sbin/install-router-ui-release ] || return 16
 
@@ -369,10 +379,15 @@ apply_transaction() {
 }
 
 apply_worker() {
-  local target backup rc
+  local target compatible backup rc
   target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
   [ -n "$target" ] || {
     set_state "failed" "apply" "Check for updates before installing." "" ""
+    return 1
+  }
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] || {
+    set_state "failed" "apply" "The published release does not contain package-first update metadata and cannot be installed by this updater." "$target" ""
     return 1
   }
   version_is_newer "$target" "$(current_version)" || {
@@ -398,7 +413,7 @@ apply_worker() {
 }
 
 status_json() {
-  local current latest released_at changelog checked_at available
+  local current latest released_at changelog checked_at available compatible current_ahead release_reachable
   local job_status job_stage job_message job_target job_backup job_updated
   load_config
   current="$(current_version)"
@@ -407,8 +422,13 @@ status_json() {
   released_at="$(read_file "$CACHE_DIR/released_at" | sed -n '1p' | tr -d '\r\n')"
   changelog="$(read_file "$CACHE_DIR/changelog")"
   checked_at="$(read_file "$CACHE_DIR/checked_at" | sed -n '1p' | tr -d '\r\n')"
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] && compatible=true || compatible=false
+  [ -n "$checked_at" ] && release_reachable=true || release_reachable=false
   available="false"
-  version_is_newer "$latest" "$current" && available="true"
+  [ "$compatible" = true ] && version_is_newer "$latest" "$current" && available="true"
+  current_ahead=false
+  version_is_newer "$current" "$latest" && current_ahead=true
   job_status="$(read_file "$STATE_DIR/status" | sed -n '1p')"
   [ -n "$job_status" ] || job_status="idle"
   job_stage="$(read_file "$STATE_DIR/stage" | sed -n '1p')"
@@ -427,8 +447,8 @@ status_json() {
   json_string "$changelog"
   printf ',"checked_at":'
   json_string "$checked_at"
-  printf ',"available":%s,"auto_update":%s,"auto_schedule":' \
-    "$available" "$([ "$AUTO_UPDATE" = "1" ] && printf true || printf false)"
+  printf ',"available":%s,"compatible_release":%s,"release_reachable":%s,"current_ahead":%s,"auto_update":%s,"auto_schedule":' \
+    "$available" "$compatible" "$release_reachable" "$current_ahead" "$([ "$AUTO_UPDATE" = "1" ] && printf true || printf false)"
   json_string "$AUTO_SCHEDULE"
   printf ',"job":{"status":'
   json_string "$job_status"
@@ -446,12 +466,14 @@ status_json() {
 }
 
 auto_update() {
-  local current latest
+  local current latest compatible
   load_config
   [ "$AUTO_UPDATE" = "1" ] || exit 0
   check_worker || exit 1
   current="$(current_version)"
   latest="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] || exit 0
   [ -n "$latest" ] && version_is_newer "$latest" "$current" || exit 0
   apply_worker
 }

@@ -43,6 +43,7 @@ var css = '\
 .vpn-ui .vpn-device-row.vpn-device-direct { background:#173d25 !important; }\
 .vpn-ui .vpn-device-row.vpn-device-direct > .td { background:transparent !important; }\
 .vpn-ui .vpn-device-row.vpn-device-direct { box-shadow: inset 3px 0 0 #2fb35d; }\
+.vpn-ui .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -97,6 +98,16 @@ function valueOrDash(value) {
 
 function upperLabel(value) {
 	return value ? value.toUpperCase() : '-';
+}
+
+function renderPanelFooter(metadata) {
+	metadata = metadata || {};
+	if (metadata.footer_enabled === false)
+		return '';
+	return E('div', { 'class': 'router-panel-footer' }, [
+		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
+		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
+	]);
 }
 
 return view.extend({
@@ -854,7 +865,8 @@ return view.extend({
 			this.renderProfiles(data),
 			this.renderAutoSwitch(data),
 			this.renderRules(data),
-			this.renderDevices(data)
+			this.renderDevices(data),
+			renderPanelFooter(data.router_metadata)
 		];
 	},
 

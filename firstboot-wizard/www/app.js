@@ -63,7 +63,13 @@ const state = {
   filters: [],
   wifiRadios: [],
   adguardAvailable: true,
+  adguardCanInstall: false,
+  adguardInstalling: false,
+  adguardStorage: null,
   form: {
+    router: {
+      hostname: 'openwrt-fin0'
+    },
     account: {
       login: 'root',
       password: '',
@@ -154,6 +160,9 @@ function phaseDone(phase) {
 function saveDraft() {
   const durable = {
     step: state.step,
+    router: {
+      hostname: state.form.router.hostname
+    },
     account: {
       login: state.form.account.login,
       authorizedKeys: state.form.account.authorizedKeys
@@ -206,6 +215,7 @@ function restoreDraft() {
 
     if (durable) {
       state.step = Math.max(0, Math.min(steps.length - 1, Number(durable.step) || 0));
+      state.form.router.hostname = durable.router?.hostname || state.form.router.hostname;
       state.form.account.login = durable.account?.login || state.form.account.login;
       state.form.account.authorizedKeys = durable.account?.authorizedKeys || '';
       Object.assign(state.form.wifi, durable.wifi || {});
@@ -263,6 +273,11 @@ function validateStep(index = state.step) {
   const id = steps[index].id;
 
   if (id === 'account') {
+    const hostname = form.router.hostname.trim();
+    if (!hostname)
+      errors.push('Router name is required.');
+    if (hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(hostname))
+      errors.push('Router name must be 1 to 63 letters, numbers, or hyphens, and cannot begin or end with a hyphen.');
     if (!form.account.login.trim())
       errors.push('SSH login is required.');
     if (form.account.login.trim() !== 'root')
@@ -284,6 +299,16 @@ function validateStep(index = state.step) {
       errors.push('Wi-Fi network name must be 32 characters or fewer.');
     if (form.wifi.security !== 'none' && form.wifi.password.length < 8)
       errors.push('Wi-Fi password must be at least 8 characters.');
+    if (form.wifi.security !== 'none' && form.wifi.password.length > 63)
+      errors.push('Wi-Fi password must be 63 characters or fewer.');
+    if (!['sae-mixed', 'psk2', 'sae', 'none'].includes(form.wifi.security))
+      errors.push('Choose a supported Wi-Fi security mode.');
+    if (!/^[A-Za-z]{2}$/.test(form.wifi.country))
+      errors.push('Wi-Fi country code must contain two letters.');
+    if (!/^(?:auto|[1-9]|1[0-3])$/.test(String(form.wifi.channel2g)))
+      errors.push('Choose a valid 2.4 GHz channel.');
+    if (!/^(?:auto|[0-9]{2}|1[0-9]{2})$/.test(String(form.wifi.channel5g)))
+      errors.push('Choose a valid 5 GHz channel.');
   }
 
   if (id === 'vpn' && form.vpn.enabled && !phaseDone('vpn')) {
@@ -483,6 +508,14 @@ function renderAccount() {
   return `
     <div class="form-grid">
       ${inputField({
+        id: 'router-hostname',
+        label: 'Router name',
+        value: state.form.router.hostname,
+        path: 'router.hostname',
+        autocomplete: 'off',
+        hint: 'Used as the OpenWrt hostname and, if enabled, the Tailscale device name.'
+      })}
+      ${inputField({
         id: 'account-login',
         label: 'SSH login',
         value: account.login,
@@ -666,11 +699,71 @@ function renderVpn() {
   `;
 }
 
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0)
+    return 'Unknown';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const amount = bytes / (1024 ** index);
+  return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`;
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Number(value) || 0));
+}
+
+function renderAdguardStorage() {
+  const storage = state.adguardStorage;
+  if (!storage || !storage.totalBytes)
+    return '<div class="notice danger">Router storage could not be measured safely, so AdGuardHome installation is unavailable.</div>';
+
+  const usedPercent = clampPercent(storage.usedPercent);
+  const packagePercent = clampPercent((Number(storage.estimatedInstallBytes || 0) / Number(storage.totalBytes)) * 100);
+  const visiblePackagePercent = packagePercent > 0 ? Math.max(packagePercent, 1.5) : 0;
+  const projected = Math.max(0, Number(storage.projectedUsedPercent) || 0);
+  const risk = storage.risk || (projected > 95 ? 'blocked' : (projected >= 90 ? 'warning' : 'safe'));
+  const message = risk === 'blocked'
+    ? `Installation would fill approximately ${projected.toFixed(1)}% of persistent storage. AdGuardHome cannot be installed safely.`
+    : (risk === 'warning'
+      ? `Installation would fill approximately ${projected.toFixed(1)}% of persistent storage. This leaves little room for updates, logs, and configuration.`
+      : `After installation, approximately ${Math.max(0, 100 - projected).toFixed(1)}% of persistent storage should remain free.`);
+
+  return `
+    <section class="storage-card" aria-label="Persistent storage estimate">
+      <div class="storage-heading">
+        <div>
+          <strong>Persistent storage</strong>
+          <div>${formatBytes(storage.freeBytes)} available of ${formatBytes(storage.totalBytes)}</div>
+        </div>
+        <span class="badge ${risk === 'safe' ? 'good' : 'warn'}">${projected.toFixed(1)}% projected</span>
+      </div>
+      <div class="storage-bar" role="img" aria-label="${usedPercent.toFixed(1)} percent used; AdGuardHome adds approximately ${formatBytes(storage.estimatedInstallBytes)}">
+        <span class="storage-used" style="width:${usedPercent}%"></span>
+        <span class="storage-adguard" style="width:${Math.min(visiblePackagePercent, Math.max(0, 100 - usedPercent))}%"></span>
+      </div>
+      <div class="storage-legend">
+        <span><i class="legend-used"></i>Used ${formatBytes(storage.usedBytes)}</span>
+        <span><i class="legend-adguard"></i>AdGuardHome ≈ ${formatBytes(storage.estimatedInstallBytes)}</span>
+        <span><i class="legend-free"></i>Currently free ${formatBytes(storage.freeBytes)}</span>
+      </div>
+      <div class="notice ${risk === 'blocked' ? 'danger' : (risk === 'warning' ? 'warn' : '')}">${escapeHtml(message)}</div>
+    </section>
+  `;
+}
+
 function renderAdguard() {
   if (!state.adguardAvailable) {
     return `
-      <div class="notice">
-        AdGuardHome is not installed on this router. First-boot setup will skip this optional component without changing DNS.
+      ${renderAdguardStorage()}
+      <div class="install-card">
+        <div>
+          <strong>AdGuardHome is not installed</strong>
+          <div class="hint">Install it from the signed OpenWrt package feed, or continue without changing DNS. Installation never runs a global package upgrade.</div>
+        </div>
+        <button class="primary" data-action="install-adguard" ${state.adguardInstalling || !state.adguardCanInstall ? 'disabled' : ''}>
+          ${state.adguardInstalling ? 'Installing AdGuardHome…' : `Install AdGuardHome (≈ ${formatBytes(state.adguardStorage?.estimatedInstallBytes)})`}
+        </button>
       </div>
     `;
   }
@@ -769,7 +862,7 @@ function renderReview() {
       </div>
     ` : ''}
     <div class="review">
-      ${reviewRow('Router', `${state.router.hostname} on ${state.router.lanIp}`)}
+      ${reviewRow('Router', `${state.form.router.hostname} on ${state.router.lanIp}`)}
       ${reviewRow('SSH login', state.form.account.login)}
       ${reviewRow('SSH password', state.form.account.password ? 'Will be set' : 'Missing')}
       ${reviewRow('Wi-Fi', state.form.wifi.enabled
@@ -811,7 +904,7 @@ function renderApplied() {
       `).join('')}
     </div>
     <div class="review">
-      ${reviewRow('Mock apply id', apply.id)}
+      ${reviewRow('Apply ID', apply.id)}
       ${reviewRow('Applied at', apply.appliedAt)}
       ${reviewRow('VPN panel', vpnUrl)}
       ${reviewRow('AdGuard', state.adguardAvailable ? adguardUrl : 'Skipped — not installed')}
@@ -851,18 +944,7 @@ function renderErrors() {
 }
 
 function renderBrandMark() {
-  return `
-    <div class="mark burger-mark" aria-label="Burger">
-      <svg viewBox="0 0 42 42" role="img" aria-hidden="true" focusable="false">
-        <path class="burger-bun-top" d="M8 19.5c.7-6.4 5.7-10.4 13-10.4s12.3 4 13 10.4H8z"/>
-        <path class="burger-seed" d="M15.1 14.1c1.5-.9 2.4-.7 3.2.3"/>
-        <path class="burger-seed" d="M23.1 12.7c1.4-.5 2.4-.1 3 .9"/>
-        <path class="burger-cheese" d="M8.2 21.1h25.6l-4.1 4.1-4.4-3.1-4.1 4-4.5-4-3.7 3.2-4.8-4.2z"/>
-        <path class="burger-patty" d="M9.1 24.9h23.8c1.2 0 2.1 1 2.1 2.1s-.9 2.1-2.1 2.1H9.1C7.9 29.1 7 28.1 7 27s.9-2.1 2.1-2.1z"/>
-        <path class="burger-bun-bottom" d="M9.4 30.5h23.2c.9 0 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6H9.4c-.9 0-1.6-.7-1.6-1.6 0-.9.7-1.6 1.6-1.6z"/>
-      </svg>
-    </div>
-  `;
+  return '<div class="mark burger-mark" role="img" aria-label="Burger">🍔</div>';
 }
 
 function render() {
@@ -920,7 +1002,7 @@ function render() {
               data-step="${index}"
               ${index === state.step ? 'aria-current="step"' : ''}
               ${canJumpTo(index) ? '' : 'disabled'}>
-              <span class="step-dot">${index < state.step ? '' : index + 1}</span>
+              <span class="step-dot">${index + 1}</span>
               <span>${escapeHtml(item.label)}</span>
             </button>
           `).join('')}
@@ -928,7 +1010,7 @@ function render() {
         <div class="target">
           Target LAN<br>
           <strong>http://${escapeHtml(state.router.lanIp)}</strong><br>
-          ${escapeHtml(state.router.hostname)}
+          ${escapeHtml(state.form.router.hostname)}
         </div>
       </aside>
       <section class="content">
@@ -1011,6 +1093,8 @@ function bindEvents() {
       useRouterDefaults();
     if (action === 'select-visible')
       selectVisibleFilters();
+    if (action === 'install-adguard')
+      installAdguard();
     if (action === 'apply')
       applySetup();
     if (action === 'reset-preview') {
@@ -1019,6 +1103,43 @@ function bindEvents() {
       window.location.reload();
     }
   });
+}
+
+async function installAdguard() {
+  if (state.adguardInstalling || !state.adguardCanInstall)
+    return;
+
+  state.adguardInstalling = true;
+  state.errors = [];
+  render();
+
+  try {
+    const response = await fetch(apiUrl('adguard-install'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}'
+    });
+    const payload = await response.json();
+    if (!payload.ok)
+      throw new Error((payload.errors || [payload.error || 'AdGuardHome installation failed']).join(' '));
+    const adguard = payload.data?.adguard || payload.data || {};
+    state.adguardAvailable = !!adguard.available;
+    state.adguardCanInstall = !!adguard.canInstall;
+    state.adguardStorage = adguard.storage || state.adguardStorage;
+    if (state.adguardAvailable) {
+      state.form.adguard.enabled = true;
+      if (!state.form.adguard.selectedFilterIds.length)
+        useRouterDefaults();
+    }
+  }
+  catch (error) {
+    state.errors = [error.message];
+  }
+  finally {
+    state.adguardInstalling = false;
+    saveDraft();
+    render();
+  }
 }
 
 async function applySetup() {
@@ -1072,8 +1193,11 @@ async function bootstrap() {
   const data = payload.data || {};
 
   state.router = data.router || state.router;
+  state.form.router.hostname = data.router?.hostname || state.form.router.hostname;
   state.filters = data.adguard?.filters || [];
   state.adguardAvailable = data.adguard?.available ?? true;
+  state.adguardCanInstall = data.adguard?.canInstall ?? false;
+  state.adguardStorage = data.adguard?.storage || null;
   state.wifiRadios = data.wifi?.radios || [];
   state.form.account.login = data.defaults?.accountLogin || state.form.account.login;
   state.form.wifi.enabled = data.defaults?.wifiEnabled ?? state.form.wifi.enabled;

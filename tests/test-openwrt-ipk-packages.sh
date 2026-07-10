@@ -87,6 +87,15 @@ grep -q '/status/include/_35_vpn.js' "$TMP_DIR/luci-app-premier-router/control/p
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ]
 grep -q "\['footer-info'\]" "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/35_vpn.js"
 grep -q 'router_metadata' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js"
+for view in \
+  network/vpn.js \
+  network/tailscale.js \
+  system/update.js \
+  system/reset.js
+do
+  grep -q 'Router Scripts v%s' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
+  grep -q 'Support: %s · Registration: %s' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
+done
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/luci/menu.d/luci-app-vpn-ui.json" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]
 
@@ -97,6 +106,12 @@ grep -q 'existing service and DNS state were left unchanged' "$TMP_DIR/premier-r
 grep -q '^ROUTER_HOSTNAME="${ROUTER_HOSTNAME:-openwrt-fin0}"' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 ! grep -q '^HOSTNAME=' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'AdGuardHome is not installed' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q 'data-action="install-adguard"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q 'Persistent storage' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q "path: 'router.hostname'" "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q 'grid-template-columns: repeat(6' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
+grep -q 'adguard-install) install_adguard' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
+grep -q 'verify_tailscale_registration' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'name="adguard-enabled"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 [ -x "$TMP_DIR/premier-router-setup/data/www/cgi-bin/router-prep" ]

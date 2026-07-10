@@ -10,6 +10,9 @@ IN_PROGRESS_FILE="$STATE_DIR/in-progress"
 PHASE_DIR="$STATE_DIR/phases"
 PAYLOAD="/tmp/firstboot-setup.$$.json"
 FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
+ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
+ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
+ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/firstboot-adguard-install.lock}"
 VPN_UI_BIN="${VPN_UI_BIN:-/usr/sbin/vpn-ui}"
 JSONFILTER_BIN="${JSONFILTER_BIN:-jsonfilter}"
 UBUS_BIN="${UBUS_BIN:-ubus}"
@@ -128,14 +131,137 @@ adguard_available() {
   [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1
 }
 
+measure_adguard_storage() {
+  local estimate="${1:-$ADGUARD_ESTIMATE_BYTES}"
+  local values total_kb used_kb free_kb projected_tenths used_tenths
+
+  values="$(df -Pk /overlay 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
+  [ -n "$values" ] || values="$(df -Pk / 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
+  set -- $values
+  total_kb="${1:-0}"
+  used_kb="${2:-0}"
+  free_kb="${3:-0}"
+  case "$total_kb:$used_kb:$free_kb:$estimate" in
+    *[!0-9:]*) total_kb=0; used_kb=0; free_kb=0; estimate=0 ;;
+  esac
+
+  ADGUARD_TOTAL_BYTES=$((total_kb * 1024))
+  ADGUARD_USED_BYTES=$((used_kb * 1024))
+  ADGUARD_FREE_BYTES=$((free_kb * 1024))
+  ADGUARD_ESTIMATED_BYTES="$estimate"
+  ADGUARD_PROJECTED_BYTES=$((ADGUARD_USED_BYTES + estimate))
+  ADGUARD_CAN_INSTALL=false
+  ADGUARD_STORAGE_RISK=unknown
+  ADGUARD_USED_PERCENT=0.0
+  ADGUARD_PROJECTED_PERCENT=0.0
+
+  if [ "$ADGUARD_TOTAL_BYTES" -gt 0 ]; then
+    used_tenths=$(((ADGUARD_USED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
+    projected_tenths=$(((ADGUARD_PROJECTED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
+    ADGUARD_USED_PERCENT="$(awk -v value="$used_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
+    ADGUARD_PROJECTED_PERCENT="$(awk -v value="$projected_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
+    if [ "$projected_tenths" -gt 950 ]; then
+      ADGUARD_STORAGE_RISK=blocked
+    elif [ "$projected_tenths" -ge 900 ]; then
+      ADGUARD_STORAGE_RISK=warning
+      ADGUARD_CAN_INSTALL=true
+    else
+      ADGUARD_STORAGE_RISK=safe
+      ADGUARD_CAN_INSTALL=true
+    fi
+  fi
+}
+
+adguard_storage_json() {
+  printf '{"totalBytes":%s,"usedBytes":%s,"freeBytes":%s,"estimatedInstallBytes":%s,"projectedUsedBytes":%s,"usedPercent":%s,"projectedUsedPercent":%s,"risk":' \
+    "$ADGUARD_TOTAL_BYTES" "$ADGUARD_USED_BYTES" "$ADGUARD_FREE_BYTES" "$ADGUARD_ESTIMATED_BYTES" \
+    "$ADGUARD_PROJECTED_BYTES" "$ADGUARD_USED_PERCENT" "$ADGUARD_PROJECTED_PERCENT"
+  json_string "$ADGUARD_STORAGE_RISK"
+  printf '}'
+}
+
+cleanup_adguard_install() {
+  [ -z "${ADGUARD_INSTALL_TMP:-}" ] || rm -rf "$ADGUARD_INSTALL_TMP"
+  rm -rf "$ADGUARD_INSTALL_LOCK"
+}
+
+acquire_adguard_install_lock() {
+  local owner=""
+  if [ -d "$ADGUARD_INSTALL_LOCK" ]; then
+    owner="$(sed -n '1p' "$ADGUARD_INSTALL_LOCK/pid" 2>/dev/null || true)"
+    if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+      rm -rf "$ADGUARD_INSTALL_LOCK"
+    fi
+  fi
+  mkdir "$ADGUARD_INSTALL_LOCK" 2>/dev/null || return 1
+  printf '%s\n' "$$" > "$ADGUARD_INSTALL_LOCK/pid"
+}
+
+adguard_install_fail() {
+  cleanup_adguard_install
+  fail "$1"
+}
+
+install_adguard() {
+  local installed_size storage_json
+
+  [ ! -f "$COMPLETE_FILE" ] || fail "Initial setup is already complete."
+  if adguard_available; then
+    measure_adguard_storage 0
+    storage_json="$(adguard_storage_json)"
+    header_json "200 OK"
+    printf '{"ok":true,"data":{"adguard":{"available":true,"canInstall":false,"storage":%s}}}\n' "$storage_json"
+    return 0
+  fi
+
+  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
+  [ "$ADGUARD_CAN_INSTALL" = true ] || fail "AdGuardHome would use more than 95% of persistent storage and cannot be installed safely."
+  acquire_adguard_install_lock || fail "Another AdGuardHome installation is already running."
+  ADGUARD_INSTALL_TMP="/tmp/firstboot-adguard-install.$$"
+  mkdir -p "$ADGUARD_INSTALL_TMP"
+  trap 'cleanup_adguard_install' EXIT INT TERM
+  command -v opkg >/dev/null 2>&1 || adguard_install_fail "The OpenWrt package manager is unavailable."
+
+  opkg update >"$ADGUARD_INSTALL_TMP/opkg.log" 2>&1 ||
+    adguard_install_fail "Could not refresh the signed OpenWrt package feed. Check the router internet connection and try again."
+  installed_size="$(opkg info "$ADGUARD_PACKAGE" 2>/dev/null | sed -n 's/^Installed-Size:[[:space:]]*//p' | tail -n 1 | tr -d '\r')"
+  case "$installed_size" in
+    ''|*[!0-9]*) installed_size="$ADGUARD_ESTIMATE_BYTES" ;;
+  esac
+  [ "$installed_size" -ge "$ADGUARD_ESTIMATE_BYTES" ] || installed_size="$ADGUARD_ESTIMATE_BYTES"
+  measure_adguard_storage "$installed_size"
+  [ "$ADGUARD_CAN_INSTALL" = true ] ||
+    adguard_install_fail "The current AdGuardHome package would use more than 95% of persistent storage and cannot be installed safely."
+
+  opkg install "$ADGUARD_PACKAGE" >>"$ADGUARD_INSTALL_TMP/opkg.log" 2>&1 ||
+    adguard_install_fail "AdGuardHome package installation failed. No global package upgrade was attempted."
+  adguard_available || adguard_install_fail "AdGuardHome installed but its executable or service definition is missing."
+  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+  /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+
+  cleanup_adguard_install
+  trap - EXIT INT TERM
+  ADGUARD_INSTALL_TMP=""
+  measure_adguard_storage 0
+  storage_json="$(adguard_storage_json)"
+  header_json "200 OK"
+  printf '{"ok":true,"data":{"adguard":{"available":true,"canInstall":false,"storage":%s}}}\n' "$storage_json"
+}
+
 bootstrap() {
-  local radios adguard_available_json
+  local radios adguard_available_json adguard_can_install_json storage_json router_hostname
   radios="$(wifi_radios_json)"
   adguard_available_json=false
   adguard_available && adguard_available_json=true
+  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
+  adguard_can_install_json="$ADGUARD_CAN_INSTALL"
+  [ "$adguard_available_json" = false ] || adguard_can_install_json=false
+  storage_json="$(adguard_storage_json)"
+  router_hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || true)"
+  [ -n "$router_hostname" ] || router_hostname="$ROUTER_HOSTNAME"
   header_json "200 OK"
   cat <<EOF
-{"ok":true,"data":{"router":{"hostname":"openwrt-fin0","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","wifiEnabled":false,"wifiSsid":"OpenWrt","wifiCountry":"US","vpnEnabled":true,"adguardEnabled":false,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"wifi":{"radios":$radios},"adguard":{"available":$adguard_available_json,"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
+{"ok":true,"data":{"router":{"hostname":"$(json_escape "$router_hostname")","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","wifiEnabled":false,"wifiSsid":"OpenWrt","wifiCountry":"US","vpnEnabled":true,"adguardEnabled":false,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"wifi":{"radios":$radios},"adguard":{"available":$adguard_available_json,"canInstall":$adguard_can_install_json,"storage":$storage_json,"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
 EOF
 }
 
@@ -179,10 +305,23 @@ write_selected_filters_yaml() {
   done < "$FILTERS_FILE"
 }
 
-configure_network() {
+validate_router_hostname() {
+  local value="$1"
+  [ -n "$value" ] && [ "${#value}" -le 63 ] ||
+    fail "Router name must be 1 to 63 characters."
+  printf '%s' "$value" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$|^[A-Za-z0-9]$' ||
+    fail "Router name may contain letters, numbers, and hyphens, and cannot begin or end with a hyphen."
+}
+
+configure_router_hostname() {
+  validate_router_hostname "$ROUTER_HOSTNAME"
   uci set system.@system[0].hostname="$ROUTER_HOSTNAME" 2>/dev/null || true
   uci commit system 2>/dev/null || true
   hostname "$ROUTER_HOSTNAME" 2>/dev/null || true
+}
+
+configure_network() {
+  configure_router_hostname
 
   uci set network.lan.ipaddr="$LAN_IP"
   uci set network.lan.netmask="255.255.255.0"
@@ -600,6 +739,7 @@ configure_tailscale() {
   local enabled="$1"
   local login_server="$2"
   local auth_key="$3"
+  local log="/tmp/firstboot-tailscale.$$"
 
   if ! bool_true "$enabled"; then
     /etc/init.d/tailscale stop >/dev/null 2>&1 || true
@@ -628,19 +768,41 @@ configure_tailscale() {
     "--advertise-routes=$LAN_CIDR" \
     "--accept-dns=false" \
     "--netfilter-mode=off"
-  tailscale up "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
-    tailscale up --reset "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
-    fail "tailscale up failed."
+  if ! tailscale up "$@" >"$log" 2>&1; then
+    tailscale up --reset "$@" >"$log" 2>&1 || {
+      rm -f "$log"
+      fail "tailscale up failed. Check the login server, TLS, and preauth key."
+    }
+  fi
+  rm -f "$log"
+
+  verify_tailscale_registration ||
+    fail "Tailscale accepted the command but did not reach a registered Running state. Check the login server, TLS, and preauth key."
+}
+
+verify_tailscale_registration() {
+  local attempt=0 backend ip
+  while [ "$attempt" -lt 20 ]; do
+    backend="$(tailscale status --json 2>/dev/null | "$JSONFILTER_BIN" -e '@.BackendState' 2>/dev/null || true)"
+    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 1
 }
 
 apply_setup() {
-  local login password confirm keys
+  local router_hostname login password confirm keys
   local wifi_enabled wifi_2g wifi_5g wifi_ssid wifi_security wifi_password wifi_country
   local wifi_channel_2g wifi_channel_5g wifi_hidden wifi_isolate
   local vpn_enabled vless adguard_enabled selected tailscale_enabled tailscale_url tailscale_key now
 
   [ ! -f "$COMPLETE_FILE" ] || fail "Initial setup is already complete."
   read_body > "$PAYLOAD"
+  router_hostname="$(json_get '@.router.hostname')"
+  validate_router_hostname "$router_hostname"
+  ROUTER_HOSTNAME="$router_hostname"
   login="$(json_get '@.account.login')"
   password="$(json_get '@.account.password')"
   confirm="$(json_get '@.account.passwordConfirm')"
@@ -670,6 +832,8 @@ apply_setup() {
 
   # Credentials are intentionally reapplied on every resumed submission.
   # A phase marker must never cause a newly entered password to be skipped.
+  # Hostname is also reapplied so a resumed setup uses the latest explicit name.
+  configure_router_hostname
   configure_account "$login" "$password" "$confirm" "$keys"
   mark_phase_done account
   if ! phase_done network; then
@@ -702,7 +866,7 @@ apply_setup() {
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   header_json "200 OK"
   cat <<EOF
-{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"lanIp":"$LAN_IP"},"wifi":{"enabled":$(bool_true "$wifi_enabled" && printf true || printf false)},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"adguard":{"enabled":$(bool_true "$adguard_enabled" && printf true || printf false),"available":$(adguard_available && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set root account and SSH keys","Configure LAN on $LAN_IP","Configure Wi-Fi if requested","Configure or skip optional AdGuardHome","Configure VPN panel and Xray","Configure Tailscale if requested","Mark first-boot setup complete"]}}
+{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"hostname":"$(json_escape "$ROUTER_HOSTNAME")","lanIp":"$LAN_IP"},"wifi":{"enabled":$(bool_true "$wifi_enabled" && printf true || printf false)},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"adguard":{"enabled":$(bool_true "$adguard_enabled" && printf true || printf false),"available":$(adguard_available && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set router name and root account","Configure LAN on $LAN_IP","Configure Wi-Fi if requested","Configure or skip optional AdGuardHome","Configure VPN panel and Xray","Configure Tailscale and verify registration if requested","Mark first-boot setup complete"]}}
 EOF
 }
 
@@ -730,6 +894,7 @@ if [ "${FIRSTBOOT_SETUP_LIB_ONLY:-0}" != "1" ]; then
   case "${action:-status}" in
     status) ok_status ;;
     bootstrap) bootstrap ;;
+    adguard-install) install_adguard ;;
     apply) apply_setup ;;
     finish)
       target="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*target=\([^&]*\).*/\1/p')"

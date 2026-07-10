@@ -18,6 +18,7 @@ var css = '\
 .router-update .update-setting { display:flex; align-items:flex-start; gap:.65rem; padding:.9rem 0; }\
 .router-update .update-setting input { margin-top:.25rem; }\
 .router-update .update-job { border-left:3px solid #09c; padding:.65rem .9rem; margin:1rem 0; background:rgba(0,153,204,.08); }\
+.router-update .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -36,16 +37,34 @@ function parseResponse(res) {
 	return data;
 }
 
+function renderPanelFooter(metadata) {
+	metadata = metadata || {};
+	if (metadata.footer_enabled === false)
+		return '';
+	return E('div', { 'class': 'router-panel-footer' }, [
+		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
+		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
+	]);
+}
+
 return view.extend({
 	callHelper: function(args) {
 		return fs.exec(helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return this.callHelper(['update-status']);
+		return Promise.all([
+			this.callHelper(['update-status']),
+			this.callHelper(['footer-info'])
+		]).then(function(result) {
+			result[0].metadata = result[1];
+			return result[0];
+		});
 	},
 
 	updateView: function(data) {
+		data.metadata = data.metadata || this.metadata || {};
+		this.metadata = data.metadata;
 		this.data = data;
 		var root = document.querySelector('#router-update-root');
 		if (root)
@@ -135,6 +154,14 @@ return view.extend({
 	renderBody: function(data) {
 		var job = data.job || {};
 		var busy = job.status === 'starting' || job.status === 'running';
+		var checked = !!data.checked_at;
+		var compatible = !!data.compatible_release;
+		var actionLabel = data.available
+			? _('Download and install')
+			: (data.current_ahead ? _('Ahead of published release') : (checked && !compatible ? _('No compatible update') : _('Up to date')));
+		var statusLabel = data.available
+			? _('Update available')
+			: (data.current_ahead ? _('Ahead of release') : (checked && !compatible ? _('Legacy release only') : _('Up to date')));
 		var checkedNote = data.checked_at
 			? _('Last checked: %s').format(data.checked_at.replace('T', ' ').replace('Z', ' UTC'))
 			: _('Not checked yet');
@@ -165,7 +192,7 @@ return view.extend({
 							if (!busy && data.available)
 								return this.install();
 						}, this)
-					}, data.available ? _('Download and install') : _('Up to date'))
+					}, actionLabel)
 				])
 			]),
 			busy || job.message ? E('div', { 'class': 'update-job' }, [
@@ -186,8 +213,10 @@ return view.extend({
 				]),
 				E('div', { 'class': 'update-card' }, [
 					E('span', { 'class': 'update-card-label' }, _('Status')),
-					E('span', { 'class': 'update-card-value' }, data.available ? _('Update available') : _('Up to date')),
-					E('span', { 'class': 'update-card-note' }, checkedNote)
+					E('span', { 'class': 'update-card-value' }, statusLabel),
+					E('span', { 'class': 'update-card-note' }, checked && !compatible
+						? _('The server is reachable, but the published release does not contain package-first update metadata.')
+						: checkedNote)
 				])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
@@ -213,11 +242,13 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('What’s new in %s').format(data.latest || _('the latest release'))),
 				E('pre', { 'class': 'update-notes' }, data.changelog || _('Check for updates to download the latest changelog.'))
-			])
+			]),
+			renderPanelFooter(data.metadata)
 		];
 	},
 
 	render: function(data) {
+		this.metadata = data.metadata || {};
 		this.data = data;
 		if (!data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
 			window.setTimeout(L.bind(function() { this.refresh(); }, this), 250);
