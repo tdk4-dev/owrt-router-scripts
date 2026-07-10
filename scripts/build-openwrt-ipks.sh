@@ -166,12 +166,23 @@ chmod 755 /etc/uci-defaults/99-openwrt-fin0-firstboot 2>/dev/null || true
 if [ "${PREMIER_ROUTER_KEEP_UCI_DEFAULTS:-0}" != "1" ]; then
   rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot
 fi
+if [ -f /www/premier-router-index.html ] && [ -z "$(uci -q get uhttpd.main.index_page 2>/dev/null || true)" ]; then
+  uci add_list uhttpd.main.index_page='premier-router-index.html'
+  uci add_list uhttpd.main.index_page='index.html'
+  uci commit uhttpd
+fi
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 exit 0
 EOF
   cat > "$control_dir/postrm" <<'EOF'
 #!/bin/sh
+if [ ! -f /www/premier-router-index.html ] &&
+   [ "$(uci -q get uhttpd.main.index_page 2>/dev/null || true)" = "premier-router-index.html index.html" ]; then
+  uci -q delete uhttpd.main.index_page
+  uci commit uhttpd
+  /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+fi
 exit 0
 EOF
   chmod 755 "$control_dir/postinst" "$control_dir/postrm"

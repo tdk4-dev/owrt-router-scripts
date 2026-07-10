@@ -125,22 +125,20 @@ label {
 
 .brand {
   display: grid;
-  grid-template-columns: 42px 1fr;
+  grid-template-columns: auto 1fr;
   gap: 12px;
   align-items: center;
 }
 
 .mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 4px;
-  background: #111;
-  border: 1px solid #4a4a4a;
+  width: auto;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
   color: var(--text-strong);
-  display: grid;
-  place-items: center;
-  font-weight: 750;
-  font-size: 24px;
+  display: block;
+  font-size: 32px;
   line-height: 1;
 }
 
@@ -254,8 +252,9 @@ h1 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  width: min(680px, 100%);
 }
 
 .field.full,
@@ -263,6 +262,98 @@ h1 {
 .review,
 .apply-log {
   grid-column: 1 / -1;
+}
+
+.reset-content {
+  grid-template-rows: auto 1fr;
+}
+
+.reset-progress {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--surface-soft);
+}
+
+.reset-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.reset-progress-heading strong {
+  color: var(--text-strong);
+}
+
+.reset-progress-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #171717;
+  border: 1px solid var(--line-strong);
+}
+
+.reset-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width .25s ease;
+}
+
+.reset-phase-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reset-phase-list li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  color: var(--muted);
+}
+
+.reset-phase-list li > span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.reset-phase-list li strong,
+.reset-phase-list li small {
+  display: block;
+}
+
+.reset-phase-list li small {
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+.reset-phase-list li.active {
+  color: var(--text-strong);
+}
+
+.reset-phase-list li.active > span {
+  border-color: var(--accent);
+  background: rgb(94 159 184 / 18%);
+  color: var(--accent-strong);
+}
+
+.reset-phase-list li.done > span {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
 }
 
 .hint {

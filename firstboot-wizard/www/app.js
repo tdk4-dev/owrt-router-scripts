@@ -107,9 +107,18 @@ const state = {
 
 const app = document.querySelector('#app');
 const routerApiMode = window.location.pathname.startsWith('/setup/');
+const resetRecoveryMode = routerApiMode && new URLSearchParams(window.location.search).get('reset') === '1';
 const DRAFT_KEY = 'openwrt-firstboot-draft-v1';
 const SECRET_DRAFT_KEY = 'openwrt-firstboot-secrets-v1';
+const RESET_STARTED_KEY = 'premier-router-reset-started-at';
 const devPreviewToken = new URLSearchParams(window.location.hash.slice(1)).get('dev') || '';
+let resetPollTimer = null;
+let resetRecovery = {
+  phase: 'requested',
+  detail: 'The router accepted the reset request. Preparing to stop services.',
+  elapsed: 0,
+  failed: false
+};
 
 function apiUrl(action) {
   if (routerApiMode)
@@ -947,7 +956,140 @@ function renderBrandMark() {
   return '<div class="mark burger-mark" role="img" aria-label="Burger">🍔</div>';
 }
 
+function resetPhaseIndex(phase) {
+  if (phase === 'stopping-services') return 1;
+  if (phase === 'clearing-configuration' || phase === 'resetting-storage') return 2;
+  if (phase === 'rebooting' || phase === 'offline') return 3;
+  if (phase === 'ready') return 4;
+  return 0;
+}
+
+function formatElapsed(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes}m ${String(remainder).padStart(2, '0')}s` : `${remainder}s`;
+}
+
+function renderResetRecovery() {
+  const current = resetPhaseIndex(resetRecovery.phase);
+  const phases = [
+    ['Request accepted', 'The router scheduled a protected reset job.'],
+    ['Stopping services', 'VPN, Tailscale, and DNS services are stopped before configuration is erased.'],
+    ['Clearing configuration', 'Passwords, keys, network settings, and setup state are being reset.'],
+    ['Restarting OpenWrt', 'The router can be offline for several minutes while storage is reset and OpenWrt boots.'],
+    ['Setup ready', 'The fresh first-boot assistant is available.']
+  ];
+  app.innerHTML = `
+    <section class="setup reset-recovery">
+      <aside class="sidebar">
+        <div class="brand">
+          ${renderBrandMark()}
+          <div>
+            <div class="brand-title">OpenWrt Setup</div>
+            <div class="brand-subtitle">Reset recovery</div>
+          </div>
+        </div>
+        <div class="target">
+          Do not power off the router.<br>
+          This page is safe to reload.
+        </div>
+      </aside>
+      <section class="content reset-content">
+        <header class="headline">
+          <div class="eyebrow">Router reset</div>
+          <h1>${resetRecovery.failed ? 'Reset needs attention' : current === 4 ? 'Setup is ready' : 'Resetting router'}</h1>
+          <p class="lede">${escapeHtml(resetRecovery.detail)}</p>
+        </header>
+        <div class="panel">
+          <div class="reset-progress" role="status" aria-live="polite">
+            <div class="reset-progress-heading">
+              <strong>${resetRecovery.failed ? 'Stopped' : current === 4 ? 'Complete' : 'In progress'}</strong>
+              <span>Elapsed ${formatElapsed(resetRecovery.elapsed)}</span>
+            </div>
+            <div class="reset-progress-bar"><span style="width:${Math.max(8, ((current + 1) / phases.length) * 100)}%"></span></div>
+            <ol class="reset-phase-list">
+              ${phases.map((phase, index) => `
+                <li class="${index < current ? 'done' : index === current ? 'active' : ''}">
+                  <span>${index < current ? '✓' : index + 1}</span>
+                  <div><strong>${phase[0]}</strong><small>${phase[1]}</small></div>
+                </li>
+              `).join('')}
+            </ol>
+          </div>
+          ${resetRecovery.failed ? '<div class="errors"><div>The reset command reported a failure before reboot. The router was not declared ready. Use the serial console or retry from LuCI after restoring access.</div></div>' : ''}
+          <div class="notice">Keep this tab open or reload it at any time. Losing the old LuCI password during reset is expected; this public page does not require that session.</div>
+          <div><button class="secondary" data-action="check-reset">Check now</button></div>
+        </div>
+      </section>
+    </section>
+  `;
+}
+
+function resetStartedAt() {
+  try {
+    const value = Number(localStorage.getItem(RESET_STARTED_KEY));
+    if (Number.isFinite(value) && value > 0)
+      return value;
+    localStorage.setItem(RESET_STARTED_KEY, String(Date.now()));
+  }
+  catch (_) {}
+  return Date.now();
+}
+
+const resetStarted = resetRecoveryMode ? resetStartedAt() : 0;
+
+function scheduleResetPoll(delay = 2500) {
+  window.clearTimeout(resetPollTimer);
+  resetPollTimer = window.setTimeout(pollResetRecovery, delay);
+}
+
+async function pollResetRecovery() {
+  resetRecovery.elapsed = Math.max(0, Math.floor((Date.now() - resetStarted) / 1000));
+  try {
+    const response = await fetch(`${apiUrl('status')}&_=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok)
+      throw new Error('offline');
+    const status = await response.json();
+    const phase = status.reset?.state || 'idle';
+    if (status.ok && status.complete === false && phase === 'idle') {
+      resetRecovery.phase = 'ready';
+      resetRecovery.detail = 'OpenWrt restarted with a fresh setup state. Opening the assistant now.';
+      resetRecovery.failed = false;
+      renderResetRecovery();
+      try { localStorage.removeItem(RESET_STARTED_KEY); } catch (_) {}
+      window.setTimeout(() => window.location.replace('/setup/?v=0.8.0-reset-progress-2'), 1200);
+      return;
+    }
+    resetRecovery.phase = phase === 'failed' ? 'resetting-storage' : phase;
+    resetRecovery.failed = phase === 'failed';
+    if (phase === 'stopping-services')
+      resetRecovery.detail = 'Router services are stopping safely before configuration is erased.';
+    else if (phase === 'clearing-configuration')
+      resetRecovery.detail = 'Credentials and writable router configuration are being removed.';
+    else if (phase === 'resetting-storage')
+      resetRecovery.detail = 'OpenWrt is resetting writable storage. This can take several minutes on a VM or slow flash.';
+    else if (phase === 'rebooting')
+      resetRecovery.detail = 'The reset completed and OpenWrt is restarting.';
+    else if (phase === 'failed')
+      resetRecovery.detail = 'OpenWrt reported that the storage reset command failed. Automatic reboot was stopped.';
+    else
+      resetRecovery.detail = 'The router accepted the reset request and is preparing the reset job.';
+  }
+  catch (_) {
+    resetRecovery.phase = 'offline';
+    resetRecovery.failed = false;
+    resetRecovery.detail = 'The router is temporarily offline while OpenWrt restarts. This is expected; checking automatically.';
+  }
+  renderResetRecovery();
+  if (!resetRecovery.failed)
+    scheduleResetPoll();
+}
+
 function render() {
+  if (resetRecoveryMode) {
+    renderResetRecovery();
+    return;
+  }
   if (!state.ready) {
     app.innerHTML = `
       <section class="setup">
@@ -1102,6 +1244,8 @@ function bindEvents() {
       state.applied = null;
       window.location.reload();
     }
+    if (action === 'check-reset')
+      pollResetRecovery();
   });
 }
 
@@ -1178,6 +1322,11 @@ async function applySetup() {
 async function bootstrap() {
   bindEvents();
   render();
+
+  if (resetRecoveryMode) {
+    pollResetRecovery();
+    return;
+  }
 
   const [bootstrapResponse, statusResponse] = await Promise.all([
     fetch(apiUrl('bootstrap'), { cache: 'no-store' }),

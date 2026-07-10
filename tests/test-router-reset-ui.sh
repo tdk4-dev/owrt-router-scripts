@@ -24,6 +24,13 @@ VPN_UI_RESET_DRY_RUN=1 \
 FIRSTBOOT_STATE_DIR="$TMP_DIR/state" \
 FIRSTBOOT_SETUP_CGI="$TMP_DIR/www/cgi-bin/firstboot-setup" \
 FIRSTBOOT_SETUP_INDEX="$TMP_DIR/www/setup/index.html" \
+  sh "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" reset-status |
+  grep -q '"progress_url":"/setup/?reset=1"'
+
+VPN_UI_RESET_DRY_RUN=1 \
+FIRSTBOOT_STATE_DIR="$TMP_DIR/state" \
+FIRSTBOOT_SETUP_CGI="$TMP_DIR/www/cgi-bin/firstboot-setup" \
+FIRSTBOOT_SETUP_INDEX="$TMP_DIR/www/setup/index.html" \
   sh "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" reset-to-setup RESET |
   grep -q '"dry_run":true'
 
@@ -33,3 +40,13 @@ grep -q 'system/reset' "$ROOT_DIR/luci-vpn-ui/install.sh"
 grep -q 'system/reset' "$ROOT_DIR/install-openwrt-vpn-ui.sh"
 grep -q 'system/reset' "$ROOT_DIR/install-friend-vpn-panel.sh"
 grep -q 'System -> Reset' "$ROOT_DIR/firstboot-wizard/www/app.js"
+grep -q "window.location.replace(result.progress_url" "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js"
+grep -q "resetRecoveryMode" "$ROOT_DIR/firstboot-wizard/www/app.js"
+grep -q "This page is safe to reload" "$ROOT_DIR/firstboot-wizard/www/app.js"
+grep -q "/setup/?v=0.8.0-reset-progress-2" "$ROOT_DIR/firstboot-wizard/www/app.js"
+grep -q "/setup/?v=0.8.0-reset-progress-2" "$ROOT_DIR/image-overlay/www/premier-router-index.html"
+grep -q "ROUTER_RESET_STATE" "$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
+grep -q "reset_rc" "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+grep -q 'ROOT_FS_TYPE.*proc/mounts' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+grep -q 'explicit-ext4' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+grep -q "phase === 'idle'" "$ROOT_DIR/firstboot-wizard/www/app.js"

@@ -128,6 +128,21 @@ the project packages.
 
 Use the Mac Pro as the VirtualBox host for release testing.
 
+### Hard limit: three disposable project VMs
+
+- Keep no more than **three** PremierRouter/OpenWrt disposable validation VMs
+  registered on the Mac Pro at one time.
+- The intended allocation is one router under test, one isolated customer-LAN
+  client, and at most one clean-control or migration VM.
+- Before creating a fourth project VM, inventory the existing VMs, save the
+  name, UUID, disk paths, NIC modes, port forwards, and snapshots, then remove
+  the oldest VM that is clearly a completed disposable test.
+- Never count a service VM as disposable. Nextcloud, Vaultwarden, Headscale,
+  VPN exit nodes, builders, long-lived OpenWrt labs, and any ambiguous VM are
+  protected and must not be stopped, reconfigured, or deleted for this limit.
+- Delete one-off upgrade/migration VMs after their evidence is captured. Do not
+  leave dated validation VMs running merely as informal backups.
+
 Recommended VM layout:
 
 - Keep the long-running 0.8 development VM untouched unless testing that exact
@@ -193,7 +208,10 @@ For every x86 release candidate:
    - Reset panel loads.
 7. Verify reset:
    - confirm reset in System > Reset;
-   - browser is redirected or recoverable to setup;
+   - browser moves to `/setup/?reset=1` before credentials are erased;
+   - reset phases and elapsed time remain visible through a page reload;
+   - temporary HTTP loss is identified as the expected reboot phase;
+   - browser is redirected or recoverable to `/setup/` when setup is ready;
    - previous root password no longer authenticates;
    - setup wizard is available again;
    - no ugly/intermediate unstyled screen is left visible.

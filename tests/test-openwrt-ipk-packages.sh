@@ -117,6 +117,8 @@ grep -q 'data-action="install-adguard"' "$TMP_DIR/premier-router-setup/data/www/
 grep -q 'Persistent storage' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q "path: 'router.hostname'" "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'grid-template-columns: repeat(6' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
+grep -q 'grid-template-columns: minmax(0, 1fr)' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
+grep -q 'background: transparent' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
 grep -q 'adguard-install) install_adguard' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'verify_tailscale_registration' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'name="adguard-enabled"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
@@ -124,7 +126,11 @@ grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstbo
 [ -x "$TMP_DIR/premier-router-setup/data/www/cgi-bin/router-prep" ]
 [ -x "$TMP_DIR/premier-router-setup/data/usr/sbin/router-prep" ]
 [ ! -f "$TMP_DIR/premier-router-setup/data/www/index.html" ]
+[ -f "$TMP_DIR/premier-router-setup/data/www/premier-router-index.html" ]
+grep -q "premier-router-index.html" "$TMP_DIR/premier-router-setup/control/postinst"
 [ -f "$TMP_DIR/premier-router-setup/data/www/setup/app.js" ]
+grep -q 'styles.css?v=0.8.0-reset-progress-2' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
+grep -q 'app.js?v=0.8.0-reset-progress-2' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/index.html" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/app.js" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/styles.css" ]

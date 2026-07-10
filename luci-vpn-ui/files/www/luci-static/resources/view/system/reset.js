@@ -13,6 +13,8 @@ var css = '\
 .router-reset .reset-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }\
 .router-reset .reset-muted { opacity:.7; }\
 .router-reset-progress { min-width:22rem; }\
+.router-reset-progress ol { margin:.8rem 0 .4rem 1.3rem; padding:0; }\
+.router-reset-progress li { margin:.35rem 0; }\
 .router-reset-progress .reset-wait { color:#aaa; margin-top:.7rem; }\
 .router-reset .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
@@ -58,45 +60,8 @@ return view.extend({
 		});
 	},
 
-	waitForSetup: function(startedAt) {
-		var self = this;
-		return window.fetch('/cgi-bin/firstboot-setup?action=status&_=' + Date.now(), {
-			'cache': 'no-store',
-			'credentials': 'same-origin'
-		}).then(function(res) {
-			if (!res.ok)
-				throw new Error('not ready');
-			return res.json();
-		}).then(function(data) {
-			if (data && data.ok && data.complete === false) {
-				window.location.href = '/setup/';
-				return;
-			}
-
-			if (Date.now() - startedAt > 120000) {
-				ui.hideModal();
-				ui.addNotification(null, E('p', {}, _('Reset is taking longer than expected. Wait for the router to finish rebooting, then open the router address again.')));
-				return;
-			}
-
-			window.setTimeout(function() {
-				self.waitForSetup(startedAt);
-			}, 3000);
-		}).catch(function() {
-			if (Date.now() - startedAt > 120000) {
-				ui.hideModal();
-				ui.addNotification(null, E('p', {}, _('The router is rebooting. Open the router address again once it comes back online.')));
-				return;
-			}
-
-			window.setTimeout(function() {
-				self.waitForSetup(startedAt);
-			}, 3000);
-		});
-	},
-
 	resetRouter: function(data) {
-		var typed, self = this;
+		var typed;
 
 		if (!data.supported) {
 			ui.addNotification(null, E('p', {}, _('This reset action is only available on images with the first-boot setup assistant.')));
@@ -114,20 +79,27 @@ return view.extend({
 
 		ui.showModal(_('Resetting router'), [
 			E('div', { 'class': 'router-reset-progress' }, [
-				E('p', { 'class': 'spinning' }, _('Factory reset has been requested.')),
-				E('p', { 'class': 'reset-wait' }, _('Keep this tab open. The page will switch to the setup assistant when the router is ready.'))
+				E('p', { 'class': 'spinning' }, _('Sending the reset request…')),
+				E('ol', {}, [
+					E('li', {}, _('Stop router services safely.')),
+					E('li', {}, _('Erase writable configuration and credentials.')),
+					E('li', {}, _('Restart OpenWrt. The router will be temporarily offline.')),
+					E('li', {}, _('Open the fresh setup assistant.'))
+				]),
+				E('p', { 'class': 'reset-wait' }, _('You will be moved to a public progress page that survives sign-out and reloads.'))
 			]),
 			renderPanelFooter(data.metadata)
 		]);
 
 		return this.callHelper(['reset-to-setup', 'RESET']).then(function(result) {
-			window.setTimeout(function() {
-				self.waitForSetup(Date.now());
-			}, 12000);
+			try {
+				window.localStorage.setItem('premier-router-reset-started-at', String(Date.now()));
+			}
+			catch (e) {}
+			window.location.replace(result.progress_url || '/setup/?reset=1');
 		}).catch(function(err) {
-			window.setTimeout(function() {
-				self.waitForSetup(Date.now());
-			}, 12000);
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, _('Reset was not scheduled: %s').format(err.message || err)));
 		});
 	},
 

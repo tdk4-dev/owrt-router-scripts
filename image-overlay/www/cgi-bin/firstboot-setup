@@ -13,6 +13,7 @@ FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
 ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
 ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
 ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/firstboot-adguard-install.lock}"
+ROUTER_RESET_STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
 VPN_UI_BIN="${VPN_UI_BIN:-/usr/sbin/vpn-ui}"
 JSONFILTER_BIN="${JSONFILTER_BIN:-jsonfilter}"
 UBUS_BIN="${UBUS_BIN:-ubus}"
@@ -42,7 +43,7 @@ fail() {
 }
 
 ok_status() {
-  local first phase
+  local first phase reset_state
   header_json "200 OK"
   if [ -f "$COMPLETE_FILE" ]; then
     printf '{"ok":true,"complete":true,"inProgress":false,"completedPhases":'
@@ -59,7 +60,14 @@ ok_status() {
     first=0
     json_string "$phase"
   done
-  printf ']}\n'
+  reset_state="$(sed -n '1p' "$ROUTER_RESET_STATE" 2>/dev/null || true)"
+  case "$reset_state" in
+    requested|stopping-services|clearing-configuration|resetting-storage|rebooting|failed) ;;
+    *) reset_state="idle" ;;
+  esac
+  printf '],"reset":{"state":'
+  json_string "$reset_state"
+  printf '}}\n'
 }
 
 read_body() {
@@ -880,7 +888,7 @@ finish_redirect() {
   host="${host%%:*}"
 
   [ -f "$COMPLETE_FILE" ] || {
-    printf 'Status: 302 Found\r\nLocation: /setup/\r\nCache-Control: no-store\r\n\r\n'
+    printf 'Status: 302 Found\r\nLocation: /setup/?v=0.8.0-reset-progress-2\r\nCache-Control: no-store\r\n\r\n'
     exit 0
   }
 

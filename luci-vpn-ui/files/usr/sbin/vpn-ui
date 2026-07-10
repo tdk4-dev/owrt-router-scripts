@@ -27,6 +27,7 @@ FIRSTBOOT_SETUP_CGI="${FIRSTBOOT_SETUP_CGI:-/www/cgi-bin/firstboot-setup}"
 FIRSTBOOT_SETUP_INDEX="${FIRSTBOOT_SETUP_INDEX:-/www/setup/index.html}"
 ROUTER_RESET_LOG="${ROUTER_RESET_LOG:-/tmp/router-reset-to-setup.log}"
 ROUTER_RESET_SCRIPT="${ROUTER_RESET_SCRIPT:-/tmp/router-reset-to-setup.sh}"
+ROUTER_RESET_STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
 XRAY_ACCESS_LOG="/tmp/xray-access.log"
 XRAY_ERROR_LOG="/tmp/xray-error.log"
 XRAY_ACCESS_LOG_MAX_BYTES=1048576
@@ -2480,22 +2481,36 @@ router_reset_supported() {
   [ -x "$FIRSTBOOT_SETUP_CGI" ] && [ -f "$FIRSTBOOT_SETUP_INDEX" ]
 }
 
+router_root_fs_type() {
+  awk '$2 == "/" { print $3; exit }' /proc/mounts 2>/dev/null
+}
+
 cmd_router_reset_status() {
-  local supported complete reset_command
+  local supported complete reset_command reset_state root_fs_type
   supported="false"
   complete="false"
   router_reset_supported && supported="true"
   [ -f "$FIRSTBOOT_COMPLETE_FILE" ] && complete="true"
-  if command -v firstboot >/dev/null 2>&1; then
+  root_fs_type="$(router_root_fs_type)"
+  if [ "$root_fs_type" = "ext4" ]; then
+    reset_command="explicit-ext4"
+  elif command -v firstboot >/dev/null 2>&1; then
     reset_command="firstboot"
   elif command -v jffs2reset >/dev/null 2>&1; then
     reset_command="jffs2reset"
   else
     reset_command=""
   fi
+  reset_state="$(sed -n '1p' "$ROUTER_RESET_STATE" 2>/dev/null || true)"
+  case "$reset_state" in
+    requested|stopping-services|clearing-configuration|resetting-storage|rebooting|failed) ;;
+    *) reset_state="idle" ;;
+  esac
   printf '{"ok":true,"supported":%s,"setup_complete":%s,"reset_command":' "$supported" "$complete"
   json_string "$reset_command"
-  printf ',"setup_url":"/setup/"}\n'
+  printf ',"reset_state":'
+  json_string "$reset_state"
+  printf ',"setup_url":"/setup/","progress_url":"/setup/?reset=1"}\n'
 }
 
 cmd_router_reset_to_setup() {
@@ -2513,21 +2528,32 @@ cmd_router_reset_to_setup() {
   command -v firstboot >/dev/null 2>&1 || command -v jffs2reset >/dev/null 2>&1 ||
     die_json "OpenWrt reset command is unavailable"
 
+  printf '%s\n' requested > "$ROUTER_RESET_STATE"
+
   cat > "$ROUTER_RESET_SCRIPT" <<'EOF'
 #!/bin/ash
 set +e
 LOG="${ROUTER_RESET_LOG:-/tmp/router-reset-to-setup.log}"
+STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
+ROOT_FS_TYPE="$(awk '$2 == "/" { print $3; exit }' /proc/mounts 2>/dev/null)"
+write_state() {
+  printf '%s\n' "$1" > "$STATE.tmp"
+  mv "$STATE.tmp" "$STATE"
+  sync
+}
 {
   printf 'Reset requested at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+  write_state stopping-services
   /etc/init.d/xray-transparent stop >/dev/null 2>&1
   /etc/init.d/xray stop >/dev/null 2>&1
   /etc/init.d/tailscale stop >/dev/null 2>&1
   /etc/init.d/adguardhome stop >/dev/null 2>&1
 
-	  rm -f /etc/firstboot-wizard/complete \
-	        /etc/firstboot-wizard/in-progress
-	  rm -rf /etc/firstboot-wizard/phases
+  write_state clearing-configuration
+  rm -f /etc/firstboot-wizard/complete \
+        /etc/firstboot-wizard/in-progress
+  rm -rf /etc/firstboot-wizard/phases
   mkdir -p /etc/firstboot-wizard
 
   rm -rf /etc/xray/vless-profiles.d /etc/xray/subscriptions.d
@@ -2563,19 +2589,32 @@ LOG="${ROUTER_RESET_LOG:-/tmp/router-reset-to-setup.log}"
   /etc/init.d/tailscale disable >/dev/null 2>&1
 
   sync
-  if command -v firstboot >/dev/null 2>&1; then
+  write_state resetting-storage
+  reset_rc=0
+  if [ "$ROOT_FS_TYPE" = "ext4" ]; then
+    printf 'Direct ext4 root detected; explicit Premier Router state cleanup is complete.\n'
+  elif command -v firstboot >/dev/null 2>&1; then
     firstboot -y
+    reset_rc=$?
   elif command -v jffs2reset >/dev/null 2>&1; then
     jffs2reset -y
+    reset_rc=$?
+  fi
+  if [ "$reset_rc" -ne 0 ]; then
+    printf 'OpenWrt reset command failed with exit code %s\n' "$reset_rc"
+    write_state failed
+    exit "$reset_rc"
   fi
   sync
+  write_state rebooting
   reboot -f
 } >> "$LOG" 2>&1
 EOF
   chmod 700 "$ROUTER_RESET_SCRIPT"
-  ROUTER_RESET_LOG="$ROUTER_RESET_LOG" /bin/ash -c "trap '' HUP; sleep 2; exec '$ROUTER_RESET_SCRIPT'" >/dev/null 2>&1 &
+  ROUTER_RESET_LOG="$ROUTER_RESET_LOG" ROUTER_RESET_STATE="$ROUTER_RESET_STATE" \
+    /bin/ash -c "trap '' HUP; sleep 5; exec '$ROUTER_RESET_SCRIPT'" >/dev/null 2>&1 &
 
-  printf '{"ok":true,"scheduled":true,"message":"Router reset scheduled. The router will reboot into setup."}\n'
+  printf '{"ok":true,"scheduled":true,"progress_url":"/setup/?reset=1","message":"Router reset scheduled. Follow the public progress page until setup is ready."}\n'
 }
 
 [ "${VPN_UI_LIB_ONLY:-0}" = "1" ] && {
