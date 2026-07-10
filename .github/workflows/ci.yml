@@ -37,7 +37,10 @@ jobs:
         run: |
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/adguard.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
           node --check firstboot-wizard/server.mjs
           node --check firstboot-wizard/www/app.js

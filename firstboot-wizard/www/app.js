@@ -682,7 +682,7 @@ function renderVpn() {
         <input type="radio" name="vpn-enabled" value="1" ${vpn.enabled ? 'checked' : ''}>
         <span>
           <span class="choice-title">Enable VPN on first boot</span>
-          <span class="choice-detail">Xray and transparent routing start after the VLESS config passes validation.</span>
+          <span class="choice-detail">The router starts Xray, then verifies real internet access through the selected profile. An expired or unreachable link will not be accepted as connected.</span>
         </span>
       </label>
       <label class="choice-row">
@@ -739,10 +739,10 @@ function renderAdguardStorage() {
       : `After installation, approximately ${Math.max(0, 100 - projected).toFixed(1)}% of persistent storage should remain free.`);
 
   return `
-    <section class="storage-card" aria-label="Persistent storage estimate">
+    <section class="storage-card" aria-label="Writable flash and disk storage estimate">
       <div class="storage-heading">
         <div>
-          <strong>Persistent storage</strong>
+          <strong>Writable flash / disk storage</strong>
           <div>${formatBytes(storage.freeBytes)} available of ${formatBytes(storage.totalBytes)}</div>
         </div>
         <span class="badge ${risk === 'safe' ? 'good' : 'warn'}">${projected.toFixed(1)}% projected</span>
@@ -756,6 +756,7 @@ function renderAdguardStorage() {
         <span><i class="legend-adguard"></i>AdGuardHome ≈ ${formatBytes(storage.estimatedInstallBytes)}</span>
         <span><i class="legend-free"></i>Currently free ${formatBytes(storage.freeBytes)}</span>
       </div>
+      <div class="hint">This is package storage on the writable root filesystem. LuCI's Memory total is router RAM, which is a separate resource.</div>
       <div class="notice ${risk === 'blocked' ? 'danger' : (risk === 'warning' ? 'warn' : '')}">${escapeHtml(message)}</div>
     </section>
   `;
@@ -819,8 +820,8 @@ function renderTailscale() {
       <label class="choice-row">
         <input type="radio" name="tailscale-enabled" value="0" ${!tailscale.enabled ? 'checked' : ''}>
         <span>
-          <span class="choice-title">Skip Tailscale setup</span>
-          <span class="choice-detail">The daemon can still be installed and configured manually from SSH later.</span>
+          <span class="choice-title">Leave Tailscale disconnected</span>
+          <span class="choice-detail">Tailscale is already installed. Connect it later from Network → Tailscale in LuCI.</span>
         </span>
       </label>
       <label class="choice-row">
@@ -901,8 +902,8 @@ function renderApplied() {
   const apply = state.applied;
   const finishUrl = target => `${apiUrl('finish')}&target=${encodeURIComponent(target)}`;
   const luciUrl = finishUrl('luci');
-  const vpnUrl = finishUrl('vpn');
   const adguardUrl = finishUrl('adguard');
+  const adguardEnabled = !!apply.preview?.adguard?.enabled && !!apply.preview?.adguard?.available;
   return `
     <div class="apply-log">
       ${apply.phases.map(phase => `
@@ -915,14 +916,12 @@ function renderApplied() {
     <div class="review">
       ${reviewRow('Apply ID', apply.id)}
       ${reviewRow('Applied at', apply.appliedAt)}
-      ${reviewRow('VPN panel', vpnUrl)}
-      ${reviewRow('AdGuard', state.adguardAvailable ? adguardUrl : 'Skipped — not installed')}
+      ${reviewRow('AdGuard', adguardEnabled ? 'Installed and configured' : 'Skipped')}
       ${reviewRow('Router reset', 'Available later in System -> Reset.')}
     </div>
     <div class="link-row">
-      <a href="${attr(luciUrl)}" target="_blank" rel="noreferrer">LuCI</a>
-      <a href="${attr(vpnUrl)}" target="_blank" rel="noreferrer">VPN panel</a>
-      ${state.adguardAvailable ? `<a href="${attr(adguardUrl)}" target="_blank" rel="noreferrer">AdGuardHome</a>` : ''}
+      <a href="${attr(luciUrl)}">Open LuCI panel</a>
+      ${adguardEnabled ? `<a href="${attr(adguardUrl)}">Open AdGuardHome</a>` : ''}
     </div>
   `;
 }
@@ -1057,7 +1056,7 @@ async function pollResetRecovery() {
       resetRecovery.failed = false;
       renderResetRecovery();
       try { localStorage.removeItem(RESET_STARTED_KEY); } catch (_) {}
-      window.setTimeout(() => window.location.replace('/setup/?v=0.8.0-reset-progress-2'), 1200);
+      window.setTimeout(() => window.location.replace('/setup/?v=0.8.0-ux-health-3'), 1200);
       return;
     }
     resetRecovery.phase = phase === 'failed' ? 'resetting-storage' : phase;
@@ -1166,7 +1165,7 @@ function render() {
           ${renderErrors()}
           ${renderPanel()}
         </div>
-        <footer class="footer">
+        ${state.applied ? '' : `<footer class="footer">
           <button class="text-button" data-action="reset-preview">Start over</button>
           <div class="footer-actions">
             <button class="secondary" data-action="back" ${state.step === 0 ? 'disabled' : ''}>Back</button>
@@ -1176,7 +1175,7 @@ function render() {
                 : '<button class="primary" data-action="next">Continue</button>'
             }
           </div>
-        </footer>
+        </footer>`}
       </section>
     </section>
   `;

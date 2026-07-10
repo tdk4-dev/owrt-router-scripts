@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var css = '\
@@ -18,7 +19,6 @@ var css = '\
 .router-update .update-setting { display:flex; align-items:flex-start; gap:.65rem; padding:.9rem 0; }\
 .router-update .update-setting input { margin-top:.25rem; }\
 .router-update .update-job { border-left:3px solid #09c; padding:.65rem .9rem; margin:1rem 0; background:rgba(0,153,204,.08); }\
-.router-update .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -35,16 +35,6 @@ function parseResponse(res) {
 		throw new Error(data.error || _('The update helper rejected the request.'));
 
 	return data;
-}
-
-function renderPanelFooter(metadata) {
-	metadata = metadata || {};
-	if (metadata.footer_enabled === false)
-		return '';
-	return E('div', { 'class': 'router-panel-footer' }, [
-		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
-		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
-	]);
 }
 
 return view.extend({
@@ -69,6 +59,7 @@ return view.extend({
 		var root = document.querySelector('#router-update-root');
 		if (root)
 			dom.content(root, this.renderBody(data));
+		routerFooter.apply(data.metadata);
 	},
 
 	pollJob: function(kind, failures) {
@@ -242,14 +233,14 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('What’s new in %s').format(data.latest || _('the latest release'))),
 				E('pre', { 'class': 'update-notes' }, data.changelog || _('Check for updates to download the latest changelog.'))
-			]),
-			renderPanelFooter(data.metadata)
+			])
 		];
 	},
 
 	render: function(data) {
 		this.metadata = data.metadata || {};
 		this.data = data;
+		routerFooter.apply(data.metadata);
 		if (!data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
 			window.setTimeout(L.bind(function() { this.refresh(); }, this), 250);
 		return E('div', { 'class': 'cbi-map router-update' }, [

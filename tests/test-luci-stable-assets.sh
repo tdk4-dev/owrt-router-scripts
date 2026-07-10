@@ -10,6 +10,8 @@ PLAIN_INCLUDE="$VIEW_DIR/status/include/35_vpn.js"
 
 test -f "$VIEW_DIR/network/vpn.js"
 test -f "$VIEW_DIR/network/tailscale.js"
+test -f "$VIEW_DIR/network/adguard.js"
+test -f "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js"
 test -f "$VIEW_DIR/system/update.js"
 test -f "$PLAIN_INCLUDE"
 test "$(find "$VIEW_DIR/status/include" -maxdepth 1 -type f -name '*vpn*.js' | wc -l | tr -d ' ')" = 1
@@ -22,6 +24,7 @@ fi
 
 grep -q '"path":[[:space:]]*"network/vpn"' "$MENU"
 grep -q '"path":[[:space:]]*"network/tailscale"' "$MENU"
+grep -q '"path":[[:space:]]*"network/adguard"' "$MENU"
 grep -q '"path":[[:space:]]*"system/update"' "$MENU"
 ! grep -Eq '"path":[[:space:]]*"[^"]*[0-9]+-[0-9]+' "$MENU"
 
@@ -33,6 +36,8 @@ grep -q 'resources/view/status/include/35_vpn.js' "$WORKFLOW"
 
 grep -q 'network/vpn.js' "$INSTALLER"
 grep -q 'network/tailscale.js' "$INSTALLER"
+grep -q 'network/adguard.js' "$INSTALLER"
+grep -q 'tools/router_footer.js' "$INSTALLER"
 grep -q 'system/update.js' "$INSTALLER"
 grep -q 'status/include/35_vpn.js' "$INSTALLER"
 ! grep -q 'copy_file.*status/include/_35_vpn.js' "$INSTALLER"

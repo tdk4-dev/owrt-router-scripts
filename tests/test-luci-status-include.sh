@@ -11,6 +11,14 @@ grep -q "\['footer-info'\]" "$PLAIN_INCLUDE"
 grep -q 'metadata.footer_label' "$PLAIN_INCLUDE"
 grep -q 'metadata.support_level' "$PLAIN_INCLUDE"
 grep -q 'metadata.registration_state' "$PLAIN_INCLUDE"
+grep -q "require tools.router_footer as routerFooter" "$PLAIN_INCLUDE"
+grep -q 'routerFooter.apply(metadata)' "$PLAIN_INCLUDE"
+
+FOOTER_HELPER="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js"
+test -f "$FOOTER_HELPER"
+grep -q "document.querySelector('footer')" "$FOOTER_HELPER"
+grep -q "footer.insertBefore(row, footer.firstChild)" "$FOOTER_HELPER"
+grep -q "Registration: %s" "$FOOTER_HELPER"
 
 for panel in \
   "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js" \
@@ -18,11 +26,13 @@ for panel in \
   "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/update.js" \
   "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js"
 do
-  grep -q 'Router Scripts v%s' "$panel"
-  grep -q 'Support: %s · Registration: %s' "$panel"
+  grep -q 'require tools.router_footer as routerFooter' "$panel"
+  grep -q 'routerFooter.apply' "$panel"
+  ! grep -q 'router-panel-footer' "$panel"
 done
 
 grep -q 'copy_file.*status/include/35_vpn.js' "$ROOT_DIR/luci-vpn-ui/install.sh"
+grep -q 'copy_file.*tools/router_footer.js' "$ROOT_DIR/luci-vpn-ui/install.sh"
 ! grep -q 'copy_file.*status/include/_35_vpn' "$ROOT_DIR/luci-vpn-ui/install.sh"
 grep -q 'duplicate LuCI VPN status includes' "$ROOT_DIR/luci-vpn-ui/install.sh"
 grep -q 'test ! -e /www/luci-static/resources/view/status/include/_35_vpn.js' "$ROOT_DIR/install-friend-vpn-panel.sh"

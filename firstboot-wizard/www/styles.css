@@ -393,11 +393,13 @@ h1 {
 }
 
 .choice-title {
+  display: block;
   font-weight: 700;
   color: var(--text-strong);
 }
 
 .choice-detail {
+  display: block;
   color: var(--muted);
   margin-top: 3px;
   line-height: 1.4;

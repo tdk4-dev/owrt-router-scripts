@@ -42,5 +42,6 @@ if grep -Eq 'opkg[[:space:]]+upgrade' "$SETUP"; then
 fi
 grep -q 'verify_tailscale_registration' "$SETUP"
 grep -q "json_get '@.router.hostname'" "$SETUP"
+grep -q '/proc/sys/kernel/hostname' "$SETUP"
 
 printf '%s\n' 'First-boot hostname, AdGuard storage, and Tailscale policy checks passed'

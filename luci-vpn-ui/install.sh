@@ -28,6 +28,8 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/sbin/vpn-ui-update
 /www/luci-static/resources/view/network/vpn.js
 /www/luci-static/resources/view/network/tailscale.js
+/www/luci-static/resources/view/network/adguard.js
+/www/luci-static/resources/tools/router_footer.js
 /www/luci-static/resources/view/system/update.js
 /www/luci-static/resources/view/system/reset.js
 /www/luci-static/resources/view/status/include/35_vpn.js
@@ -132,9 +134,11 @@ fetch_branch_files() {
     usr/sbin/vpn-ui-update \
     www/luci-static/resources/view/network/vpn.js \
     www/luci-static/resources/view/network/tailscale.js \
+    www/luci-static/resources/view/network/adguard.js \
     www/luci-static/resources/view/system/reset.js \
     www/luci-static/resources/view/system/update.js \
     www/luci-static/resources/view/status/include/35_vpn.js \
+    www/luci-static/resources/tools/router_footer.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
     usr/share/vpn-ui/version \
@@ -150,9 +154,11 @@ ensure_source_files() {
     [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/adguard.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/reset.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/tools/router_footer.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/vpn-ui/version" ] &&
@@ -315,9 +321,11 @@ copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/adguard.js" /www/luci-static/resources/view/network/adguard.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/tools/router_footer.js" /www/luci-static/resources/tools/router_footer.js 644
 # Transitional aliases let pre-0.7.9 updaters validate the install after
 # stable LuCI filenames are introduced.
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
@@ -343,6 +351,7 @@ copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/a
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
 [ -f /etc/config/premier_router ] ||
   copy_file "$SRC_DIR/etc/config/premier_router" /etc/config/premier_router 600
+rm -rf /tmp/vpn-ui-pings
 /usr/sbin/vpn-ui metadata-set legacy-migrated self-managed local-only 0 0 >/tmp/vpn-ui-metadata-init.log 2>&1 ||
   die "could not initialize router installation metadata"
 [ ! -x /usr/sbin/router-prep ] || [ ! -f /etc/router-prep/customer-policy.conf ] ||
@@ -373,12 +382,16 @@ grep -q '"path":[[:space:]]*"network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-u
     die "LuCI VPN menu validation failed"
 [ -f /www/luci-static/resources/view/network/tailscale.js ] ||
   die "LuCI Tailscale view validation failed"
+[ -f /www/luci-static/resources/view/network/adguard.js ] ||
+  die "LuCI AdGuardHome view validation failed"
 [ -f /www/luci-static/resources/view/system/update.js ] ||
   die "LuCI Update view validation failed"
 [ -f /www/luci-static/resources/view/system/reset.js ] ||
   die "LuCI Reset view validation failed"
 [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
   die "LuCI VPN status include validation failed"
+[ -f /www/luci-static/resources/tools/router_footer.js ] ||
+  die "LuCI Router Scripts footer helper validation failed"
 if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f \
   \( -name '_35_vpn*.js' -o -name '35_vpn-*.js' \) | grep -q .; then
   die "duplicate LuCI VPN status includes remain installed"

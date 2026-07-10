@@ -2,6 +2,7 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RESET_VIEW="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -43,8 +44,10 @@ grep -q 'System -> Reset' "$ROOT_DIR/firstboot-wizard/www/app.js"
 grep -q "window.location.replace(result.progress_url" "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js"
 grep -q "resetRecoveryMode" "$ROOT_DIR/firstboot-wizard/www/app.js"
 grep -q "This page is safe to reload" "$ROOT_DIR/firstboot-wizard/www/app.js"
-grep -q "/setup/?v=0.8.0-reset-progress-2" "$ROOT_DIR/firstboot-wizard/www/app.js"
-grep -q "/setup/?v=0.8.0-reset-progress-2" "$ROOT_DIR/image-overlay/www/premier-router-index.html"
+grep -q "/setup/?v=0.8.0-ux-health-3" "$ROOT_DIR/firstboot-wizard/www/app.js"
+grep -q "/setup/?v=0.8.0-ux-health-3" "$ROOT_DIR/image-overlay/www/premier-router-index.html"
+grep -q 'handoffTimer = window.setTimeout' "$RESET_VIEW"
+grep -q 'window.location.replace(progressUrl)' "$RESET_VIEW"
 grep -q "ROUTER_RESET_STATE" "$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
 grep -q "reset_rc" "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 grep -q 'ROOT_FS_TYPE.*proc/mounts' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"

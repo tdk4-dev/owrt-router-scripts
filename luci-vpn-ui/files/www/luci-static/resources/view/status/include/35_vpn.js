@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require fs';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 
@@ -29,6 +30,7 @@ return baseclass.extend({
 	render: function(data) {
 		var vpn = data.vpn || {};
 		var metadata = data.metadata || {};
+		routerFooter.apply(metadata);
 		var state = vpn.working
 			? E('span', { 'class': 'label notice' }, _('Working'))
 			: E('span', { 'class': 'label warning' }, _('Not working'));

@@ -86,6 +86,9 @@ set -eu
 chmod 755 /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update 2>/dev/null || true
 
 if [ -x /usr/sbin/vpn-ui ]; then
+  # Probe semantics may change between versions; never reuse a transient
+  # success result produced by an older health-check implementation.
+  rm -rf /tmp/vpn-ui-pings
   /usr/sbin/vpn-ui metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
   /usr/sbin/vpn-ui init >/tmp/premier-router-core-init.log 2>&1 || true
 fi
@@ -277,9 +280,8 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vp
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js" "$LUCI_ROOT/www/luci-static/resources/view/network/tailscale-0-7-5.js" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/update.js" "$LUCI_ROOT/www/luci-static/resources/view/system/update-0-7-3.js" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js" "$LUCI_ROOT/www/luci-static/resources/view/system/reset-0-8-0.js" 644
-# LuCI theme footer templates are deliberately not package-owned. Router
-# metadata is shown through package-owned Status Overview and Router UI assets
-# until a supported footer hook is runtime-validated.
+# LuCI theme footer templates remain theme-owned. A package-owned shared JS
+# helper decorates the existing footer at runtime without replacing footer.ut.
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" 644
 write_control \

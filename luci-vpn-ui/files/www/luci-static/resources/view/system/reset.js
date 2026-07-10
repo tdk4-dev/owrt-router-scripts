@@ -2,6 +2,7 @@
 'require view';
 'require fs';
 'require ui';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var css = '\
@@ -16,7 +17,6 @@ var css = '\
 .router-reset-progress ol { margin:.8rem 0 .4rem 1.3rem; padding:0; }\
 .router-reset-progress li { margin:.35rem 0; }\
 .router-reset-progress .reset-wait { color:#aaa; margin-top:.7rem; }\
-.router-reset .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -33,16 +33,6 @@ function parseResponse(res) {
 		throw new Error(data.error || _('The reset helper rejected the request.'));
 
 	return data;
-}
-
-function renderPanelFooter(metadata) {
-	metadata = metadata || {};
-	if (metadata.footer_enabled === false)
-		return '';
-	return E('div', { 'class': 'router-panel-footer' }, [
-		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
-		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
-	]);
 }
 
 return view.extend({
@@ -87,24 +77,35 @@ return view.extend({
 					E('li', {}, _('Open the fresh setup assistant.'))
 				]),
 				E('p', { 'class': 'reset-wait' }, _('You will be moved to a public progress page that survives sign-out and reloads.'))
-			]),
-			renderPanelFooter(data.metadata)
+			])
 		]);
 
+		var progressUrl = '/setup/?reset=1';
+		var handoffTimer;
+		try {
+			window.localStorage.setItem('premier-router-reset-started-at', String(Date.now()));
+		}
+		catch (e) {}
+
+		/* The router may reboot before LuCI can finish the RPC response. Move to
+		 * the public progress page independently so the UI never remains stuck
+		 * behind an authenticated modal after credentials are erased. */
+		handoffTimer = window.setTimeout(function() {
+			window.location.replace(progressUrl);
+		}, 1200);
+
 		return this.callHelper(['reset-to-setup', 'RESET']).then(function(result) {
-			try {
-				window.localStorage.setItem('premier-router-reset-started-at', String(Date.now()));
-			}
-			catch (e) {}
-			window.location.replace(result.progress_url || '/setup/?reset=1');
-		}).catch(function(err) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', {}, _('Reset was not scheduled: %s').format(err.message || err)));
+			window.clearTimeout(handoffTimer);
+			window.location.replace(result.progress_url || progressUrl);
+		}).catch(function() {
+			window.clearTimeout(handoffTimer);
+			window.location.replace(progressUrl);
 		});
 	},
 
 	render: function(data) {
 		var supported = data && data.supported;
+		routerFooter.apply(data && data.metadata);
 		return E('div', { 'class': 'cbi-map router-reset' }, [
 			E('style', {}, css),
 			E('div', { 'class': 'reset-hero' }, [

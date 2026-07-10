@@ -13,6 +13,11 @@ grep -q '"encryption": "none"\$flow_json' "$HELPER"
 ! grep -q 'P_FLOW="xtls-rprx-vision"' "$HELPER"
 grep -q '"port": "8080"' "$HELPER"
 grep -q 'active_proxy_probe_ms' "$HELPER"
+grep -q "https://api.ipify.org" "$HELPER"
+grep -q "is_ipv4 \"\$value\"" "$HELPER"
+grep -q "connection_state_from_ping" "$HELPER"
+grep -q '"connection_state"' "$HELPER"
+grep -q 'configuration syntax validates; connectivity was not tested' "$HELPER"
 grep -q 'tcp %s\\n' "$HELPER"
 grep -q 'direct_domain_rule=""' "$HELPER"
 grep -q '\[ -n "$direct_domain_json" \]' "$HELPER"
@@ -31,11 +36,19 @@ count="$(grep -c 'ui.addNotification' "$VIEW")"
 }
 grep -q 'clearNotifications' "$VIEW"
 grep -q "ping.indexOf('tcp ') == 0" "$VIEW"
+grep -q 'Connection failed' "$VIEW"
 
 grep -q 'vless://\*) import_vless_profile' "$SETUP_CGI"
 grep -q 'https://\*) import_subscription_profile' "$SETUP_CGI"
 grep -q 'VPN_UI_BIN" subscription-add' "$SETUP_CGI"
+grep -q 'could not reach the internet' "$SETUP_CGI"
+grep -q 'verify internet connectivity' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
+
+VPN_UI_LIB_ONLY=1 . "$HELPER"
+[ "$(connection_state_from_ping '42 ms')" = connected ]
+[ "$(connection_state_from_ping timeout)" = failed ]
+[ "$(connection_state_from_ping 'tcp 42 ms')" = not-tested ]
 
 printf 'VPN 0.7.9 hotfix static checks passed\n'

@@ -53,6 +53,7 @@ for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
     grep -qx '/etc/config/premier_router' "$TMP_DIR/$pkg/control/conffiles"
     grep -qx '/etc/vpn-ui-update.conf' "$TMP_DIR/$pkg/control/conffiles"
     grep -q 'vpn-ui metadata-init' "$TMP_DIR/$pkg/control/postinst"
+    grep -q 'rm -rf /tmp/vpn-ui-pings' "$TMP_DIR/$pkg/control/postinst"
   fi
 done
 
@@ -80,6 +81,8 @@ fi
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn-0-7-0.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/tailscale-0-7-5.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js" ]
+[ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/tools/router_footer.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/reset-0-8-0.js" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/system/update-0-7-3.js" ]
@@ -94,14 +97,18 @@ grep -q '/status/include/_35_vpn.js' "$TMP_DIR/luci-app-premier-router/control/p
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ]
 grep -q "\['footer-info'\]" "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/35_vpn.js"
 grep -q 'router_metadata' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js"
+grep -q 'adguard-status' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js"
+grep -q 'Open AdGuardHome web panel' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js"
+grep -q "'http://' + window.location.hostname + ':3000/'" "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js"
+grep -q 'admin/network/adguardhome' "$TMP_DIR/luci-app-premier-router/data/usr/share/luci/menu.d/luci-app-vpn-ui.json"
 for view in \
   network/vpn.js \
   network/tailscale.js \
   system/update.js \
   system/reset.js
 do
-  grep -q 'Router Scripts v%s' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
-  grep -q 'Support: %s · Registration: %s' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
+  grep -q 'require tools.router_footer as routerFooter' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
+  ! grep -q 'router-panel-footer' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/$view"
 done
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/luci/menu.d/luci-app-vpn-ui.json" ]
 [ -f "$TMP_DIR/luci-app-premier-router/data/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ]
@@ -114,7 +121,8 @@ grep -q '^ROUTER_HOSTNAME="${ROUTER_HOSTNAME:-openwrt-fin0}"' "$TMP_DIR/premier-
 ! grep -q '^HOSTNAME=' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'AdGuardHome is not installed' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'data-action="install-adguard"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
-grep -q 'Persistent storage' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q 'Writable flash / disk storage' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
+grep -q "LuCI's Memory total is router RAM" "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q "path: 'router.hostname'" "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'grid-template-columns: repeat(6' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
 grep -q 'grid-template-columns: minmax(0, 1fr)' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
@@ -129,8 +137,8 @@ grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstbo
 [ -f "$TMP_DIR/premier-router-setup/data/www/premier-router-index.html" ]
 grep -q "premier-router-index.html" "$TMP_DIR/premier-router-setup/control/postinst"
 [ -f "$TMP_DIR/premier-router-setup/data/www/setup/app.js" ]
-grep -q 'styles.css?v=0.8.0-reset-progress-2' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
-grep -q 'app.js?v=0.8.0-reset-progress-2' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
+grep -q 'styles.css?v=0.8.0-ux-health-3' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
+grep -q 'app.js?v=0.8.0-ux-health-3' "$TMP_DIR/premier-router-setup/data/www/setup/index.html"
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/index.html" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/app.js" ]
 [ -f "$TMP_DIR/premier-router-setup/data/www/prepare/styles.css" ]

@@ -1493,20 +1493,31 @@ tcp_probe_ms() {
 }
 
 active_proxy_probe_ms() {
-  local value
+  local attempt body metrics rc value
 
   detect_xray_paths
-  value="$(curl -k -4 -sS -o /dev/null \
-    --connect-timeout 4 --max-time 10 \
-    -x "socks5h://$LAN_IP:11808" \
-    -w '%{time_connect}' https://api.ipify.org 2>/dev/null || true)"
-  awk -v value="$value" 'BEGIN {
-    if (value + 0 <= 0) {
-      print "timeout"
-      exit
-    }
-    printf "%d ms\n", (value * 1000) + 0.5
-  }'
+  body="/tmp/vpn-ui-proxy-probe.$$"
+  for attempt in 1 2 3; do
+    rc=0
+    metrics="$(curl -k -4 -f -sS -o "$body" \
+      --connect-timeout 4 --max-time 8 \
+      -x "socks5h://$LAN_IP:11808" \
+      -w '%{time_total}' https://api.ipify.org 2>/dev/null)" || rc=$?
+    value="$(one_line "$(cat "$body" 2>/dev/null || true)")"
+    if [ "$rc" -eq 0 ] && is_ipv4 "$value"; then
+      rm -f "$body"
+      awk -v value="$metrics" 'BEGIN {
+        ms = int((value * 1000) + 0.5)
+        if (ms < 1) ms = 1
+        printf "%d ms\n", ms
+      }'
+      return
+    fi
+    : > "$body"
+    [ "$attempt" -eq 3 ] || sleep 1
+  done
+  rm -f "$body"
+  printf 'timeout\n'
 }
 
 profile_ping_cached() {
@@ -1535,6 +1546,14 @@ refresh_profile_ping() {
 
 ping_numeric() {
   printf '%s' "$1" | sed -n 's/^\([0-9][0-9]*\) ms$/\1/p'
+}
+
+connection_state_from_ping() {
+  case "$1" in
+    [0-9]*' ms') printf 'connected' ;;
+    timeout) printf 'failed' ;;
+    *) printf 'not-tested' ;;
+  esac
 }
 
 pool_has_id() {
@@ -1961,10 +1980,12 @@ dhcp_devices_json() {
 }
 
 status_json() {
-  local selected first f id active ping protocol in_pool
+  local selected selected_ping connection_state first f id active ping protocol in_pool
 
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+  selected_ping="$(profile_ping_cached "$selected")"
+  connection_state="$(connection_state_from_ping "$selected_ping")"
 
   printf '{"ok":true,'
   printf '"selected":'
@@ -2018,13 +2039,15 @@ status_json() {
   printf ',"router_metadata":{'
   router_metadata_json_members
   printf '}'
+  printf ',"connection_state":'
+  json_string "$connection_state"
   printf ','
   service_state
   printf '}\n'
 }
 
 vpn_summary_json() {
-  local selected file domain_count ping xray_state transparent_state vpn_enabled
+  local selected file domain_count ping connection_state xray_state transparent_state service_ready working
 
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
@@ -2042,16 +2065,21 @@ vpn_summary_json() {
     END { print count + 0 }
   ' "$DOMAINS_FILE" 2>/dev/null)"
   ping="$(profile_ping_cached "$selected")"
+  connection_state="$(connection_state_from_ping "$ping")"
   xray_state="stopped"
   transparent_state="inactive"
-  vpn_enabled="false"
+  service_ready="false"
+  working="false"
   if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
     xray_state="running"
   fi
   nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
-  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
+  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && service_ready="true"
+  [ "$service_ready" = "true" ] && [ "$connection_state" = "connected" ] && working="true"
 
-  printf '{"ok":true,"working":%s,"xray":' "$vpn_enabled"
+  printf '{"ok":true,"working":%s,"service_ready":%s,"connection_state":' "$working" "$service_ready"
+  json_string "$connection_state"
+  printf ',"xray":'
   json_string "$xray_state"
   printf ',"transparent":'
   json_string "$transparent_state"
@@ -2079,6 +2107,8 @@ cmd_add() {
 cmd_select() {
   local id="$1"
   render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+  load_profile_id "$id"
+  refresh_profile_ping "$id" "$P_HOST" "$P_PORT"
   status_json
 }
 
@@ -2126,7 +2156,18 @@ cmd_check() {
     die_json "Xray validation failed: $(one_line "$test_out")"
   fi
   rm -f "$tmpcfg"
-  printf '{"ok":true,"message":"configuration validates"}\n'
+  printf '{"ok":true,"message":"configuration syntax validates; connectivity was not tested"}\n'
+}
+
+cmd_adguard_status() {
+  local installed running
+  installed="false"
+  running="false"
+  if [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1; then
+    installed="true"
+    /etc/init.d/adguardhome running >/dev/null 2>&1 && running="true"
+  fi
+  printf '{"ok":true,"installed":%s,"running":%s,"port":3000}\n' "$installed" "$running"
 }
 
 cmd_device() {
@@ -2297,7 +2338,10 @@ best_pool_profile() {
     [ -f "$f" ] || continue
     load_profile_file "$f"
     probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
-    printf '%s\n' "$probe" > "$PING_DIR/$id"
+    case "$probe" in
+      timeout) printf '%s\n' "$probe" > "$PING_DIR/$id" ;;
+      *) printf 'tcp %s\n' "$probe" > "$PING_DIR/$id" ;;
+    esac
     numeric="$(ping_numeric "$probe")"
     [ -n "$numeric" ] || continue
     if [ -z "$best_ms" ] || [ "$numeric" -lt "$best_ms" ]; then
@@ -2329,7 +2373,7 @@ cmd_auto_tick() {
   now="$(date +%s)"
 
   load_profile_file "$selected_file"
-  probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
+  probe="$(active_proxy_probe_ms)"
   printf '%s\n' "$probe" > "$PING_DIR/$selected"
   current_ms="$(ping_numeric "$probe")"
 
@@ -2343,7 +2387,9 @@ EOF
         if [ -n "$best_id" ]; then
           render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
           selected="$best_id"
-          current_ms="$best_ms"
+          load_profile_id "$best_id"
+          refresh_profile_ping "$best_id" "$P_HOST" "$P_PORT"
+          current_ms="$(ping_numeric "$(profile_ping_cached "$best_id")")"
         fi
         fail_count=0
       fi
@@ -2361,6 +2407,8 @@ EOF
       threshold=$((current_ms * 65 / 100))
       if [ "$best_ms" -le "$threshold" ] && [ $((current_ms - best_ms)) -ge 30 ]; then
         render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+        load_profile_id "$best_id"
+        refresh_profile_ping "$best_id" "$P_HOST" "$P_PORT"
       fi
     fi
     last_optimize="$now"
@@ -2653,6 +2701,9 @@ case "${1:-status}" in
     ;;
   refresh-pings)
     cmd_refresh_pings
+    ;;
+  adguard-status)
+    cmd_adguard_status
     ;;
   add)
     [ -n "${2:-}" ] || die_json "add requires a VLESS link"

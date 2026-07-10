@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var isReadonlyView = !L.hasViewPermission() || null;
@@ -23,7 +24,6 @@ var css = '\
 .tailscale-ui .ts-peer-online { box-shadow:inset 3px 0 0 #2fb35d; }\
 .tailscale-ui .ts-peer-name { font-weight:700; }\
 .tailscale-ui .ts-peer-sub { display:block; opacity:.68; font-size:.9em; margin-top:.15rem; }\
-.tailscale-ui .router-panel-footer { display:flex; justify-content:space-between; gap:.5rem 1rem; flex-wrap:wrap; border-top:1px solid #444; margin-top:1.5rem; padding-top:.9rem; opacity:.72; font-size:.88em; }\
 ';
 
 function parseResponse(res) {
@@ -40,16 +40,6 @@ function parseResponse(res) {
 		throw new Error(data.error || _('The Tailscale helper rejected the request.'));
 
 	return data;
-}
-
-function renderPanelFooter(metadata) {
-	metadata = metadata || {};
-	if (metadata.footer_enabled === false)
-		return '';
-	return E('div', { 'class': 'router-panel-footer' }, [
-		E('span', {}, metadata.version ? _('Router Scripts v%s').format(metadata.version) : _('Router Scripts version unavailable')),
-		E('span', {}, _('Support: %s · Registration: %s').format(metadata.support_level || _('unknown'), metadata.registration_state || _('unknown')))
-	]);
 }
 
 return view.extend({
@@ -72,6 +62,7 @@ return view.extend({
 		this.metadata = data.metadata;
 		this.data = data;
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
+		routerFooter.apply(data.metadata);
 	},
 
 	runAction: function(args, title) {
@@ -322,14 +313,14 @@ return view.extend({
 				}, _('Apply / connect'))
 			])
 		]),
-		this.renderPeers(tailscale),
-		renderPanelFooter(data.metadata)
+		this.renderPeers(tailscale)
 		];
 	},
 
 	render: function(data) {
 		this.metadata = data.metadata || {};
 		this.data = data;
+		routerFooter.apply(data.metadata);
 
 		return E('div', { 'class': 'cbi-map tailscale-ui' }, [
 			E('style', {}, css),

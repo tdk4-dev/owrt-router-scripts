@@ -32,6 +32,8 @@ LEGACY_PACKAGE_FILES="/usr/sbin/vpn-ui
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
 /www/luci-static/resources/view/network/vpn.js
 /www/luci-static/resources/view/network/tailscale.js
+/www/luci-static/resources/view/network/adguard.js
+/www/luci-static/resources/tools/router_footer.js
 /www/luci-static/resources/view/status/include/35_vpn.js
 /www/luci-static/resources/view/status/include/_35_vpn.js
 /www/luci-static/resources/view/system/update.js
@@ -278,6 +280,8 @@ validate_install() {
   [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
   [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
   [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/adguard.js ] || return 1
+  [ -f /www/luci-static/resources/tools/router_footer.js ] || return 1
   [ -f /www/cgi-bin/firstboot-setup ] || return 1
 }
 

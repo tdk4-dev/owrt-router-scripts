@@ -339,6 +339,8 @@ validate_install() {
     [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
   [ -f /www/luci-static/resources/view/network/tailscale.js ] ||
     [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/adguard.js ] || return 1
+  [ -f /www/luci-static/resources/tools/router_footer.js ] || return 1
   [ -f /www/luci-static/resources/view/system/update.js ] ||
     [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
   [ -f /www/luci-static/resources/view/system/reset.js ] ||
