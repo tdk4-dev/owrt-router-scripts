@@ -12,6 +12,13 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
+first_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"
+"$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
+second_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"
+[ "$first_build_hashes" = "$second_build_hashes" ] || {
+  printf 'repeated clean IPK builds produced different checksums\n' >&2
+  exit 1
+}
 
 for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
   ipk="$ROOT_DIR/dist/ipk/${pkg}_${PKG_VERSION}_all.ipk"

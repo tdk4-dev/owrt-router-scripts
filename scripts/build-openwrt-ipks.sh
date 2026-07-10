@@ -18,7 +18,7 @@ need() {
   }
 }
 
-for tool in awk find gzip sed sha256sum sort tar; do
+for tool in awk env find gzip sed sha256sum sort tar; do
   need "$tool"
 done
 
@@ -227,8 +227,10 @@ create_tar_gz() {
       tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" \
         --owner=0 --group=0 --numeric-owner -cf - "$@" | gzip -n > "$dst"
     else
+      normalized_mtime="$(date -u -r "$SOURCE_DATE_EPOCH" '+%Y%m%d%H%M.%S')"
+      find . -exec env TZ=UTC touch -h -t "$normalized_mtime" {} +
       COPYFILE_DISABLE=1 tar --format ustar --no-xattrs --no-mac-metadata \
-        --owner=0 --group=0 --numeric-owner -czf "$dst" "$@"
+        --owner=0 --group=0 --numeric-owner -cf - "$@" | gzip -n > "$dst"
     fi
   )
 }
