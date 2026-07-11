@@ -201,10 +201,8 @@ function validatePayload(payload) {
   const hostname = String(router.hostname || '').trim();
   if (!hostname || hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(hostname))
     errors.push('Router name must be 1 to 63 letters, numbers, or hyphens, and cannot begin or end with a hyphen.');
-  if (!account.login || !String(account.login).trim())
-    errors.push('SSH login is required.');
-  if (String(account.login || '').trim() !== 'root')
-    errors.push('This OpenWrt image supports root SSH login only.');
+  if (String(account.login || 'root').trim() !== 'root')
+    errors.push('The administrator account is fixed to root on this OpenWrt image.');
   if (!account.password || String(account.password).length < 8)
     errors.push('SSH password must be at least 8 characters.');
   if (account.password !== account.passwordConfirm)
@@ -253,7 +251,7 @@ function redactedApply(payload) {
       adguardUrl: 'http://10.77.0.1:3000/'
     },
     account: {
-      login: payload.account?.login || 'root',
+      login: 'root',
       passwordWillBeSet: !!payload.account?.password,
       sshKeyCount: String(payload.account?.authorizedKeys || '')
         .split('\n')

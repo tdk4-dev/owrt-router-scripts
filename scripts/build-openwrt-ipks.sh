@@ -9,7 +9,16 @@ BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/.package-build}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist/ipk}"
 FEED_DIR="${FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)}"
+SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
+
+if [ -z "$SOURCE_DIRTY" ]; then
+  if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
+    SOURCE_DIRTY=1
+  else
+    SOURCE_DIRTY=0
+  fi
+fi
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -90,6 +99,7 @@ if [ -x /usr/sbin/vpn-ui ]; then
   # success result produced by an older health-check implementation.
   rm -rf /tmp/vpn-ui-pings
   /usr/sbin/vpn-ui metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
+  /usr/sbin/vpn-ui metadata-installed package-first-local-ipk >/tmp/premier-router-installed-metadata.log 2>&1 || true
   /usr/sbin/vpn-ui init >/tmp/premier-router-core-init.log 2>&1 || true
 fi
 
@@ -256,6 +266,15 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" "$CORE_ROOT/usr/s
 copy_file "$ROOT_DIR/install-router-ui-release.sh" "$CORE_ROOT/usr/sbin/install-router-ui-release" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
+mkdir -p "$CORE_ROOT/usr/share/vpn-ui"
+cat > "$CORE_ROOT/usr/share/vpn-ui/build-info" <<EOF
+VERSION=$APP_VERSION
+PACKAGE_VERSION=$PKG_VERSION
+SOURCE_COMMIT=$SOURCE_COMMIT
+SOURCE_DIRTY=$SOURCE_DIRTY
+BUILD_DATE=
+EOF
+chmod 644 "$CORE_ROOT/usr/share/vpn-ui/build-info"
 mkdir -p "$CORE_ROOT/etc"
 cat > "$CORE_ROOT/etc/vpn-ui-update.conf" <<'EOF'
 AUTO_UPDATE='0'

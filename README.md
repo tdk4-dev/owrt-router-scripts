@@ -80,6 +80,14 @@ for the RD23 hardware profile. Its limited persistent flash is reserved for
 the core router, LuCI, Xray, and update/support tooling. This is source/static
 policy validation only until an RD23 is boot-tested; it is not a hardware claim.
 
+The first-boot administrator account is fixed to OpenWrt's `root` account for
+both SSH and LuCI. The wizard lets the owner set the router hostname, root
+password, and optional root SSH public keys; it does not create non-root users.
+The LuCI AdGuardHome page repeats the wizard's persistent-storage eligibility
+check before offering an optional install. System > Update shows locally
+recorded build and installation provenance, using `unknown` when a staged
+manifest or runtime timestamp was not recorded.
+
 Use LuCI or `sysupgrade` with the extracted factory/sysupgrade image that
 matches the router's current installation method. Do not flash the ubootmod
 image onto a stock-layout router unless it has been converted first.

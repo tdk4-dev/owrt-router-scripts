@@ -17,6 +17,27 @@ trap cleanup EXIT INT TERM
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/router-prep"
 : > "$FAKE_STATE"
 
+cat > "$TMP_DIR/bin/opkg" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = status ] || exit 1
+printf 'Package: %s\nVersion: 0.8.0-1\nStatus: install user installed\n' "${2:-unknown}"
+EOF
+chmod 755 "$TMP_DIR/bin/opkg"
+cat > "$TMP_DIR/build-info" <<'EOF'
+VERSION=0.8.0
+PACKAGE_VERSION=0.8.0-1
+SOURCE_COMMIT=1234567890abcdef1234567890abcdef12345678
+SOURCE_DIRTY=0
+BUILD_DATE=
+EOF
+cat > "$TMP_DIR/manifest.json" <<'EOF'
+{"package_version":"0.8.0-1","generated_at":"2026-07-11T00:00:00Z"}
+EOF
+cat > "$TMP_DIR/openwrt_release" <<'EOF'
+DISTRIB_RELEASE='24.10.5'
+DISTRIB_TARGET='x86/64'
+EOF
+
 cat > "$TMP_DIR/bin/uci" <<'EOF'
 #!/bin/sh
 set -eu
@@ -65,11 +86,17 @@ run_vpn_ui() {
   FAKE_UCI_STATE="$FAKE_STATE" \
   VPN_UI_UCI_BIN="$TMP_DIR/bin/uci" \
   VPN_UI_VERSION_FILE="$VERSION_FILE" \
+  VPN_UI_OPKG_BIN="$TMP_DIR/bin/opkg" \
+  VPN_UI_BUILD_INFO_FILE="$TMP_DIR/build-info" \
+  VPN_UI_INSTALLED_MANIFEST_FILE="$TMP_DIR/manifest.json" \
+  VPN_UI_OPENWRT_RELEASE_FILE="$TMP_DIR/openwrt_release" \
+  VPN_UI_HARDWARE_PROFILE=generic \
     sh "$VPN_UI" "$@"
 }
 
 for expected in \
   "option install_method 'manual-ipk-install'" \
+  "option install_source 'package-first-local-ipk'" \
   "option support_level 'self-managed'" \
   "option registration_state 'local-only'" \
   "option direct_rules_channel 'stable'" \
@@ -87,6 +114,7 @@ defaults="$(run_vpn_ui footer-info)"
 printf '%s\n' "$defaults" | grep -q '"ok":true'
 printf '%s\n' "$defaults" | grep -q '"version":"0.8.0"'
 printf '%s\n' "$defaults" | grep -q '"install_method":"manual-ipk-install"'
+printf '%s\n' "$defaults" | grep -q '"install_source":"package-first-local-ipk"'
 printf '%s\n' "$defaults" | grep -q '"support_level":"self-managed"'
 printf '%s\n' "$defaults" | grep -q '"registration_state":"local-only"'
 printf '%s\n' "$defaults" | grep -q '"direct_rules_channel":"stable"'
@@ -97,6 +125,23 @@ printf '%s\n' "$defaults" | grep -q '"footer_label":"Router Scripts v0.8.0 (manu
 full_router_id="$(sed -n 's/^premier_router.router.router_id=//p' "$FAKE_STATE")"
 [ -n "$full_router_id" ]
 case "$defaults" in *"$full_router_id"*) printf 'full router id leaked\n' >&2; exit 1 ;; esac
+
+installed="$(run_vpn_ui metadata-installed package-first-staged)"
+printf '%s\n' "$installed" | grep -q '"install_source":"package-first-staged"'
+installed_at="$(printf '%s\n' "$installed" | sed -n 's/.*"installed_at":"\([^"]*\)".*/\1/p')"
+[ -n "$installed_at" ]
+reinstalled="$(run_vpn_ui metadata-installed package-first-staged)"
+printf '%s\n' "$reinstalled" | grep -Fq "\"installed_at\":\"$installed_at\""
+
+build="$(run_vpn_ui installed-build)"
+printf '%s\n' "$build" | grep -q '"package_version":"0.8.0-1"'
+printf '%s\n' "$build" | grep -q '"source_commit_short":"1234567890ab"'
+printf '%s\n' "$build" | grep -q '"build_date":"2026-07-11T00:00:00Z"'
+printf '%s\n' "$build" | grep -Fq "\"installed_at\":\"$installed_at\""
+printf '%s\n' "$build" | grep -q '"manifest_present":true'
+printf '%s\n' "$build" | grep -q '"package_set_verified":true'
+printf '%s\n' "$build" | grep -q '"openwrt_version":"24.10.5"'
+printf '%s\n' "$build" | grep -q '"openwrt_target":"x86/64"'
 
 run_vpn_ui metadata-set owner-prepared-standard standard support-disabled 1 0 >/dev/null
 run_vpn_ui metadata-init >/dev/null

@@ -12,6 +12,8 @@ uci commit system 2>/dev/null || true
 if [ -x /usr/sbin/vpn-ui ]; then
   /usr/sbin/vpn-ui metadata-set self-managed-image self-managed local-only 0 0 \
     >/tmp/premier-router-image-metadata.log 2>&1 || true
+  /usr/sbin/vpn-ui metadata-installed custom-image \
+    >>/tmp/premier-router-image-metadata.log 2>&1 || true
 fi
 
 uci set network.lan.ipaddr="$LAN_IP"

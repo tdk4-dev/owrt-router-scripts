@@ -4,7 +4,7 @@ const steps = [
     label: 'Account',
     eyebrow: 'First boot',
     title: 'Create the router login',
-    lede: 'Set the SSH credentials that will protect the router after the assistant finishes.'
+    lede: "This image uses OpenWrt's root account for SSH and LuCI administration. Set the password and optional SSH public keys below."
   },
   {
     id: 'wifi',
@@ -175,7 +175,6 @@ function saveDraft() {
       hostname: state.form.router.hostname
     },
     account: {
-      login: state.form.account.login,
       authorizedKeys: state.form.account.authorizedKeys
     },
     wifi: {
@@ -227,7 +226,9 @@ function restoreDraft() {
     if (durable) {
       state.step = Math.max(0, Math.min(steps.length - 1, Number(durable.step) || 0));
       state.form.router.hostname = durable.router?.hostname || state.form.router.hostname;
-      state.form.account.login = durable.account?.login || state.form.account.login;
+      // v0.8 supports OpenWrt's built-in root administrator only. Ignore any
+      // stale draft value written by an earlier editable-login UI.
+      state.form.account.login = 'root';
       state.form.account.authorizedKeys = durable.account?.authorizedKeys || '';
       Object.assign(state.form.wifi, durable.wifi || {});
       state.form.vpn.enabled = durable.vpn?.enabled ?? state.form.vpn.enabled;
@@ -289,10 +290,6 @@ function validateStep(index = state.step) {
       errors.push('Router name is required.');
     if (hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(hostname))
       errors.push('Router name must be 1 to 63 letters, numbers, or hyphens, and cannot begin or end with a hyphen.');
-    if (!form.account.login.trim())
-      errors.push('SSH login is required.');
-    if (form.account.login.trim() !== 'root')
-      errors.push('This OpenWrt image supports root SSH login only.');
     if (form.account.password.length < 8)
       errors.push('SSH password must be at least 8 characters.');
     if (form.account.password !== form.account.passwordConfirm)
@@ -526,14 +523,11 @@ function renderAccount() {
         autocomplete: 'off',
         hint: 'Used as the OpenWrt hostname and, if enabled, the Tailscale device name.'
       })}
-      ${inputField({
-        id: 'account-login',
-        label: 'SSH login',
-        value: account.login,
-        path: 'account.login',
-        autocomplete: 'username',
-        hint: 'OpenWrt uses root for SSH administration in this image.'
-      })}
+      <div class="field">
+        <label>Administrator account</label>
+        <div class="fixed-value" aria-label="Administrator account root">root</div>
+        <div class="hint">Fixed by OpenWrt. This account is used for both SSH and LuCI.</div>
+      </div>
       ${inputField({
         id: 'account-password',
         label: 'SSH password',
@@ -875,7 +869,7 @@ function renderReview() {
     ` : ''}
     <div class="review">
       ${reviewRow('Router', `${state.form.router.hostname} on ${state.router.lanIp}`)}
-      ${reviewRow('SSH login', state.form.account.login)}
+      ${reviewRow('Administrator', 'root (SSH and LuCI)')}
       ${reviewRow('SSH password', state.form.account.password ? 'Will be set' : 'Missing')}
       ${reviewRow('Wi-Fi', state.form.wifi.enabled
         ? `${state.form.wifi.ssid} (${[
@@ -1355,7 +1349,7 @@ async function bootstrap() {
   state.adguardCanInstall = data.adguard?.canInstall ?? false;
   state.adguardStorage = data.adguard?.storage || null;
   state.wifiRadios = data.wifi?.radios || [];
-  state.form.account.login = data.defaults?.accountLogin || state.form.account.login;
+  state.form.account.login = 'root';
   state.form.wifi.enabled = data.defaults?.wifiEnabled ?? state.form.wifi.enabled;
   state.form.wifi.ssid = data.defaults?.wifiSsid || state.form.wifi.ssid;
   state.form.wifi.country = data.defaults?.wifiCountry || state.form.wifi.country;

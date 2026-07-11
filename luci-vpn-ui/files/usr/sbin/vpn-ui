@@ -36,6 +36,17 @@ XRAY_ERROR_LOG_MAX_BYTES=262144
 XRAY_ERROR_LOG_KEEP_BYTES=65536
 ADGUARD_CONFIG="/etc/adguardhome.yaml"
 ADGUARD_QUERYLOG="/tmp/lib/adguardhome/data/querylog.json"
+ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
+ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
+ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/vpn-ui-adguard-install.lock}"
+VPN_UI_HARDWARE_PROFILE="${VPN_UI_HARDWARE_PROFILE:-}"
+DF_BIN="${VPN_UI_DF_BIN:-df}"
+OPKG_BIN="${VPN_UI_OPKG_BIN:-opkg}"
+UBUS_BIN="${VPN_UI_UBUS_BIN:-ubus}"
+JSONFILTER_BIN="${VPN_UI_JSONFILTER_BIN:-jsonfilter}"
+BUILD_INFO_FILE="${VPN_UI_BUILD_INFO_FILE:-/usr/share/vpn-ui/build-info}"
+INSTALLED_MANIFEST_FILE="${VPN_UI_INSTALLED_MANIFEST_FILE:-/etc/premier_router/installed-manifest.json}"
+OPENWRT_RELEASE_FILE="${VPN_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 
 XRAY_SERVICE=""
 XRAY_BIN=""
@@ -100,6 +111,11 @@ metadata_valid_direct_rules_channel() {
   return 1
 }
 
+metadata_valid_install_source() {
+  case "$1" in package-first-local-ipk|package-first-staged|custom-image|legacy-migrated|unknown) return 0 ;; esac
+  return 1
+}
+
 metadata_random_id() {
   local value
   value=""
@@ -141,6 +157,7 @@ ensure_router_metadata() {
   metadata_ensure_value support_level self-managed metadata_valid_support_level
   metadata_ensure_value registration_state local-only metadata_valid_registration_state
   metadata_ensure_value direct_rules_channel stable metadata_valid_direct_rules_channel
+  metadata_ensure_value install_source package-first-local-ipk metadata_valid_install_source
   metadata_ensure_value support_visible 1 metadata_valid_bool
   metadata_ensure_value support_tailnet_enabled 0 metadata_valid_bool
   metadata_ensure_value footer_enabled 1 metadata_valid_bool
@@ -154,13 +171,15 @@ ensure_router_metadata() {
 }
 
 router_metadata_json_members() {
-  local version install support registration direct_rules router_id router_id_short footer_label support_access_state
+  local version install install_source installed_at support registration direct_rules router_id router_id_short footer_label support_access_state
   local support_visible support_tailnet footer_enabled footer_mode prepared sealed
 
   version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
   [ -n "$version" ] || version="unknown"
   if ensure_router_metadata; then
     install="$(metadata_get install_method)"
+    install_source="$(metadata_get install_source)"
+    installed_at="$(metadata_get installed_at)"
     support="$(metadata_get support_level)"
     registration="$(metadata_get registration_state)"
     direct_rules="$(metadata_get direct_rules_channel)"
@@ -173,6 +192,8 @@ router_metadata_json_members() {
     sealed="$(metadata_get sealed)"
   else
     install="unknown"
+    install_source="unknown"
+    installed_at=""
     support="none"
     registration="unknown"
     direct_rules="unknown"
@@ -192,6 +213,10 @@ router_metadata_json_members() {
   json_string "$version"
   printf ',"install_method":'
   json_string "$install"
+  printf ',"install_source":'
+  json_string "$install_source"
+  printf ',"installed_at":'
+  json_string "$installed_at"
   printf ',"support_level":'
   json_string "$support"
   printf ',"registration_state":'
@@ -234,6 +259,18 @@ cmd_metadata_set() {
   metadata_set_option registration_state "$registration"
   [ -z "$prepared" ] || metadata_set_option prepared_by_owner "$prepared"
   [ -z "$support_tailnet" ] || metadata_set_option support_tailnet_enabled "$support_tailnet"
+  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
+  cmd_router_metadata
+}
+
+cmd_metadata_installed() {
+  local source="${1:-package-first-local-ipk}" installed_at
+  metadata_valid_install_source "$source" || die_json "invalid install source"
+  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
+  installed_at="$(metadata_get installed_at)"
+  METADATA_DIRTY=0
+  [ -n "$installed_at" ] || metadata_set_option installed_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  metadata_set_option install_source "$source"
   "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
   cmd_router_metadata
 }
@@ -2172,15 +2209,262 @@ cmd_check() {
   printf '{"ok":true,"message":"configuration syntax validates; connectivity was not tested"}\n'
 }
 
+build_info_value() {
+  local key="$1"
+  [ -f "$BUILD_INFO_FILE" ] || return 0
+  sed -n "s/^$key=//p" "$BUILD_INFO_FILE" | sed -n '1p' | tr -d '\r'
+}
+
+manifest_value() {
+  local key="$1"
+  [ -f "$INSTALLED_MANIFEST_FILE" ] || return 0
+  if command -v "$JSONFILTER_BIN" >/dev/null 2>&1; then
+    "$JSONFILTER_BIN" -i "$INSTALLED_MANIFEST_FILE" -e "@.$key" 2>/dev/null | sed -n '1p'
+  else
+    sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$INSTALLED_MANIFEST_FILE" | sed -n '1p'
+  fi
+}
+
+openwrt_release_value() {
+  local key="$1"
+  [ -f "$OPENWRT_RELEASE_FILE" ] || return 0
+  sed -n "s/^$key=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$OPENWRT_RELEASE_FILE" | sed -n '1p'
+}
+
+installed_package_version() {
+  local package="$1"
+  "$OPKG_BIN" status "$package" 2>/dev/null | sed -n 's/^Version:[[:space:]]*//p' | sed -n '1p'
+}
+
+cmd_installed_build() {
+  local version package_version source_commit source_dirty build_date installed_at install_method install_source
+  local openwrt_version openwrt_target hardware manifest_present manifest_package verification_state package_set_verified
+  local core_version luci_version setup_version all_match source_short
+
+  version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
+  [ -n "$version" ] || version="unknown"
+  package_version="$(build_info_value PACKAGE_VERSION)"
+  source_commit="$(build_info_value SOURCE_COMMIT)"
+  source_dirty="$(build_info_value SOURCE_DIRTY)"
+  build_date="$(manifest_value generated_at)"
+  [ -n "$build_date" ] || build_date="$(build_info_value BUILD_DATE)"
+  if ensure_router_metadata; then
+    installed_at="$(metadata_get installed_at)"
+    install_method="$(metadata_get install_method)"
+    install_source="$(metadata_get install_source)"
+  else
+    installed_at=""
+    install_method="unknown"
+    install_source="unknown"
+  fi
+  openwrt_version="$(openwrt_release_value DISTRIB_RELEASE)"
+  openwrt_target="$(openwrt_release_value DISTRIB_TARGET)"
+  hardware="$(hardware_profile)"
+  core_version="$(installed_package_version premier-router-core)"
+  luci_version="$(installed_package_version luci-app-premier-router)"
+  setup_version="$(installed_package_version premier-router-setup)"
+  manifest_present=false
+  [ -f "$INSTALLED_MANIFEST_FILE" ] && manifest_present=true
+  manifest_package="$(manifest_value package_version)"
+  all_match=false
+  if [ -n "$package_version" ] &&
+     [ "$core_version" = "$package_version" ] &&
+     [ "$luci_version" = "$package_version" ] &&
+     [ "$setup_version" = "$package_version" ]; then
+    all_match=true
+  fi
+  package_set_verified="$all_match"
+  if [ "$manifest_present" = true ] && [ -n "$manifest_package" ] && [ "$manifest_package" != "$package_version" ]; then
+    package_set_verified=false
+  fi
+  if [ "$package_set_verified" = true ] && [ "$manifest_present" = true ]; then
+    verification_state="manifest and installed package set verified"
+  elif [ "$package_set_verified" = true ]; then
+    verification_state="installed package set verified; staged manifest not recorded"
+  elif [ -z "$package_version" ]; then
+    verification_state="build metadata unavailable"
+  else
+    verification_state="installed package set could not be verified"
+  fi
+  source_short="$(printf '%s' "$source_commit" | cut -c 1-12)"
+
+  printf '{"ok":true,"version":'
+  json_string "$version"
+  printf ',"package_version":'
+  json_string "$package_version"
+  printf ',"packages":{"premier-router-core":'
+  json_string "$core_version"
+  printf ',"luci-app-premier-router":'
+  json_string "$luci_version"
+  printf ',"premier-router-setup":'
+  json_string "$setup_version"
+  printf '},"install_method":'
+  json_string "$install_method"
+  printf ',"install_source":'
+  json_string "$install_source"
+  printf ',"source_commit":'
+  json_string "$source_commit"
+  printf ',"source_commit_short":'
+  json_string "$source_short"
+  printf ',"source_dirty":'
+  case "$source_dirty" in 0|false) printf false ;; 1|true) printf true ;; *) printf null ;; esac
+  printf ',"build_date":'
+  json_string "$build_date"
+  printf ',"installed_at":'
+  json_string "$installed_at"
+  printf ',"openwrt_version":'
+  json_string "$openwrt_version"
+  printf ',"openwrt_target":'
+  json_string "$openwrt_target"
+  printf ',"hardware_profile":'
+  json_string "$hardware"
+  printf ',"manifest_present":%s,"package_set_verified":%s,"verification_state":' "$manifest_present" "$package_set_verified"
+  json_string "$verification_state"
+  printf '}\n'
+}
+
+hardware_profile() {
+  local board="$VPN_UI_HARDWARE_PROFILE"
+  if [ -z "$board" ]; then
+    board="$(sed -n '1p' /tmp/sysinfo/board_name 2>/dev/null || true)"
+  fi
+  if [ -z "$board" ] && command -v "$UBUS_BIN" >/dev/null 2>&1; then
+    board="$($UBUS_BIN call system board 2>/dev/null | $JSONFILTER_BIN -e '@.board_name' 2>/dev/null || true)"
+  fi
+  case "$board" in
+    xiaomi-ax3000t-rd23|*xiaomi*ax3000t*|*mi-router-ax3000t*|*rd23*) printf '%s' xiaomi-ax3000t-rd23 ;;
+    *) printf '%s' generic ;;
+  esac
+}
+
+adguard_allowed_for_hardware() {
+  [ "$(hardware_profile)" != "xiaomi-ax3000t-rd23" ]
+}
+
+measure_adguard_storage() {
+  local estimate="${1:-$ADGUARD_ESTIMATE_BYTES}"
+  local values total_kb used_kb free_kb projected_tenths used_tenths
+
+  values="$($DF_BIN -Pk /overlay 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
+  [ -n "$values" ] || values="$($DF_BIN -Pk / 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
+  set -- $values
+  total_kb="${1:-0}"
+  used_kb="${2:-0}"
+  free_kb="${3:-0}"
+  case "$total_kb:$used_kb:$free_kb:$estimate" in
+    *[!0-9:]*) total_kb=0; used_kb=0; free_kb=0; estimate=0 ;;
+  esac
+
+  ADGUARD_TOTAL_BYTES=$((total_kb * 1024))
+  ADGUARD_USED_BYTES=$((used_kb * 1024))
+  ADGUARD_FREE_BYTES=$((free_kb * 1024))
+  ADGUARD_ESTIMATED_BYTES="$estimate"
+  ADGUARD_PROJECTED_BYTES=$((ADGUARD_USED_BYTES + estimate))
+  ADGUARD_CAN_INSTALL=false
+  ADGUARD_STORAGE_RISK=unknown
+  ADGUARD_USED_PERCENT=0.0
+  ADGUARD_PROJECTED_PERCENT=0.0
+
+  if [ "$ADGUARD_TOTAL_BYTES" -gt 0 ]; then
+    used_tenths=$(((ADGUARD_USED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
+    projected_tenths=$(((ADGUARD_PROJECTED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
+    ADGUARD_USED_PERCENT="$(awk -v value="$used_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
+    ADGUARD_PROJECTED_PERCENT="$(awk -v value="$projected_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
+    if [ "$projected_tenths" -gt 950 ]; then
+      ADGUARD_STORAGE_RISK=blocked
+    elif [ "$projected_tenths" -ge 900 ]; then
+      ADGUARD_STORAGE_RISK=warning
+      ADGUARD_CAN_INSTALL=true
+    else
+      ADGUARD_STORAGE_RISK=safe
+      ADGUARD_CAN_INSTALL=true
+    fi
+  fi
+}
+
+adguard_storage_json() {
+  printf '{"totalBytes":%s,"usedBytes":%s,"freeBytes":%s,"estimatedInstallBytes":%s,"projectedUsedBytes":%s,"usedPercent":%s,"projectedUsedPercent":%s,"risk":' \
+    "$ADGUARD_TOTAL_BYTES" "$ADGUARD_USED_BYTES" "$ADGUARD_FREE_BYTES" "$ADGUARD_ESTIMATED_BYTES" \
+    "$ADGUARD_PROJECTED_BYTES" "$ADGUARD_USED_PERCENT" "$ADGUARD_PROJECTED_PERCENT"
+  json_string "$ADGUARD_STORAGE_RISK"
+  printf '}'
+}
+
+adguard_config_value() {
+  local key="$1"
+  [ -f "$ADGUARD_CONFIG" ] || return 0
+  sed -n "s/^[[:space:]]*$key:[[:space:]]*//p" "$ADGUARD_CONFIG" | sed -n '1p' | tr -d '\"\r'
+}
+
 cmd_adguard_status() {
-  local installed running
+  local installed running enabled supported can_install profile deferred estimate query_logging filter_count upstream_count listen
   installed="false"
   running="false"
+  enabled="false"
   if [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1; then
     installed="true"
     /etc/init.d/adguardhome running >/dev/null 2>&1 && running="true"
+    /etc/init.d/adguardhome enabled >/dev/null 2>&1 && enabled="true"
   fi
-  printf '{"ok":true,"installed":%s,"running":%s,"port":3000}\n' "$installed" "$running"
+  profile="$(hardware_profile)"
+  supported=true
+  deferred=""
+  if ! adguard_allowed_for_hardware; then
+    supported=false
+    deferred="AdGuardHome is not included or recommended for the Xiaomi AX3000T/RD23 lean profile. Its flash budget is reserved for core router software."
+  fi
+  [ "$installed" = true ] && estimate=0 || estimate="$ADGUARD_ESTIMATE_BYTES"
+  measure_adguard_storage "$estimate"
+  can_install="$ADGUARD_CAN_INSTALL"
+  [ "$supported" = true ] || can_install=false
+  [ "$installed" = false ] || can_install=false
+  query_logging="$(adguard_config_value enabled)"
+  case "$query_logging" in true|false) ;; *) query_logging=unknown ;; esac
+  filter_count="$(grep -c '^[[:space:]]*- enabled: true' "$ADGUARD_CONFIG" 2>/dev/null || true)"
+  [ -n "$filter_count" ] || filter_count=0
+  upstream_count="$(awk '
+    /^[[:space:]]*upstream_dns:/ { in_list=1; next }
+    in_list && /^[^[:space:]]/ { exit }
+    in_list && /^[[:space:]]*-/ { count++ }
+    END { print count + 0 }
+  ' "$ADGUARD_CONFIG" 2>/dev/null || printf 0)"
+  listen="$(adguard_config_value address)"
+  [ -n "$listen" ] || listen="0.0.0.0:3000"
+
+  printf '{"ok":true,"installed":%s,"running":%s,"enabled":%s,"port":3000,"listen":' "$installed" "$running" "$enabled"
+  json_string "$listen"
+  printf ',"query_logging":'
+  json_string "$query_logging"
+  printf ',"filter_count":%s,"upstream_count":%s,"hardware_profile":' "$filter_count" "$upstream_count"
+  json_string "$profile"
+  printf ',"install_supported":%s,"can_install":%s,"deferred_reason":' "$supported" "$can_install"
+  json_string "$deferred"
+  printf ',"storage":'
+  adguard_storage_json
+  printf '}\n'
+}
+
+cmd_adguard_install() {
+  local installed_size
+  adguard_allowed_for_hardware || die_json "AdGuardHome is deferred for the Xiaomi AX3000T/RD23 lean profile"
+  [ ! -x /etc/init.d/adguardhome ] || die_json "AdGuardHome is already installed"
+  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
+  [ "$ADGUARD_CAN_INSTALL" = true ] || die_json "AdGuardHome would use more than 95% of persistent storage and cannot be installed safely"
+  mkdir "$ADGUARD_INSTALL_LOCK" 2>/dev/null || die_json "another AdGuardHome installation is already running"
+  trap 'rm -rf "$ADGUARD_INSTALL_LOCK"' EXIT INT TERM
+  command -v "$OPKG_BIN" >/dev/null 2>&1 || die_json "the OpenWrt package manager is unavailable"
+  "$OPKG_BIN" update >/tmp/vpn-ui-adguard-opkg.log 2>&1 || die_json "could not refresh the signed OpenWrt package feed"
+  installed_size="$($OPKG_BIN info "$ADGUARD_PACKAGE" 2>/dev/null | awk '/^Installed-Size:/ { print $2; exit }')"
+  case "$installed_size" in ''|*[!0-9]*) installed_size="$ADGUARD_ESTIMATE_BYTES" ;; esac
+  [ "$installed_size" -ge "$ADGUARD_ESTIMATE_BYTES" ] || installed_size="$ADGUARD_ESTIMATE_BYTES"
+  measure_adguard_storage "$installed_size"
+  [ "$ADGUARD_CAN_INSTALL" = true ] || die_json "the current AdGuardHome package would use more than 95% of persistent storage"
+  "$OPKG_BIN" install "$ADGUARD_PACKAGE" >>/tmp/vpn-ui-adguard-opkg.log 2>&1 || die_json "AdGuardHome package installation failed; no global package upgrade was attempted"
+  /etc/init.d/adguardhome enable >/dev/null 2>&1 || true
+  /etc/init.d/adguardhome start >/dev/null 2>&1 || true
+  rm -rf "$ADGUARD_INSTALL_LOCK"
+  trap - EXIT INT TERM
+  cmd_adguard_status
 }
 
 cmd_device() {
@@ -2697,6 +2981,9 @@ case "${1:-status}" in
     shift
     cmd_metadata_set "$@"
     ;;
+  metadata-installed)
+    cmd_metadata_installed "${2:-package-first-local-ipk}"
+    ;;
   metadata-sealed)
     cmd_metadata_sealed "${2:-}"
     ;;
@@ -2717,6 +3004,12 @@ case "${1:-status}" in
     ;;
   adguard-status)
     cmd_adguard_status
+    ;;
+  installed-build)
+    cmd_installed_build
+    ;;
+  adguard-install)
+    cmd_adguard_install
     ;;
   add)
     [ -n "${2:-}" ] || die_json "add requires a VLESS link"

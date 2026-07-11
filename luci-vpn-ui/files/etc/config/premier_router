@@ -1,6 +1,8 @@
 config metadata 'router'
 	option router_id ''
 	option install_method 'manual-ipk-install'
+	option install_source 'package-first-local-ipk'
+	option installed_at ''
 	option support_level 'self-managed'
 	option registration_state 'local-only'
 	option direct_rules_channel 'stable'

@@ -37,8 +37,11 @@ done
 grep -q "\"version\": \"$APP_VERSION\"" "$RELEASE_DIR/router-release-manifest.json"
 grep -q "\"package_version\": \"$APP_VERSION-1\"" "$RELEASE_DIR/router-release-manifest.json"
 grep -q "\"openwrt_version\": \"$OPENWRT_VERSION\"" "$RELEASE_DIR/router-release-manifest.json"
+grep -Eq '"generated_at": "[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$RELEASE_DIR/router-release-manifest.json"
 grep -q '"artifact_type":"package"' "$RELEASE_DIR/router-release-manifest.json"
 grep -q '"artifact_type":"installer"' "$RELEASE_DIR/router-release-manifest.json"
+grep -q 'installed-manifest.json' "$RELEASE_DIR/install-router-ui-release.sh"
+grep -q 'metadata-installed.*package-first-staged\|INSTALL_SOURCE=package-first-staged' "$RELEASE_DIR/install-router-ui-release.sh"
 
 (
   cd "$RELEASE_DIR"

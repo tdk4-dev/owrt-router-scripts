@@ -503,7 +503,7 @@ configure_account() {
   local confirm="$3"
   local keys="$4"
 
-  [ "$login" = "root" ] || fail "This image supports root SSH login only."
+  [ "$login" = "root" ] || fail "The administrator account is fixed to root on this OpenWrt image."
   [ "${#password}" -ge 8 ] || fail "SSH password must be at least 8 characters."
   [ "$password" = "$confirm" ] || fail "Password confirmation does not match."
   printf '%s\n%s\n' "$password" "$password" | passwd root >/tmp/firstboot-passwd.log 2>&1 ||

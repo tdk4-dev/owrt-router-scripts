@@ -396,6 +396,20 @@ if ! validate_install; then
   die "post-install validation failed safely; inspect $LOG_FILE"
 fi
 
+mkdir -p /etc/premier_router
+cp "$WORK_DIR/$MANIFEST_FILE" /etc/premier_router/installed-manifest.json
+chmod 600 /etc/premier_router/installed-manifest.json
+if [ "$INSTALL_TYPE" = "legacy-tar" ]; then
+  INSTALL_SOURCE=legacy-migrated
+else
+  INSTALL_SOURCE=package-first-staged
+fi
+/usr/sbin/vpn-ui metadata-installed "$INSTALL_SOURCE" >>"$LOG_FILE" 2>&1 || {
+  rm -f /etc/premier_router/installed-manifest.json
+  rollback_ipk_install "$MIGRATION_SNAPSHOT"
+  die "installed build metadata could not be recorded safely; inspect $LOG_FILE"
+}
+
 if [ -f /usr/share/vpn-ui/legacy-files.list ]; then
   while IFS= read -r path; do
     [ -n "$path" ] || continue

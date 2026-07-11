@@ -25,12 +25,23 @@ Router UI 0.8.0
   intentionally do not own or overwrite LuCI theme footer files.
 • Fixes first-boot root password handling so LuCI and SSH authenticate with the
   password entered in the setup wizard.
+• Makes the first-boot administrator identity unambiguous: OpenWrt's `root`
+  account is fixed for both SSH and LuCI, while router hostname, password, and
+  optional root SSH public keys remain configurable.
 • Fixes first-boot VLESS enablement when direct routing rules are empty, and
   improves Apply setup progress feedback.
 • Makes AdGuardHome an explicit opt-in first-boot component, defaulting off for
   memory-constrained routers. Skipping it preserves existing service and DNS
   state; images that include AdGuardHome can enable it and choose filters.
   Xiaomi AX3000T/RD23 images exclude it and hide/reject the setup option.
+• Expands the LuCI AdGuardHome page when the package is absent: it explains DNS
+  filtering, shows persistent-storage use plus the estimated install footprint,
+  enforces the same 90/95 percent safety thresholds as first boot, and keeps the
+  install action unavailable for the RD23 lean profile.
+• Adds an Installed build section to System > Update with project and package
+  versions, source commit/dirty state, staged and installed dates when recorded,
+  install method/source, OpenWrt target, and manifest/package verification state.
+  Unknown provenance remains explicitly unknown.
 • Ships exactly one LuCI Status Overview include so Router Scripts metadata is
   rendered once instead of once per compatibility alias.
 • Lets the package-first installer validate a clean router before a VLESS
