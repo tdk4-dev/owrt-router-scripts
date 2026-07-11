@@ -59,7 +59,8 @@ function render(metadata, attempts) {
 		]),
 		E('span', { 'class': 'router-footer-meta' }, [
 			E('span', { 'class': 'router-footer-pill' }, _('Support: %s').format(humanize(metadata.support_level))),
-			E('span', { 'class': 'router-footer-pill' }, _('Registration: %s').format(humanize(metadata.registration_state)))
+			E('span', { 'class': 'router-footer-pill' }, _('Registration: %s').format(humanize(metadata.registration_state))),
+			E('span', { 'class': 'router-footer-pill' }, _('Support access: %s').format(humanize(metadata.support_access_state || 'disabled')))
 		])
 	);
 }

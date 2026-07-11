@@ -8,8 +8,8 @@ Router UI 0.8.0
   a timeout warning.
 • Adds the dark first-boot setup assistant for custom images, including account,
   Wi-Fi, VPN, AdGuardHome filter, Tailscale/Headscale, and review/apply steps.
-• Replaces the setup assistant's text badge with a consistent built-in burger
-  mark that does not depend on host emoji fonts.
+• Replaces the setup assistant's text badge with the literal burger emoji and
+  removes the surrounding icon tile and padding.
 • Adds the owner preparation panel for pre-handoff checks, owner tailnet login,
   customer access policy, backup validation, preview Wi-Fi radios, and sealing.
 • Adds custom ImageBuilder support for x86/64 and Xiaomi AX3000T/RD23 packages,
@@ -20,9 +20,9 @@ Router UI 0.8.0
 • Adds preserved UCI router metadata for installation method, support level,
   registration/support state, local random router ID, owner-prep state, and
   sealing. Only a shortened router ID is exposed by helpers and UI.
-• Shows a non-secret Router Scripts metadata label on Status Overview and the
-  VPN page. IPKs intentionally do not own LuCI theme footer files; literal
-  footer injection remains deferred until a package-safe hook is proven.
+• Shows non-secret Router Scripts metadata on Status Overview, the VPN page,
+  and the existing LuCI footer through project-owned shared JavaScript. IPKs
+  intentionally do not own or overwrite LuCI theme footer files.
 • Fixes first-boot root password handling so LuCI and SSH authenticate with the
   password entered in the setup wizard.
 • Fixes first-boot VLESS enablement when direct routing rules are empty, and
@@ -30,6 +30,7 @@ Router UI 0.8.0
 • Makes AdGuardHome an explicit opt-in first-boot component, defaulting off for
   memory-constrained routers. Skipping it preserves existing service and DNS
   state; images that include AdGuardHome can enable it and choose filters.
+  Xiaomi AX3000T/RD23 images exclude it and hide/reject the setup option.
 • Ships exactly one LuCI Status Overview include so Router Scripts metadata is
   rendered once instead of once per compatibility alias.
 • Lets the package-first installer validate a clean router before a VLESS

@@ -177,7 +177,9 @@ verify:
 - `opkg status` reports the staged package versions.
 
 For RD23 targets, perform static ImageBuilder validation until hardware boot
-testing is available.
+testing is available. Use `image/openwrt-rd23-packages.txt`; it intentionally
+excludes AdGuardHome, and the RD23 first-boot hardware policy hides and rejects
+AdGuard installation.
 
 ## Rollback and Recovery
 

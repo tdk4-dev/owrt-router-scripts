@@ -393,6 +393,8 @@ For each image archive:
 5. For RD23/Xiaomi AX3000:
    - perform static ImageBuilder validation;
    - inspect included packages and metadata;
+   - confirm `image/openwrt-rd23-packages.txt` excludes AdGuardHome and the
+     setup/backend hardware policy hides and rejects its installation;
    - do not claim hardware verification unless booted on actual hardware.
 
 ## Evidence Template

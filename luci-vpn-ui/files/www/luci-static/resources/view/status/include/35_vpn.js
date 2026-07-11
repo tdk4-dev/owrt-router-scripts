@@ -39,6 +39,8 @@ return baseclass.extend({
 			_('Installation method'), metadata.install_method || '-',
 			_('Support level'), metadata.support_level || '-',
 			_('Registration state'), metadata.registration_state || '-',
+			_('Support access'), metadata.support_access_state || _('disabled'),
+			_('Direct rules channel'), metadata.direct_rules_channel || '-',
 			_('Router ID'), metadata.router_id_short || '-',
 			_('Service status'), state,
 			_('Selected configuration'), vpn.selected_name || '-',

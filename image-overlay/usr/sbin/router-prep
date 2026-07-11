@@ -7,6 +7,7 @@ POLICY_FILE="$STATE_DIR/customer-policy.conf"
 SEALED_FILE="$STATE_DIR/sealed"
 PLACEHOLDER_WIFI_FILE="$STATE_DIR/placeholder-wifi"
 VPN_UI_BIN="${ROUTER_PREP_VPN_UI_BIN:-/usr/sbin/vpn-ui}"
+ROUTER_PREP_HARDWARE_PROFILE="${ROUTER_PREP_HARDWARE_PROFILE:-}"
 
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
@@ -17,16 +18,18 @@ json_string() {
 }
 
 ensure_state() {
+  local default_adguard=1
+  [ "$(hardware_profile)" = "xiaomi-ax3000t-rd23" ] && default_adguard=0
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
   if [ ! -f "$POLICY_FILE" ]; then
-    cat > "$POLICY_FILE" <<'EOF'
+    cat > "$POLICY_FILE" <<EOF
 INSTALL_MODE='owner-prepared-standard'
 CUSTOMER_VPN='1'
 CUSTOMER_TAILSCALE='0'
 CUSTOMER_UPDATES='1'
 CUSTOMER_PACKAGES='0'
-CUSTOMER_ADGUARD='1'
+CUSTOMER_ADGUARD='$default_adguard'
 SUPPORT_ACCESS='0'
 SUPPORT_LEVEL='standard'
 REGISTRATION_STATE='support-disabled'
@@ -34,6 +37,18 @@ EOF
     chmod 600 "$POLICY_FILE"
   fi
   migrate_policy_metadata_fields
+}
+
+hardware_profile() {
+  local board="${ROUTER_PREP_HARDWARE_PROFILE:-}"
+  [ -n "$board" ] || board="$(sed -n '1p' /tmp/sysinfo/board_name 2>/dev/null || true)"
+  if [ -z "$board" ] && command -v ubus >/dev/null 2>&1 && command -v jsonfilter >/dev/null 2>&1; then
+    board="$(ubus call system board 2>/dev/null | jsonfilter -e '@.board_name' 2>/dev/null || true)"
+  fi
+  case "$board" in
+    xiaomi-ax3000t-rd23|*xiaomi*ax3000t*|*mi-router-ax3000t*|*rd23*) printf '%s' xiaomi-ax3000t-rd23 ;;
+    *) printf '%s' generic ;;
+  esac
 }
 
 policy_value() {
@@ -87,9 +102,9 @@ valid_registration_state() {
 }
 
 sync_router_metadata() {
-  local mode="$1" support_level="$2" registration="$3"
+  local mode="$1" support_level="$2" registration="$3" support_access="${4:-0}"
   [ -x "$VPN_UI_BIN" ] || return 0
-  "$VPN_UI_BIN" metadata-set "$mode" "$support_level" "$registration" 1 0 >/dev/null
+  "$VPN_UI_BIN" metadata-set "$mode" "$support_level" "$registration" 1 "$support_access" >/dev/null
 }
 
 new_token() {
@@ -172,6 +187,10 @@ write_policy() {
     printf 'invalid registration state: %s\n' "$registration" >&2
     exit 1
   }
+  if [ "$adguard" = "1" ] && [ "$(hardware_profile)" = "xiaomi-ax3000t-rd23" ]; then
+    printf 'AdGuardHome is deferred for Xiaomi AX3000T/RD23 and cannot be enabled in customer policy.\n' >&2
+    exit 1
+  fi
   cat > "$POLICY_FILE" <<EOF
 INSTALL_MODE='$mode'
 CUSTOMER_VPN='$vpn'
@@ -184,7 +203,7 @@ SUPPORT_LEVEL='$support_level'
 REGISTRATION_STATE='$registration'
 EOF
   chmod 600 "$POLICY_FILE"
-  sync_router_metadata "$mode" "$support_level" "$registration"
+  sync_router_metadata "$mode" "$support_level" "$registration" "$support"
 }
 
 apply_policy() {

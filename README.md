@@ -74,6 +74,12 @@ boot layout:
 - `xiaomi-ax3000t-ubootmod-openwrt-fin0` for routers converted to OpenWrt's
   U-Boot layout.
 
+RD23 images use the lean `image/openwrt-rd23-packages.txt` profile. They do not
+include AdGuardHome, and first-boot setup hides and rejects that optional step
+for the RD23 hardware profile. Its limited persistent flash is reserved for
+the core router, LuCI, Xray, and update/support tooling. This is source/static
+policy validation only until an RD23 is boot-tested; it is not a hardware claim.
+
 Use LuCI or `sysupgrade` with the extracted factory/sysupgrade image that
 matches the router's current installation method. Do not flash the ubootmod
 image onto a stock-layout router unless it has been converted first.

@@ -63,6 +63,8 @@ const state = {
   filters: [],
   wifiRadios: [],
   adguardAvailable: true,
+  adguardVisible: true,
+  adguardDeferredReason: '',
   adguardCanInstall: false,
   adguardInstalling: false,
   adguardStorage: null,
@@ -882,7 +884,9 @@ function renderReview() {
         ].filter(Boolean).join(' + ')}, ${state.form.wifi.security})`
         : 'Disabled')}
       ${reviewRow('VPN', vpn.enabled ? 'Enabled with VLESS profile' : 'Disabled on first boot')}
-      ${reviewRow('AdGuardHome', state.form.adguard.enabled && state.adguardAvailable ? `Enabled with ${selected.length} filters` : 'Skipped')}
+      ${reviewRow('AdGuardHome', !state.adguardVisible
+        ? (state.adguardDeferredReason || 'Deferred for this hardware profile')
+        : (state.form.adguard.enabled && state.adguardAvailable ? `Enabled with ${selected.length} filters` : 'Skipped'))}
       ${reviewRow('Tailscale', tailscale.enabled ? `Enabled with ${tailscale.loginServer}` : 'Skipped')}
       ${reviewRow('Secrets', 'Passwords, VLESS links, and preauth keys are not returned after submission.')}
     </div>
@@ -916,7 +920,9 @@ function renderApplied() {
     <div class="review">
       ${reviewRow('Apply ID', apply.id)}
       ${reviewRow('Applied at', apply.appliedAt)}
-      ${reviewRow('AdGuard', adguardEnabled ? 'Installed and configured' : 'Skipped')}
+      ${reviewRow('AdGuard', !state.adguardVisible
+        ? (state.adguardDeferredReason || 'Deferred for this hardware profile')
+        : (adguardEnabled ? 'Installed and configured' : 'Skipped'))}
       ${reviewRow('Router reset', 'Available later in System -> Reset.')}
     </div>
     <div class="link-row">
@@ -1343,6 +1349,8 @@ async function bootstrap() {
   state.router = data.router || state.router;
   state.form.router.hostname = data.router?.hostname || state.form.router.hostname;
   state.filters = data.adguard?.filters || [];
+  state.adguardVisible = data.adguard?.visible ?? true;
+  state.adguardDeferredReason = data.adguard?.deferredReason || '';
   state.adguardAvailable = data.adguard?.available ?? true;
   state.adguardCanInstall = data.adguard?.canInstall ?? false;
   state.adguardStorage = data.adguard?.storage || null;
@@ -1363,7 +1371,13 @@ async function bootstrap() {
     completedPhases: Array.isArray(status.completedPhases) ? status.completedPhases : []
   };
   restoreDraft();
-  if (!state.adguardAvailable)
+  if (!state.adguardVisible) {
+    const adguardStep = steps.findIndex(item => item.id === 'adguard');
+    if (adguardStep >= 0)
+      steps.splice(adguardStep, 1);
+    state.step = Math.min(state.step, steps.length - 1);
+  }
+  if (!state.adguardVisible || !state.adguardAvailable)
     state.form.adguard.enabled = false;
   if (state.progress.inProgress)
     state.errors = ['Setup was interrupted. Completed service phases will be skipped; root credentials will be verified again.'];

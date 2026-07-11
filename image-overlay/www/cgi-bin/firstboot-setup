@@ -13,6 +13,7 @@ FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
 ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
 ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
 ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/firstboot-adguard-install.lock}"
+FIRSTBOOT_HARDWARE_PROFILE="${FIRSTBOOT_HARDWARE_PROFILE:-}"
 ROUTER_RESET_STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
 VPN_UI_BIN="${VPN_UI_BIN:-/usr/sbin/vpn-ui}"
 JSONFILTER_BIN="${JSONFILTER_BIN:-jsonfilter}"
@@ -139,6 +140,24 @@ adguard_available() {
   [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1
 }
 
+hardware_profile() {
+  local board="${FIRSTBOOT_HARDWARE_PROFILE:-}"
+  if [ -z "$board" ]; then
+    board="$(sed -n '1p' /tmp/sysinfo/board_name 2>/dev/null || true)"
+  fi
+  if [ -z "$board" ] && command -v "$UBUS_BIN" >/dev/null 2>&1; then
+    board="$($UBUS_BIN call system board 2>/dev/null | $JSONFILTER_BIN -e '@.board_name' 2>/dev/null || true)"
+  fi
+  case "$board" in
+    xiaomi-ax3000t-rd23|*xiaomi*ax3000t*|*mi-router-ax3000t*|*rd23*) printf '%s' xiaomi-ax3000t-rd23 ;;
+    *) printf '%s' generic ;;
+  esac
+}
+
+adguard_allowed_for_hardware() {
+  [ "$(hardware_profile)" != "xiaomi-ax3000t-rd23" ]
+}
+
 measure_adguard_storage() {
   local estimate="${1:-$ADGUARD_ESTIMATE_BYTES}"
   local values total_kb used_kb free_kb projected_tenths used_tenths
@@ -214,6 +233,7 @@ install_adguard() {
   local installed_size storage_json
 
   [ ! -f "$COMPLETE_FILE" ] || fail "Initial setup is already complete."
+  adguard_allowed_for_hardware || fail "AdGuardHome is deferred for Xiaomi AX3000T/RD23 because its flash budget is reserved for the core router software."
   if adguard_available; then
     measure_adguard_storage 0
     storage_json="$(adguard_storage_json)"
@@ -257,10 +277,23 @@ install_adguard() {
 }
 
 bootstrap() {
-  local radios adguard_available_json adguard_can_install_json storage_json router_hostname
+  local radios adguard_available_json adguard_can_install_json adguard_visible_json storage_json router_hostname profile firmware_label deferred_reason
   radios="$(wifi_radios_json)"
+  profile="$(hardware_profile)"
+  if [ "$profile" = "xiaomi-ax3000t-rd23" ]; then
+    firmware_label="OpenWrt 24.10.5 / Xiaomi AX3000T RD23"
+  else
+    firmware_label="OpenWrt 24.10.5 x86/64"
+  fi
+  adguard_visible_json=true
+  deferred_reason=""
   adguard_available_json=false
-  if adguard_available; then
+  if ! adguard_allowed_for_hardware; then
+    adguard_visible_json=false
+    deferred_reason="Deferred for Xiaomi AX3000T/RD23: persistent flash is reserved for core router functions."
+    measure_adguard_storage 0
+    adguard_can_install_json=false
+  elif adguard_available; then
     adguard_available_json=true
     measure_adguard_storage 0
     adguard_can_install_json=false
@@ -273,7 +306,7 @@ bootstrap() {
   [ -n "$router_hostname" ] || router_hostname="$ROUTER_HOSTNAME"
   header_json "200 OK"
   cat <<EOF
-{"ok":true,"data":{"router":{"hostname":"$(json_escape "$router_hostname")","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","wifiEnabled":false,"wifiSsid":"OpenWrt","wifiCountry":"US","vpnEnabled":true,"adguardEnabled":false,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"wifi":{"radios":$radios},"adguard":{"available":$adguard_available_json,"canInstall":$adguard_can_install_json,"storage":$storage_json,"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
+{"ok":true,"data":{"router":{"hostname":"$(json_escape "$router_hostname")","lanIp":"10.77.0.1","firmware":"$(json_escape "$firmware_label")","luciPath":"/cgi-bin/luci/","hardwareProfile":"$(json_escape "$profile")"},"defaults":{"accountLogin":"root","wifiEnabled":false,"wifiSsid":"OpenWrt","wifiCountry":"US","vpnEnabled":true,"adguardEnabled":false,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"wifi":{"radios":$radios},"adguard":{"visible":$adguard_visible_json,"deferredReason":"$(json_escape "$deferred_reason")","available":$adguard_available_json,"canInstall":$adguard_can_install_json,"storage":$storage_json,"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
 EOF
 }
 
@@ -843,6 +876,9 @@ apply_setup() {
   vpn_enabled="$(json_get '@.vpn.enabled')"
   vless="$(json_get '@.vpn.vlessUrl')"
   adguard_enabled="$(json_get '@.adguard.enabled')"
+  if bool_true "$adguard_enabled" && ! adguard_allowed_for_hardware; then
+    fail "AdGuardHome is deferred for Xiaomi AX3000T/RD23 and cannot be enabled by first-boot setup."
+  fi
   selected="$(json_list '@.adguard.selectedFilterIds[*]' | tr '\n' ' ')"
   tailscale_enabled="$(json_get '@.tailscale.enabled')"
   tailscale_url="$(json_get '@.tailscale.loginServer')"

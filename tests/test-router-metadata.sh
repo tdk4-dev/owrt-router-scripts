@@ -72,6 +72,7 @@ for expected in \
   "option install_method 'manual-ipk-install'" \
   "option support_level 'self-managed'" \
   "option registration_state 'local-only'" \
+  "option direct_rules_channel 'stable'" \
   "option support_visible '1'" \
   "option support_tailnet_enabled '0'" \
   "option footer_enabled '1'" \
@@ -88,8 +89,10 @@ printf '%s\n' "$defaults" | grep -q '"version":"0.8.0"'
 printf '%s\n' "$defaults" | grep -q '"install_method":"manual-ipk-install"'
 printf '%s\n' "$defaults" | grep -q '"support_level":"self-managed"'
 printf '%s\n' "$defaults" | grep -q '"registration_state":"local-only"'
+printf '%s\n' "$defaults" | grep -q '"direct_rules_channel":"stable"'
+printf '%s\n' "$defaults" | grep -q '"support_access_state":"disabled"'
 printf '%s\n' "$defaults" | grep -q '"router_id_short":"pr-[0-9a-f][0-9a-f]*"'
-printf '%s\n' "$defaults" | grep -q '"footer_label":"Router Scripts v0.8.0 (manual-ipk-install, support: self-managed, registration: local-only)"'
+printf '%s\n' "$defaults" | grep -q '"footer_label":"Router Scripts v0.8.0 (manual-ipk-install, support: self-managed, registration: local-only, support access: disabled)"'
 
 full_router_id="$(sed -n 's/^premier_router.router.router_id=//p' "$FAKE_STATE")"
 [ -n "$full_router_id" ]
@@ -111,7 +114,8 @@ managed="$(run_vpn_ui footer-info)"
 printf '%s\n' "$managed" | grep -q '"install_method":"owner-prepared-managed"'
 printf '%s\n' "$managed" | grep -q '"support_level":"managed"'
 printf '%s\n' "$managed" | grep -q '"registration_state":"support-enabled"'
-printf '%s\n' "$managed" | grep -q '"support_tailnet_enabled":false'
+printf '%s\n' "$managed" | grep -q '"support_tailnet_enabled":true'
+printf '%s\n' "$managed" | grep -q '"support_access_state":"enabled"'
 
 ROUTER_PREP_STATE_DIR="$TMP_DIR/router-prep" \
 ROUTER_PREP_VPN_UI_BIN="$TMP_DIR/bin/vpn-ui" \

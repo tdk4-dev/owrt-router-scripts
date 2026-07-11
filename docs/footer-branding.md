@@ -45,8 +45,7 @@ vpn-ui footer-info
 
 The complete router ID is never returned. Only `router_id_short` is exposed.
 The persistent source of truth is UCI package `/etc/config/premier_router`.
-Adding text to the theme-owned global LuCI page footer remains deferred until a
-supported hook or package-diversion mechanism is proven on clean install,
-upgrade, and removal. The panel branding strip is the package-safe v0.8
-implementation. Do not copy theme footer templates from this project into an
-IPK.
+The package-safe v0.8 implementation decorates the existing LuCI footer at
+runtime from project-owned shared JavaScript. It does not replace the footer or
+own a theme path, so the original LuCI/OpenWrt attribution remains present.
+Do not copy theme footer templates from this project into an IPK.

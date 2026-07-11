@@ -95,6 +95,11 @@ metadata_valid_footer_mode() {
   return 1
 }
 
+metadata_valid_direct_rules_channel() {
+  case "$1" in stable|beta|custom|unknown) return 0 ;; esac
+  return 1
+}
+
 metadata_random_id() {
   local value
   value=""
@@ -135,6 +140,7 @@ ensure_router_metadata() {
   metadata_ensure_value install_method manual-ipk-install metadata_valid_install_method
   metadata_ensure_value support_level self-managed metadata_valid_support_level
   metadata_ensure_value registration_state local-only metadata_valid_registration_state
+  metadata_ensure_value direct_rules_channel stable metadata_valid_direct_rules_channel
   metadata_ensure_value support_visible 1 metadata_valid_bool
   metadata_ensure_value support_tailnet_enabled 0 metadata_valid_bool
   metadata_ensure_value footer_enabled 1 metadata_valid_bool
@@ -148,7 +154,7 @@ ensure_router_metadata() {
 }
 
 router_metadata_json_members() {
-  local version install support registration router_id router_id_short footer_label
+  local version install support registration direct_rules router_id router_id_short footer_label support_access_state
   local support_visible support_tailnet footer_enabled footer_mode prepared sealed
 
   version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
@@ -157,6 +163,7 @@ router_metadata_json_members() {
     install="$(metadata_get install_method)"
     support="$(metadata_get support_level)"
     registration="$(metadata_get registration_state)"
+    direct_rules="$(metadata_get direct_rules_channel)"
     router_id="$(metadata_get router_id)"
     support_visible="$(metadata_get support_visible)"
     support_tailnet="$(metadata_get support_tailnet_enabled)"
@@ -168,6 +175,7 @@ router_metadata_json_members() {
     install="unknown"
     support="none"
     registration="unknown"
+    direct_rules="unknown"
     router_id=""
     support_visible="1"
     support_tailnet="0"
@@ -177,7 +185,8 @@ router_metadata_json_members() {
     sealed="0"
   fi
   router_id_short="$(printf '%s' "$router_id" | cut -c 1-11)"
-  footer_label="Router Scripts v$version ($install, support: $support, registration: $registration)"
+  [ "$support_tailnet" = "1" ] && support_access_state=enabled || support_access_state=disabled
+  footer_label="Router Scripts v$version ($install, support: $support, registration: $registration, support access: $support_access_state)"
 
   printf '"version":'
   json_string "$version"
@@ -187,12 +196,16 @@ router_metadata_json_members() {
   json_string "$support"
   printf ',"registration_state":'
   json_string "$registration"
+  printf ',"direct_rules_channel":'
+  json_string "$direct_rules"
   printf ',"router_id_short":'
   json_string "$router_id_short"
   printf ',"footer_label":'
   json_string "$footer_label"
   printf ',"support_visible":%s' "$([ "$support_visible" = "1" ] && printf true || printf false)"
   printf ',"support_tailnet_enabled":%s' "$([ "$support_tailnet" = "1" ] && printf true || printf false)"
+  printf ',"support_access_state":'
+  json_string "$support_access_state"
   printf ',"footer_enabled":%s' "$([ "$footer_enabled" = "1" ] && printf true || printf false)"
   printf ',"footer_mode":'
   json_string "$footer_mode"

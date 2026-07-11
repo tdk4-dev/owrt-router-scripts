@@ -29,11 +29,20 @@ measure_adguard_storage 33554432
 [ "$ADGUARD_STORAGE_RISK" = blocked ]
 [ "$ADGUARD_CAN_INSTALL" = false ]
 
+FIRSTBOOT_HARDWARE_PROFILE=xiaomi-ax3000t-rd23
+[ "$(hardware_profile)" = xiaomi-ax3000t-rd23 ]
+if adguard_allowed_for_hardware; then
+  printf 'RD23 must reject first-boot AdGuard installation\n' >&2
+  exit 1
+fi
+FIRSTBOOT_HARDWARE_PROFILE=generic
+
 validate_router_hostname 'premier-router-01'
 invalid_hostname="$(validate_router_hostname '-unsafe-name')"
 printf '%s\n' "$invalid_hostname" | grep -Fq 'cannot begin or end with a hyphen'
 
 grep -q 'adguard-install) install_adguard' "$SETUP"
+grep -q 'adguard_allowed_for_hardware' "$SETUP"
 grep -q 'opkg install "$ADGUARD_PACKAGE"' "$SETUP"
 grep -A4 'if adguard_available; then' "$SETUP" | grep -q 'measure_adguard_storage 0'
 if grep -Eq 'opkg[[:space:]]+upgrade' "$SETUP"; then

@@ -69,6 +69,8 @@ grep -q 'metadata-set)' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
 grep -q "option install_method 'manual-ipk-install'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
 grep -q "option support_level 'self-managed'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
 grep -q "option registration_state 'local-only'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
+grep -q "option direct_rules_channel 'stable'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
+grep -q 'support_access_state' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
 if command -v stat >/dev/null 2>&1; then
   mode="$(stat -c '%a' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf" 2>/dev/null ||
     stat -f '%Lp' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf")"
@@ -96,6 +98,7 @@ grep -q '/status/include/_35_vpn.js' "$TMP_DIR/luci-app-premier-router/control/p
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-dark/footer.ut" ]
 [ ! -e "$TMP_DIR/luci-app-premier-router/data/usr/share/ucode/luci/template/themes/bootstrap-light/footer.ut" ]
 grep -q "\['footer-info'\]" "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/status/include/35_vpn.js"
+grep -q 'Support access' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/tools/router_footer.js"
 grep -q 'router_metadata' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/vpn.js"
 grep -q 'adguard-status' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js"
 grep -q 'Open AdGuardHome web panel' "$TMP_DIR/luci-app-premier-router/data/www/luci-static/resources/view/network/adguard.js"
@@ -128,6 +131,8 @@ grep -q 'grid-template-columns: repeat(6' "$TMP_DIR/premier-router-setup/data/ww
 grep -q 'grid-template-columns: minmax(0, 1fr)' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
 grep -q 'background: transparent' "$TMP_DIR/premier-router-setup/data/www/setup/styles.css"
 grep -q 'adguard-install) install_adguard' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
+grep -q 'adguard_allowed_for_hardware' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
+grep -q "steps.splice(adguardStep, 1)" "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'verify_tailscale_registration' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
 grep -q 'name="adguard-enabled"' "$TMP_DIR/premier-router-setup/data/www/setup/app.js"
 grep -q 'adguardEnabled' "$TMP_DIR/premier-router-setup/data/www/cgi-bin/firstboot-setup"
