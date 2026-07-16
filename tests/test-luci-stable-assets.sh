@@ -6,6 +6,7 @@ VIEW_DIR="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view"
 MENU="$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json"
 INSTALLER="$ROOT_DIR/luci-vpn-ui/install.sh"
 RELEASE_INSTALLER="$ROOT_DIR/install-router-ui-release.sh"
+BUNDLE_BUILDER="$ROOT_DIR/make-vpn-ui-release-bundle.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
 PLAIN_INCLUDE="$VIEW_DIR/status/include/35_vpn.js"
 UNDERSCORE_INCLUDE="$VIEW_DIR/status/include/_35_vpn.js"
@@ -57,5 +58,7 @@ historical_view="$(printf '%s\n' '{"path":"system/update-0-7-9"}' | extract_upda
 [ -z "$(printf '%s\n' '{"path":"system/other-update"}' | extract_update_view)" ]
 grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
 grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
+grep -q '^export COPYFILE_DISABLE=1$' "$BUNDLE_BUILDER"
+grep -q 'tar --no-xattrs ' "$BUNDLE_BUILDER"
 
 printf 'Stable LuCI asset checks passed\n'
