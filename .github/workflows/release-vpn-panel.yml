@@ -33,7 +33,6 @@ jobs:
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/_35_vpn.js
           sh tests/test-vpn-hotfixes.sh
           sh tests/test-luci-stable-assets.sh
           node tests/test-tailscale-ping-ui.mjs

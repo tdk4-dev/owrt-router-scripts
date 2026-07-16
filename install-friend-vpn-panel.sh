@@ -53,7 +53,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER_HOST" '
   test -f /www/luci-static/resources/view/network/tailscale.js
   test -f /www/luci-static/resources/view/system/update.js
   test -f /www/luci-static/resources/view/status/include/35_vpn.js
-  test -f /www/luci-static/resources/view/status/include/_35_vpn.js
+  test ! -e /www/luci-static/resources/view/status/include/_35_vpn.js
 '
 
 printf '\nFriend router panel installation completed.\n'

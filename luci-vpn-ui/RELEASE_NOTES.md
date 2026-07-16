@@ -6,6 +6,8 @@ Router UI 0.7.9.1
 • Fixes standalone release validation for the stable unversioned
   `system/update` LuCI route introduced in 0.7.9 while retaining support for
   older version-suffixed Update routes.
+• Fixes the VPN service status card appearing twice on LuCI 24.10 Overview by
+  installing one canonical status include and removing the obsolete alias.
 • Keeps VPN and automatic switching disabled on an unconfigured router and
   does not enroll Tailscale or install AdGuardHome.
 • Retains the stable LuCI assets, mandatory verified backups, automatic
