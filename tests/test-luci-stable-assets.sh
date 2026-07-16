@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VIEW_DIR="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view"
 MENU="$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json"
 INSTALLER="$ROOT_DIR/luci-vpn-ui/install.sh"
+RELEASE_INSTALLER="$ROOT_DIR/install-router-ui-release.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
 PLAIN_INCLUDE="$VIEW_DIR/status/include/35_vpn.js"
 UNDERSCORE_INCLUDE="$VIEW_DIR/status/include/_35_vpn.js"
@@ -40,5 +41,9 @@ grep -q 'status/include/35_vpn.js' "$INSTALLER"
 grep -q 'status/include/_35_vpn.js' "$INSTALLER"
 grep -q 'rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js' "$INSTALLER"
 grep -q 'rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js' "$INSTALLER"
+
+update_view="$(sed -n 's/.*"path":[[:space:]]*"\(system\/update[^"]*\)".*/\1/p' "$MENU" | sed -n '1p')"
+[ "$update_view" = "system/update" ]
+grep -Fq '\(system\/update[^"]*\)' "$RELEASE_INSTALLER"
 
 printf 'Stable LuCI asset checks passed\n'
