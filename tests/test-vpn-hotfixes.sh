@@ -32,7 +32,8 @@ grep -q 'interval: 24h' "$SETUP_CGI"
 grep -q '"configured":false' "$HELPER"
 grep -q 'configuration is not enabled' "$HELPER"
 grep -q '"configured":true' "$HELPER"
-grep -Fq '\(system\/update[^"]*\)' "$RELEASE_INSTALLER"
+grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
+grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
 
 count="$(grep -c 'ui.addNotification' "$VIEW")"
 [ "$count" -eq 1 ] || {

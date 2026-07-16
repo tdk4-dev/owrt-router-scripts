@@ -41,8 +41,21 @@ grep -q 'rm -f /www/luci-static/resources/view/status/include/_35_vpn.js' "$INST
 grep -q 'rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js' "$INSTALLER"
 grep -q 'rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js' "$INSTALLER"
 
-update_view="$(sed -n 's/.*"path":[[:space:]]*"\(system\/update[^"]*\)".*/\1/p' "$MENU" | sed -n '1p')"
+extract_update_view() {
+  sed -n \
+    -e 's/.*"path":[[:space:]]*"\(system\/update\)".*/\1/p' \
+    -e 's/.*"path":[[:space:]]*"\(system\/update-[^"][^"]*\)".*/\1/p' |
+    sed -n '1p'
+}
+
+update_view="$(extract_update_view < "$MENU")"
 [ "$update_view" = "system/update" ]
-grep -Fq '\(system\/update[^"]*\)' "$RELEASE_INSTALLER"
+historical_view="$(printf '%s\n' '{"path":"system/update-0-7-9"}' | extract_update_view)"
+[ "$historical_view" = "system/update-0-7-9" ]
+[ -z "$(printf '%s\n' '{"path":"system/updateanything"}' | extract_update_view)" ]
+[ -z "$(printf '%s\n' '{"path":"system/update/other"}' | extract_update_view)" ]
+[ -z "$(printf '%s\n' '{"path":"system/other-update"}' | extract_update_view)" ]
+grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
+grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
 
 printf 'Stable LuCI asset checks passed\n'
