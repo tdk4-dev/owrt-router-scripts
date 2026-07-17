@@ -1,5 +1,7 @@
-Router UI 0.7.9.1
+Router UI 0.7.10
 
+• Supersedes the already shipped 0.7.9.1 candidate with a strictly newer
+  updater-visible version because the final payload is materially different.
 • Fixes clean installations with no VLESS profile yet configured. Backend
   health checks now report a healthy, disabled state instead of forcing the
   transactional installer to roll back.
