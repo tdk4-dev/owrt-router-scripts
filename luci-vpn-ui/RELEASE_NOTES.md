@@ -1,4 +1,16 @@
-Router UI 0.7.10
+Router UI 0.7.11
+
+Router UI 0.7.11 is an updater migration bridge built from the exact 0.7.10
+product baseline. It introduces canonical OpenWrt packages, signed release
+metadata, target-owned validation, persistent recovery, exact rollback, and a
+generic fail-closed legacy rescue path. It intentionally contains no 0.8
+product features.
+
+The production signing key and physical-router gates remain publication
+prerequisites. Development builds are signed only with the explicitly marked
+test key and must not be published.
+
+Historical 0.7.10 notes
 
 • Supersedes the already shipped 0.7.9.1 candidate with a strictly newer
   updater-visible version because the final payload is materially different.

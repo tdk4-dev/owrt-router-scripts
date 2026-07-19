@@ -76,6 +76,34 @@ Expected behavior:
 - opkg/file state remains explainable;
 - recovery command is valid.
 
+For protocol v2, inject interruption before mutation, after each IPK, during
+target validation and commit, at rollback start, after each rollback IPK, and
+during final cleanup. Reboot after every mutating interruption and run
+`/etc/init.d/premier-router-update-recovery start`. Accept only a committed,
+target-validated state or an exact, source-validated rollback. Preserve the
+journal, validator JSON, package status, config hashes, service state, and boot
+ID as evidence.
+
+## 0.7.11 transition matrix
+
+Create disposable x86 baselines from the exact downloaded release artifacts
+for 0.7.1, 0.7.9, 0.7.10, and every other source marked supported in
+`router-ui-update-transition-matrix.md`. For 0.7.9 and 0.7.10, leave the exact
+old updater process in memory while it installs the staged bridge. Confirm its
+own final predicate returns success and no rollback executes. Run generic
+rescue for the other baselines. Then test 0.7.11 to a synthetic signed protocol
+v2 target, exact manual rollback, and boot recovery.
+
+Serve the flat staged directory under both `releases/latest/download` and
+`releases/download/vpn-panel-v0.7.11`. Record the source and target versions,
+transaction ID, status-card count, LuCI route load, protected config hashes,
+package versions, installed manifest hash, recovery archive validation, and
+rollback bundle validation before and after reboot.
+
+Boot the x86 image with at most 300 MB RAM. Extract both RD23 variants and prove
+their embedded canonical IPK hashes. Do not label RD23 hardware verified until
+an explicitly authorized physical device test has occurred.
+
 ## Tailscale / Headscale GUI Coverage
 
 Test both GUI paths:

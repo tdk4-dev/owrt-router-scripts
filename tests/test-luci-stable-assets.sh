@@ -28,19 +28,14 @@ grep -q '"path":[[:space:]]*"network/tailscale"' "$MENU"
 grep -q '"path":[[:space:]]*"system/update"' "$MENU"
 ! grep -Eq '"path":[[:space:]]*"[^"]*[0-9]+-[0-9]+' "$MENU"
 
-grep -q 'resources/view/network/vpn.js' "$WORKFLOW"
-grep -q 'resources/view/network/tailscale.js' "$WORKFLOW"
-grep -q 'resources/view/system/update.js' "$WORKFLOW"
-grep -q 'resources/view/status/include/35_vpn.js' "$WORKFLOW"
+grep -q 'canonical-router-ui-ipks' "$WORKFLOW"
+grep -q 'build-openwrt-custom-image-linux.sh' "$WORKFLOW"
+grep -q 'validate-staged-release.sh' "$WORKFLOW"
 ! grep -q 'resources/view/status/include/_35_vpn.js' "$WORKFLOW"
 
-grep -q 'network/vpn.js' "$INSTALLER"
-grep -q 'network/tailscale.js' "$INSTALLER"
-grep -q 'system/update.js' "$INSTALLER"
-grep -q 'status/include/35_vpn.js' "$INSTALLER"
-grep -q 'rm -f /www/luci-static/resources/view/status/include/_35_vpn.js' "$INSTALLER"
-grep -q 'rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js' "$INSTALLER"
-grep -q 'rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js' "$INSTALLER"
+grep -q '0.7.9|0.7.10' "$INSTALLER"
+grep -q 'legacy-bridge legacy-worker' "$INSTALLER"
+grep -q 'router-release-manifest.json.sig' "$INSTALLER"
 
 extract_update_view() {
   sed -n \
@@ -56,9 +51,8 @@ historical_view="$(printf '%s\n' '{"path":"system/update-0-7-9"}' | extract_upda
 [ -z "$(printf '%s\n' '{"path":"system/updateanything"}' | extract_update_view)" ]
 [ -z "$(printf '%s\n' '{"path":"system/update/other"}' | extract_update_view)" ]
 [ -z "$(printf '%s\n' '{"path":"system/other-update"}' | extract_update_view)" ]
-grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
-grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
-grep -q '^export COPYFILE_DISABLE=1$' "$BUNDLE_BUILDER"
-grep -q 'tar --no-xattrs ' "$BUNDLE_BUILDER"
+grep -q 'usign -q -V' "$RELEASE_INSTALLER"
+grep -q 'scripts/stage-router-release.sh' "$BUNDLE_BUILDER"
+grep -q 'transport adapter only' "$BUNDLE_BUILDER"
 
 printf 'Stable LuCI asset checks passed\n'

@@ -1,0 +1,10 @@
+#!/bin/sh /etc/rc.common
+
+START=5
+STOP=89
+
+start() {
+	# Deliberately synchronous: an interrupted application transaction must be
+	# resolved before rpcd, uhttpd, or cron can expose/use mixed state.
+	/usr/sbin/vpn-ui-update recover
+}

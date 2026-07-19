@@ -22,16 +22,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install release-test tools
+        run: sudo apt-get update && sudo apt-get install -y jq usign
+
       - name: Validate shell scripts
         run: |
           sh -n \
             luci-vpn-ui/install.sh \
             luci-vpn-ui/files/usr/sbin/vpn-ui \
             luci-vpn-ui/files/usr/sbin/vpn-ui-update \
+            luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh \
+            luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator \
+            luci-vpn-ui/files/etc/init.d/premier-router-update-recovery \
             install-router-ui-release.sh \
+            rescue-router-ui.sh \
             install-openwrt-vpn-ui.sh \
             install-friend-vpn-panel.sh \
-            make-vpn-ui-release-bundle.sh
+            make-vpn-ui-release-bundle.sh \
+            scripts/build-openwrt-ipks.sh \
+            scripts/stage-router-release.sh \
+            scripts/validate-staged-release.sh \
+            build-openwrt-custom-image-linux.sh \
+            build-openwrt-x86-fin0-image-linux.sh
           bash -n publish-vpn-panel-release.sh
 
       - name: Validate JavaScript
@@ -48,4 +60,8 @@ jobs:
           sh tests/test-vpn-hotfixes.sh
           sh tests/test-luci-stable-assets.sh
           sh tests/test-release-publisher.sh
+          sh tests/test-router-ui-release-v2.sh
+          sh tests/test-updater-transaction-v2.sh
+          sh tests/test-rescue-support-matrix.sh
+          sh tests/test-image-package-identity.sh
           node tests/test-tailscale-ping-ui.mjs
