@@ -1,25 +1,30 @@
-name: Release VPN panel
+name: Validate router release
 
 on:
   push:
     tags:
       - "vpn-panel-v*"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate tag
+      - name: Validate version sources
         run: |
-          version="$(sed -n '1p' luci-vpn-ui/VERSION | tr -d '\r\n')"
-          test "${GITHUB_REF_NAME}" = "vpn-panel-v${version}"
+          app_version="$(sed -n '1p' luci-vpn-ui/VERSION | tr -d '\r\n')"
+          installed_app_version="$(sed -n '1p' luci-vpn-ui/files/usr/share/vpn-ui/version | tr -d '\r\n')"
+          test "$app_version" = "$installed_app_version"
+          if [ -n "${GITHUB_REF_NAME:-}" ] && printf '%s' "$GITHUB_REF_NAME" | grep -q '^vpn-panel-v'; then
+            test "$GITHUB_REF_NAME" = "vpn-panel-v${app_version}"
+          fi
 
-      - name: Validate scripts
+      - name: Validate scripts and LuCI views
         run: |
           sh -n \
             luci-vpn-ui/install.sh \
@@ -28,21 +33,46 @@ jobs:
             install-router-ui-release.sh \
             install-openwrt-vpn-ui.sh \
             install-friend-vpn-panel.sh \
-            make-vpn-ui-release-bundle.sh
+            make-vpn-ui-release-bundle.sh \
+            scripts/build-openwrt-ipks.sh \
+            scripts/stage-router-release.sh \
+            scripts/validate-staged-release.sh
           bash -n publish-vpn-panel-release.sh
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/adguard.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js
+          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
           node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
+
+      - name: Run tests
+        run: |
           sh tests/test-vpn-hotfixes.sh
           sh tests/test-luci-stable-assets.sh
           sh tests/test-release-publisher.sh
+          sh tests/test-openwrt-ipk-packages.sh
+          sh tests/test-release-staging.sh
+          sh tests/test-version-variable-names.sh
+          sh tests/test-luci-status-include.sh
+          sh tests/test-router-reset-ui.sh
+          sh tests/test-firstboot-root-only.sh
+          sh tests/test-firstboot-install-options.sh
+          sh tests/test-firstboot-vless-import.sh
+          sh tests/test-firstboot-wifi.sh
+          sh tests/test-router-prep-policy.sh
+          sh tests/test-router-metadata.sh
+          sh tests/test-adguard-panel.sh
+          sh tests/test-rd23-profile.sh
+          sh tests/test-tailscale-registration.sh
+          sh tests/test-update-release-compat.sh
           node tests/test-tailscale-ping-ui.mjs
 
-      - name: Build release bundle
-        run: ./make-vpn-ui-release-bundle.sh
+      - name: Stage package-first release directory
+        run: ./scripts/stage-router-release.sh
 
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./publish-vpn-panel-release.sh
+      - name: Upload dry-run release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-release-dry-run
+          path: dist/release-v*/

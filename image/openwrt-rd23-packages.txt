@@ -1,0 +1,18 @@
+# Lean OpenWrt 24.10.5 package set for Xiaomi AX3000T / RD23 images.
+# ImageBuilder supplies the device-profile packages and appends project IPKs.
+# AdGuardHome is intentionally deferred: the RD23 flash budget is reserved for
+# core routing, LuCI, Xray, and support tooling.
+cgi-io
+coreutils-base64
+curl
+jsonfilter
+kmod-nft-tproxy
+kmod-tun
+luci
+luci-app-firewall
+luci-ssl
+nftables-json
+rpcd-mod-file
+socat
+tailscale
+xray-core

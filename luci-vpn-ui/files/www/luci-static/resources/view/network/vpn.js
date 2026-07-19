@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var isReadonlyView = !L.hasViewPermission() || null;
@@ -119,6 +120,7 @@ return view.extend({
 	refresh: function(data) {
 		this.data = data;
 		dom.content(document.querySelector('#vpn-ui-root'), this.renderBody(data));
+		routerFooter.apply(data.router_metadata);
 	},
 
 	runAction: function(args, title) {
@@ -129,7 +131,9 @@ return view.extend({
 		return this.callHelper(args).then(L.bind(function(data) {
 			ui.hideModal();
 			this.refresh(data);
-			this.notify(_('VPN settings updated.'));
+			this.notify(data.connection_state === 'failed'
+				? _('Settings saved, but the selected VPN profile could not reach the internet.')
+				: _('VPN settings saved.'));
 		}, this)).catch(function(err) {
 			ui.hideModal();
 			this.notify(err.message || err);
@@ -417,15 +421,41 @@ return view.extend({
 		return this.callHelper(['status']);
 	},
 
+	renderRouterMetadata: function(data) {
+		var metadata = data.router_metadata || {};
+		var rows = [
+			[_('Router Scripts'), metadata.footer_label || '-'],
+			[_('Installation method'), metadata.install_method || '-'],
+			[_('Support level'), metadata.support_level || '-'],
+			[_('Registration state'), metadata.registration_state || '-'],
+			[_('Router ID'), metadata.router_id_short || '-']
+		];
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Installation and support')),
+			E('p', { 'class': 'vpn-muted vpn-section-note' }, _('Support access is explicit metadata. This display does not create a remote tunnel.')),
+			E('table', { 'class': 'table' }, rows.map(function(row) {
+				return E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td left', 'width': '33%' }, row[0]),
+					E('td', { 'class': 'td left' }, row[1])
+				]);
+			}))
+		]);
+	},
+
 	renderGlobal: function(data) {
 		var services = data.services || {};
 		var enabled = !!services.vpn_enabled;
+		var connection = data.connection_state || 'not-tested';
+		var connectionText = connection === 'connected' ? _('Connected') : (connection === 'failed' ? _('Connection failed') : _('Not tested'));
+		var connectionClass = connection === 'connected' ? ' notice' : (connection === 'failed' ? ' warning' : '');
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Global VPN')),
 			E('div', { 'class': 'vpn-global-row' }, [
 				E('div', { 'class': 'vpn-global-state' }, [
 					E('span', { 'class': 'label ' + (enabled ? 'notice' : 'warning') }, enabled ? _('Enabled') : _('Disabled')),
+					E('span', { 'class': 'label' + connectionClass }, connectionText),
 					E('span', { 'class': 'label' }, 'Xray: %s'.format(services.xray || '-')),
 					E('span', { 'class': 'label' }, 'TProxy: %s'.format(services.transparent || '-'))
 				]),
@@ -540,6 +570,7 @@ return view.extend({
 		(data.subscriptions || []).forEach(function(subscription) {
 			subscriptionNames[subscription.id] = subscription.name;
 		});
+		var connection = data.connection_state || 'not-tested';
 		var rows = profiles.map(function(profile) {
 			var selected = !!profile.selected;
 			var ping = profile.ping || '-';
@@ -574,7 +605,9 @@ return view.extend({
 					E('span', { 'class': pingClass }, ping)
 				]),
 				E('td', { 'class': 'td left' }, [
-					E('span', { 'class': 'label' + (selected ? ' notice' : '') }, selected ? _('Enabled') : _('Saved'))
+					E('span', { 'class': 'label' + (selected && connection === 'connected' ? ' notice' : (selected && connection === 'failed' ? ' warning' : '')) }, selected
+						? (connection === 'connected' ? _('Connected') : (connection === 'failed' ? _('Connection failed') : _('Enabled · not tested')))
+						: _('Saved'))
 				]),
 				E('td', { 'class': 'td right' }, [
 					E('button', {
@@ -690,7 +723,7 @@ return view.extend({
 		var auto = data.auto || {};
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Automatic server switching')),
-			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute TCP checks. Periodic optimization switches only for a substantial latency improvement.')),
+			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute internet checks through the active profile. Candidate endpoints are screened before switching, then verified through the proxy.')),
 			E('div', { 'class': 'vpn-settings-grid' }, [
 				E('label', { 'class': 'vpn-check-row' }, [
 					E('input', {
@@ -837,6 +870,7 @@ return view.extend({
 
 	render: function(data) {
 		this.data = data;
+		routerFooter.apply(data.router_metadata);
 
 		return E('div', { 'class': 'cbi-map vpn-ui' }, [
 			E('style', {}, css),

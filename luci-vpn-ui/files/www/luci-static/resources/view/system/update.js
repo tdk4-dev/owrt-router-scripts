@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var css = '\
@@ -18,6 +19,10 @@ var css = '\
 .router-update .update-setting { display:flex; align-items:flex-start; gap:.65rem; padding:.9rem 0; }\
 .router-update .update-setting input { margin-top:.25rem; }\
 .router-update .update-job { border-left:3px solid #09c; padding:.65rem .9rem; margin:1rem 0; background:rgba(0,153,204,.08); }\
+.router-update .build-table { display:grid; grid-template-columns:minmax(11rem,15rem) 1fr; max-width:58rem; border-top:1px solid #444; margin-top:.75rem; }\
+.router-update .build-table dt,.router-update .build-table dd { margin:0; padding:.55rem .7rem; border-bottom:1px solid #444; overflow-wrap:anywhere; }\
+.router-update .build-table dt { opacity:.68; }\
+@media (max-width:600px) { .router-update .build-table { grid-template-columns:1fr; } .router-update .build-table dt { padding-bottom:.1rem; } .router-update .build-table dd { padding-top:.1rem; } }\
 ';
 
 function parseResponse(res) {
@@ -36,20 +41,41 @@ function parseResponse(res) {
 	return data;
 }
 
+function shown(value) {
+	return value === undefined || value === null || value === '' ? _('Unknown') : String(value);
+}
+
+function shownDate(value) {
+	return value ? String(value).replace('T', ' ').replace('Z', ' UTC') : _('Unknown');
+}
+
 return view.extend({
 	callHelper: function(args) {
 		return fs.exec(helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return this.callHelper(['update-status']);
+		return Promise.all([
+			this.callHelper(['update-status']),
+			this.callHelper(['footer-info']),
+			this.callHelper(['installed-build'])
+		]).then(function(result) {
+			result[0].metadata = result[1];
+			result[0].installedBuild = result[2];
+			return result[0];
+		});
 	},
 
 	updateView: function(data) {
+		data.metadata = data.metadata || this.metadata || {};
+		data.installedBuild = data.installedBuild || this.installedBuild || {};
+		this.metadata = data.metadata;
+		this.installedBuild = data.installedBuild;
 		this.data = data;
 		var root = document.querySelector('#router-update-root');
 		if (root)
 			dom.content(root, this.renderBody(data));
+		routerFooter.apply(data.metadata);
 	},
 
 	pollJob: function(kind, failures) {
@@ -134,7 +160,17 @@ return view.extend({
 
 	renderBody: function(data) {
 		var job = data.job || {};
+		var build = data.installedBuild || this.installedBuild || {};
+		var packages = build.packages || {};
 		var busy = job.status === 'starting' || job.status === 'running';
+		var checked = !!data.checked_at;
+		var compatible = !!data.compatible_release;
+		var actionLabel = data.available
+			? _('Download and install')
+			: (data.current_ahead ? _('Ahead of published release') : (checked && !compatible ? _('No compatible update') : _('Up to date')));
+		var statusLabel = data.available
+			? _('Update available')
+			: (data.current_ahead ? _('Ahead of release') : (checked && !compatible ? _('Legacy release only') : _('Up to date')));
 		var checkedNote = data.checked_at
 			? _('Last checked: %s').format(data.checked_at.replace('T', ' ').replace('Z', ' UTC'))
 			: _('Not checked yet');
@@ -165,7 +201,7 @@ return view.extend({
 							if (!busy && data.available)
 								return this.install();
 						}, this)
-					}, data.available ? _('Download and install') : _('Up to date'))
+					}, actionLabel)
 				])
 			]),
 			busy || job.message ? E('div', { 'class': 'update-job' }, [
@@ -186,8 +222,32 @@ return view.extend({
 				]),
 				E('div', { 'class': 'update-card' }, [
 					E('span', { 'class': 'update-card-label' }, _('Status')),
-					E('span', { 'class': 'update-card-value' }, data.available ? _('Update available') : _('Up to date')),
-					E('span', { 'class': 'update-card-note' }, checkedNote)
+					E('span', { 'class': 'update-card-value' }, statusLabel),
+					E('span', { 'class': 'update-card-note' }, data.current_ahead
+						? _('Installed %s is a local/custom package-first build; published latest is %s.').format(data.current || '-', data.latest || '-')
+						: checked && !compatible
+						? _('The server is reachable, but the published release does not contain package-first update metadata.')
+						: checkedNote)
+				])
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Installed build')),
+				E('p', { 'class': 'update-subtitle' }, _('Local package and provenance metadata. Missing values are shown as unknown rather than inferred.')),
+				E('dl', { 'class': 'build-table' }, [
+					E('dt', {}, _('Router Scripts version')), E('dd', {}, shown(build.version)),
+					E('dt', {}, _('Package build version')), E('dd', {}, shown(build.package_version)),
+					E('dt', {}, _('premier-router-core')), E('dd', {}, shown(packages['premier-router-core'])),
+					E('dt', {}, _('luci-app-premier-router')), E('dd', {}, shown(packages['luci-app-premier-router'])),
+					E('dt', {}, _('premier-router-setup')), E('dd', {}, shown(packages['premier-router-setup'])),
+					E('dt', {}, _('Install method')), E('dd', {}, shown(build.install_method)),
+					E('dt', {}, _('Install source')), E('dd', {}, shown(build.install_source)),
+					E('dt', {}, _('Source commit')), E('dd', {}, shown(build.source_commit_short) + (build.source_dirty === true ? ' (' + _('dirty source') + ')' : '')),
+					E('dt', {}, _('Build / staging date')), E('dd', {}, shownDate(build.build_date)),
+					E('dt', {}, _('Installed at')), E('dd', {}, shownDate(build.installed_at)),
+					E('dt', {}, _('OpenWrt')), E('dd', {}, shown(build.openwrt_version) + ' / ' + shown(build.openwrt_target)),
+					E('dt', {}, _('Hardware profile')), E('dd', {}, shown(build.hardware_profile)),
+					E('dt', {}, _('Manifest')), E('dd', {}, build.manifest_present ? _('Recorded locally') : _('Not recorded locally')),
+					E('dt', {}, _('Package verification')), E('dd', {}, shown(build.verification_state))
 				])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
@@ -218,7 +278,10 @@ return view.extend({
 	},
 
 	render: function(data) {
+		this.metadata = data.metadata || {};
+		this.installedBuild = data.installedBuild || {};
 		this.data = data;
+		routerFooter.apply(data.metadata);
 		if (!data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
 			window.setTimeout(L.bind(function() { this.refresh(); }, this), 250);
 		return E('div', { 'class': 'cbi-map router-update' }, [

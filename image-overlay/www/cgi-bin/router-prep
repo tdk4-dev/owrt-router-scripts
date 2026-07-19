@@ -1,0 +1,113 @@
+#!/bin/ash
+set -eu
+
+ROUTER_PREP_BIN="${ROUTER_PREP_BIN:-/usr/sbin/router-prep}"
+PAYLOAD="/tmp/router-prep.$$.json"
+
+header_json() {
+  printf 'Status: %s\r\n' "$1"
+  printf 'Content-Type: application/json\r\n'
+  printf 'Cache-Control: no-store\r\n'
+  printf '\r\n'
+}
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
+}
+
+json_string() {
+  printf '"%s"' "$(json_escape "$1")"
+}
+
+read_body() {
+  local len="${CONTENT_LENGTH:-0}"
+  [ "$len" -gt 0 ] 2>/dev/null || return 0
+  dd bs=1 count="$len" 2>/dev/null
+}
+
+json_get_string() {
+  local key="$1"
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$PAYLOAD" | sed -n '1p'
+}
+
+json_get_bool() {
+  local key="$1"
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\\(true\\|false\\).*/\\1/p" "$PAYLOAD" | sed -n '1p'
+}
+
+ok() {
+  header_json "200 OK"
+  printf '{"ok":true}\n'
+}
+
+fail() {
+  header_json "200 OK"
+  printf '{"ok":false,"error":'
+  json_string "$1"
+  printf '}\n'
+  exit 0
+}
+
+require_token() {
+  local token
+  token="$(json_get_string token)"
+  "$ROUTER_PREP_BIN" authorize "$token" >/dev/null 2>&1 || fail "Preparation token is invalid or sealed."
+}
+
+action="${QUERY_STRING:-}"
+action="${action#action=}"
+action="${action%%&*}"
+
+case "$REQUEST_METHOD" in
+  POST) read_body > "$PAYLOAD" ;;
+  *) : > "$PAYLOAD" ;;
+esac
+
+case "$action" in
+  authorize)
+    require_token
+    ok
+    ;;
+  status)
+    require_token
+    header_json "200 OK"
+    "$ROUTER_PREP_BIN" status
+    ;;
+  policy)
+    require_token
+    mode="$(json_get_string installMode)"
+    vpn="$(json_get_bool customerVpn)"
+    tailscale="$(json_get_bool customerTailscale)"
+    updates="$(json_get_bool customerUpdates)"
+    packages="$(json_get_bool customerPackages)"
+    adguard="$(json_get_bool customerAdguard)"
+    support="$(json_get_bool supportAccess)"
+    support_level="$(json_get_string supportLevel)"
+    registration="$(json_get_string registrationState)"
+    [ "$vpn" = "true" ] && vpn=1 || vpn=0
+    [ "$tailscale" = "true" ] && tailscale=1 || tailscale=0
+    [ "$updates" = "true" ] && updates=1 || updates=0
+    [ "$packages" = "true" ] && packages=1 || packages=0
+    [ "$adguard" = "true" ] && adguard=1 || adguard=0
+    [ "$support" = "true" ] && support=1 || support=0
+    "$ROUTER_PREP_BIN" policy "${mode:-owner-prepared-standard}" "$vpn" "$tailscale" "$updates" "$packages" "$adguard" "$support" "${support_level:-}" "${registration:-}" >/dev/null 2>&1 ||
+      fail "Could not save preparation policy."
+    ok
+    ;;
+  placeholder-wifi)
+    require_token
+    enabled="$(json_get_bool enabled)"
+    [ "$enabled" = "true" ] && "$ROUTER_PREP_BIN" placeholder-wifi on >/dev/null || "$ROUTER_PREP_BIN" placeholder-wifi off >/dev/null
+    ok
+    ;;
+  seal)
+    require_token
+    "$ROUTER_PREP_BIN" seal >/dev/null
+    ok
+    ;;
+  *)
+    fail "Unknown preparation action."
+    ;;
+esac
+
+rm -f "$PAYLOAD"

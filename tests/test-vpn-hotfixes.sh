@@ -12,7 +12,7 @@ RELEASE_INSTALLER="$ROOT_DIR/install-router-ui-release.sh"
 VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.10" ]
+[ "$VERSION" = "0.8.0RC2" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 version_is_newer_definition="$(
@@ -22,7 +22,11 @@ version_is_newer_definition="$(
 eval "$version_is_newer_definition"
 version_is_newer 0.7.10 0.7.9.1
 ! version_is_newer 0.7.10 0.7.10
-version_is_newer 0.8.0 0.7.10
+version_is_newer 0.8.0RC2 0.7.10
+version_is_newer 0.8.0RC2 0.8.0RC1
+version_is_newer 0.8.0 0.8.0RC2
+! version_is_newer 0.8.0RC2 0.8.0
+! version_is_newer 0.8.0RC2 0.8.0RC2
 ! version_is_newer 0.7.9.1 0.7.10
 
 grep -q 'flow_json=""' "$HELPER"
@@ -30,8 +34,13 @@ grep -q '"encryption": "none"\$flow_json' "$HELPER"
 ! grep -q 'P_FLOW="xtls-rprx-vision"' "$HELPER"
 grep -q '"port": "8080"' "$HELPER"
 grep -q 'active_proxy_probe_ms' "$HELPER"
+grep -q "https://api.ipify.org" "$HELPER"
+grep -q "is_ipv4 \"\$value\"" "$HELPER"
+grep -q "connection_state_from_ping" "$HELPER"
+grep -q '"connection_state"' "$HELPER"
+grep -q 'configuration syntax validates; connectivity was not tested' "$HELPER"
 grep -q 'tcp %s\\n' "$HELPER"
-grep -q 'direct_domain_rule_json=""' "$HELPER"
+grep -q 'direct_domain_rule=""' "$HELPER"
 grep -q '\[ -n "$direct_domain_json" \]' "$HELPER"
 grep -q 'XRAY_ACCESS_LOG_MAX_BYTES=1048576' "$HELPER"
 grep -q 'cap_runtime_file "$XRAY_ACCESS_LOG"' "$HELPER"
@@ -43,8 +52,8 @@ grep -q 'interval: 24h' "$SETUP_CGI"
 grep -q '"configured":false' "$HELPER"
 grep -q 'configuration is not enabled' "$HELPER"
 grep -q '"configured":true' "$HELPER"
-grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
-grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
+grep -q '"path".*"system/update"' "$RELEASE_INSTALLER"
+grep -q '/www/luci-static/resources/view/system/update.js' "$RELEASE_INSTALLER"
 
 count="$(grep -c 'ui.addNotification' "$VIEW")"
 [ "$count" -eq 1 ] || {
@@ -53,10 +62,19 @@ count="$(grep -c 'ui.addNotification' "$VIEW")"
 }
 grep -q 'clearNotifications' "$VIEW"
 grep -q "ping.indexOf('tcp ') == 0" "$VIEW"
+grep -q 'Connection failed' "$VIEW"
 
-grep -q 'vless://\*|https://\*' "$SETUP_CGI"
-grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
+grep -q 'vless://\*) import_vless_profile' "$SETUP_CGI"
+grep -q 'https://\*) import_subscription_profile' "$SETUP_CGI"
+grep -q 'VPN_UI_BIN" subscription-add' "$SETUP_CGI"
+grep -q 'could not reach the internet' "$SETUP_CGI"
+grep -q 'verify internet connectivity' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.10 hotfix static checks passed\n'
+VPN_UI_LIB_ONLY=1 . "$HELPER"
+[ "$(connection_state_from_ping '42 ms')" = connected ]
+[ "$(connection_state_from_ping timeout)" = failed ]
+[ "$(connection_state_from_ping 'tcp 42 ms')" = not-tested ]
+
+printf 'VPN 0.8.0RC2 regression checks passed\n'

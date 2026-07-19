@@ -2,18 +2,21 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-VERSION="${VERSION:-24.10.5}"
+APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
+OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 TARGET_DIR="${TARGET_DIR:-x86/64}"
 PROFILE="${PROFILE:-generic}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-512}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.imagebuilder}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
-IB_NAME="openwrt-imagebuilder-$VERSION-x86-64.Linux-x86_64"
+IB_NAME="openwrt-imagebuilder-$OPENWRT_VERSION-x86-64.Linux-x86_64"
 IB_ARCHIVE="$IB_NAME.tar.zst"
-IB_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET_DIR/$IB_ARCHIVE"
+IB_URL="https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/$TARGET_DIR/$IB_ARCHIVE"
 IB_DIR="$WORK_DIR/$IB_NAME"
 OVERLAY="$WORK_DIR/overlay"
 PACKAGE_FILE="$ROOT_DIR/image/openwrt-fin0-packages.txt"
+PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
+PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
 HOST_TOOLS_ROOT="${HOST_TOOLS_ROOT:-$ROOT_DIR/.host-tools/root}"
 
 if [ -x "$HOST_TOOLS_ROOT/usr/bin/gawk" ]; then
@@ -37,11 +40,29 @@ for tool in curl tar zstd make sha256sum; do
   need "$tool"
 done
 
+HOST_BIN="$WORK_DIR/host-bin"
+mkdir -p "$HOST_BIN"
+cat > "$HOST_BIN/sha256" <<'EOF'
+#!/bin/sh
+sha256sum "$@" | awk '{ print $1 }'
+EOF
+chmod 755 "$HOST_BIN/sha256"
+PATH="$HOST_BIN:$PATH"
+export PATH
+
 mkdir -p "$WORK_DIR" "$OUT_DIR"
+
+for pkg in $PROJECT_PACKAGES; do
+  ls "$PROJECT_PACKAGE_DIR/${pkg}_"*.ipk >/dev/null 2>&1 || {
+    printf 'Missing prebuilt project package for %s in %s\n' "$pkg" "$PROJECT_PACKAGE_DIR" >&2
+    printf 'Run ./scripts/build-openwrt-ipks.sh before building images.\n' >&2
+    exit 1
+  }
+done
 
 if [ ! -d "$IB_DIR" ]; then
   if [ ! -f "$WORK_DIR/$IB_ARCHIVE" ]; then
-    printf 'Downloading ImageBuilder %s...\n' "$VERSION"
+    printf 'Downloading ImageBuilder %s...\n' "$OPENWRT_VERSION"
     curl -fL --connect-timeout 15 --max-time 600 "$IB_URL" -o "$WORK_DIR/$IB_ARCHIVE"
   else
     printf 'Using preloaded ImageBuilder archive: %s\n' "$WORK_DIR/$IB_ARCHIVE"
@@ -49,23 +70,38 @@ if [ ! -d "$IB_DIR" ]; then
   tar --use-compress-program=unzstd -xf "$WORK_DIR/$IB_ARCHIVE" -C "$WORK_DIR"
 fi
 
+install_project_feed() {
+  pkg_dir="$IB_DIR/packages"
+  mkdir -p "$pkg_dir"
+  cp "$PROJECT_PACKAGE_DIR"/*.ipk "$pkg_dir/"
+  if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
+    (
+      cd "$IB_DIR"
+      ./scripts/ipkg-make-index.sh packages > packages/Packages
+      gzip -kf packages/Packages
+    )
+  fi
+  if [ -x "$IB_DIR/staging_dir/host/bin/usign" ] && [ -f "$IB_DIR/key-build" ]; then
+    (
+      cd "$IB_DIR"
+      staging_dir/host/bin/usign -S -m packages/Packages -s key-build -x packages/Packages.sig >/dev/null 2>&1 || true
+    )
+  fi
+}
+
+install_project_feed
+
 rm -rf "$OVERLAY"
-mkdir -p "$OVERLAY/www/setup"
-cp -R "$ROOT_DIR/image-overlay/." "$OVERLAY/"
-cp "$ROOT_DIR/firstboot-wizard/www/index.html" "$OVERLAY/www/setup/index.html"
-cp "$ROOT_DIR/firstboot-wizard/www/styles.css" "$OVERLAY/www/setup/styles.css"
-cp "$ROOT_DIR/firstboot-wizard/www/app.js" "$OVERLAY/www/setup/app.js"
-cp -R "$ROOT_DIR/luci-vpn-ui/files/." "$OVERLAY/"
+mkdir -p "$OVERLAY/www"
+copy_root_redirect="$ROOT_DIR/image-overlay/www/index.html"
+if [ -f "$copy_root_redirect" ]; then
+  cp "$copy_root_redirect" "$OVERLAY/www/index.html"
+  chmod 644 "$OVERLAY/www/index.html"
+fi
 
-chmod 0755 \
-  "$OVERLAY/etc/uci-defaults/99-openwrt-fin0-firstboot" \
-  "$OVERLAY/www/cgi-bin/firstboot-setup" \
-  "$OVERLAY/usr/sbin/vpn-ui" \
-  "$OVERLAY/usr/sbin/vpn-ui-update"
+PACKAGES="$(awk 'NF && $1 !~ /^#/ { printf "%s ", $1 }' "$PACKAGE_FILE") $PROJECT_PACKAGES"
 
-PACKAGES="$(awk 'NF && $1 !~ /^#/ { printf "%s ", $1 }' "$PACKAGE_FILE")"
-
-printf 'Building OpenWrt %s x86/64 image...\n' "$VERSION"
+printf 'Building OpenWrt %s x86/64 image...\n' "$OPENWRT_VERSION"
 make -C "$IB_DIR" image \
   PROFILE="$PROFILE" \
   PACKAGES="$PACKAGES" \
@@ -81,8 +117,8 @@ BIOS_IMAGE="$(find "$IB_DIR/bin/targets/x86/64" -maxdepth 1 -type f \
   exit 1
 }
 
-EFI_DEST="$OUT_DIR/openwrt-$VERSION-x86-64-openwrt-fin0-ext4-combined-efi.img.gz"
-BIOS_DEST="$OUT_DIR/openwrt-$VERSION-x86-64-openwrt-fin0-ext4-combined.img.gz"
+EFI_DEST="$OUT_DIR/premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64-ext4-combined-efi.img.gz"
+BIOS_DEST="$OUT_DIR/premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64-ext4-combined.img.gz"
 cp "$EFI_IMAGE" "$EFI_DEST"
 cp "$BIOS_IMAGE" "$BIOS_DEST"
 sha256sum "$EFI_DEST" > "$EFI_DEST.sha256"

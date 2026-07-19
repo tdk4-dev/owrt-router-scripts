@@ -4,8 +4,8 @@ set -u
 REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 RELEASE_BASE="${VPN_UI_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
 VERSION_FILE="${VPN_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
-BUNDLE_NAME="luci-vpn-ui.tar.gz"
-CHECKSUM_NAME="$BUNDLE_NAME.sha256"
+MANIFEST_NAME="router-release-manifest.json"
+PACKAGES_NAME="router-ui-packages.txt"
 REMOTE_VERSION_NAME="vpn-ui-version.txt"
 REMOTE_CHANGELOG_NAME="vpn-ui-changelog.txt"
 REMOTE_RELEASE_DATE_NAME="vpn-ui-release-date.txt"
@@ -50,8 +50,18 @@ current_version() {
 
 version_is_newer() {
   awk -v remote="$1" -v current="$2" 'BEGIN {
-    rn = split(remote, r, ".")
-    cn = split(current, c, ".")
+    remote_lower = tolower(remote)
+    current_lower = tolower(current)
+    remote_rc_pos = index(remote_lower, "rc")
+    current_rc_pos = index(current_lower, "rc")
+    remote_is_rc = remote_rc_pos > 0
+    current_is_rc = current_rc_pos > 0
+    remote_rc = remote_is_rc ? substr(remote_lower, remote_rc_pos + 2) + 0 : 0
+    current_rc = current_is_rc ? substr(current_lower, current_rc_pos + 2) + 0 : 0
+    remote_base = remote_is_rc ? substr(remote_lower, 1, remote_rc_pos - 1) : remote_lower
+    current_base = current_is_rc ? substr(current_lower, 1, current_rc_pos - 1) : current_lower
+    rn = split(remote_base, r, ".")
+    cn = split(current_base, c, ".")
     n = rn > cn ? rn : cn
     for (i = 1; i <= n; i++) {
       rv = (r[i] ~ /^[0-9]+$/) ? r[i] + 0 : 0
@@ -59,6 +69,8 @@ version_is_newer() {
       if (rv > cv) exit 0
       if (rv < cv) exit 1
     }
+    if (remote_is_rc && current_is_rc && remote_rc > current_rc) exit 0
+    if (!remote_is_rc && current_is_rc) exit 0
     exit 1
   }'
 }
@@ -197,20 +209,11 @@ download_file() {
   return 1
 }
 
-validate_archive_paths() {
-  local archive="$1"
-  tar -tzf "$archive" |
-    awk '
-      /^\// { bad=1 }
-      /(^|\/)\.\.(\/|$)/ { bad=1 }
-      END { exit bad ? 1 : 0 }
-    '
-}
-
 cache_release() {
   local version_file="$1"
   local changelog_file="$2"
   local date_file="$3"
+  local compatible="$4"
   local version
   version="$(sed -n '1p' "$version_file" | tr -d '\r\n')"
   [ -n "$version" ] || return 1
@@ -218,16 +221,20 @@ cache_release() {
   cp "$version_file" "$CACHE_DIR/version.new"
   cp "$changelog_file" "$CACHE_DIR/changelog.new"
   cp "$date_file" "$CACHE_DIR/released_at.new"
+  printf '%s\n' "$compatible" > "$CACHE_DIR/compatible.new"
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$CACHE_DIR/checked_at.new"
   mv "$CACHE_DIR/version.new" "$CACHE_DIR/version"
   mv "$CACHE_DIR/changelog.new" "$CACHE_DIR/changelog"
   mv "$CACHE_DIR/released_at.new" "$CACHE_DIR/released_at"
+  mv "$CACHE_DIR/compatible.new" "$CACHE_DIR/compatible"
   mv "$CACHE_DIR/checked_at.new" "$CACHE_DIR/checked_at"
   chmod 600 "$CACHE_DIR"/* 2>/dev/null || true
 }
 
 check_transaction() {
   local tmpdir="/tmp/vpn-ui-update-check.$$"
+  local strict="${1:-0}"
+  local compatible=1
   mkdir -p "$tmpdir"
   download_file "$RELEASE_BASE/$REMOTE_VERSION_NAME" "$tmpdir/version" || {
     rm -rf "$tmpdir"
@@ -241,15 +248,20 @@ check_transaction() {
     rm -rf "$tmpdir"
     return 1
   }
-  cache_release "$tmpdir/version" "$tmpdir/changelog" "$tmpdir/released_at" || {
+  download_file "$RELEASE_BASE/$MANIFEST_NAME" "$tmpdir/manifest" || compatible=0
+  if [ "$compatible" = "1" ]; then
+    download_file "$RELEASE_BASE/$PACKAGES_NAME" "$tmpdir/packages" || compatible=0
+  fi
+  cache_release "$tmpdir/version" "$tmpdir/changelog" "$tmpdir/released_at" "$compatible" || {
     rm -rf "$tmpdir"
     return 1
   }
   rm -rf "$tmpdir"
+  [ "$strict" != "1" ] || [ "$compatible" = "1" ]
 }
 
 check_worker() {
-  local target
+  local target compatible current
   acquire_lock || {
     set_state "failed" "check" "Another update task is already running." "" ""
     return 1
@@ -257,7 +269,15 @@ check_worker() {
   set_state "running" "check" "Checking the release server…" "" ""
   if check_transaction >>"$LOG_FILE" 2>&1; then
     target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-    set_state "success" "check" "Release information is current." "$target" ""
+    compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+    current="$(current_version)"
+    if [ "$compatible" = "1" ]; then
+      set_state "success" "check" "Release information is current." "$target" ""
+    elif version_is_newer "$current" "$target"; then
+      set_state "success" "check" "Release server is reachable. Installed software is newer than the published legacy-format release; no package-first update is available." "$target" ""
+    else
+      set_state "success" "check" "Release server is reachable, but the published release uses the legacy bundle format and cannot be installed by the package-first updater." "$target" ""
+    fi
     release_lock
     return 0
   fi
@@ -322,103 +342,66 @@ create_full_backup() {
   printf '%s' "$backup"
 }
 
-run_rollback() {
-  local marker="$1"
-  local rollback=""
-  [ -f "$marker" ] && rollback="$(read_file "$marker" | sed -n '1p')"
-  [ -n "$rollback" ] && [ -x "$rollback" ] || return 1
-  sh "$rollback" >>"$LOG_FILE" 2>&1
-}
-
 validate_install() {
   local target="$1"
   [ "$(current_version)" = "$target" ] || return 1
   /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
   /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
-  grep -q '"admin/network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  grep -q '"admin/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  [ -f /www/luci-static/resources/view/network/vpn.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/tailscale.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/update.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/vpn.js ] ||
+    [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/tailscale.js ] ||
+    [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
+  [ -f /www/luci-static/resources/view/network/adguard.js ] || return 1
+  [ -f /www/luci-static/resources/tools/router_footer.js ] || return 1
+  [ -f /www/luci-static/resources/view/system/update.js ] ||
+    [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
+  [ -f /www/luci-static/resources/view/system/reset.js ] ||
+    [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
+  [ -x /usr/sbin/install-router-ui-release ] || return 1
   [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] || return 1
-  [ ! -e /www/luci-static/resources/view/status/include/_35_vpn.js ] || return 1
+  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '_35_vpn*.js' |
+    grep -q .; then
+    return 1
+  fi
+  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '35_vpn-*.js' |
+    grep -q .; then
+    return 1
+  fi
 }
 
 apply_transaction() {
   local target="$1"
-  local tmpdir="/tmp/vpn-ui-update-apply.$$"
-  local archive checksum expected actual installer backup marker
-
-  mkdir -p "$tmpdir"
-  archive="$tmpdir/$BUNDLE_NAME"
-  checksum="$tmpdir/$CHECKSUM_NAME"
-  marker="$tmpdir/rollback-marker"
+  local backup
 
   set_state "running" "backup" "Creating and validating a full OpenWrt backup…" "$target" ""
   backup="$(create_full_backup "$target")" || {
-    rm -rf "$tmpdir"
     return 10
   }
-  set_state "running" "download" "Downloading the signed release assets…" "$target" "$backup"
-  download_file "$RELEASE_BASE/$BUNDLE_NAME" "$archive" || {
-    rm -rf "$tmpdir"
-    return 11
-  }
-  download_file "$RELEASE_BASE/$CHECKSUM_NAME" "$checksum" || {
-    rm -rf "$tmpdir"
-    return 12
-  }
+  set_state "running" "download" "Downloading and verifying package release metadata…" "$target" "$backup"
+  check_transaction 1 >>"$LOG_FILE" 2>&1 || return 11
 
-  set_state "running" "verify" "Verifying checksum and archive paths…" "$target" "$backup"
-  expected="$(awk '{ print $1 }' "$checksum" | sed -n '1p')"
-  actual="$(sha256sum "$archive" | awk '{ print $1 }')"
-  [ -n "$expected" ] && [ "$expected" = "$actual" ] || {
-    rm -rf "$tmpdir"
-    return 13
-  }
-  validate_archive_paths "$archive" || {
-    rm -rf "$tmpdir"
-    return 14
-  }
-  tar -xzf "$archive" -C "$tmpdir" || {
-    rm -rf "$tmpdir"
-    return 15
-  }
-  installer="$tmpdir/luci-vpn-ui/install.sh"
-  [ -f "$installer" ] || {
-    rm -rf "$tmpdir"
-    return 16
-  }
-  [ "$(sed -n '1p' "$tmpdir/luci-vpn-ui/VERSION" | tr -d '\r\n')" = "$target" ] || {
-    rm -rf "$tmpdir"
-    return 17
-  }
+  [ -x /usr/sbin/install-router-ui-release ] || return 16
 
-  set_state "running" "install" "Installing transactionally; LuCI may restart briefly…" "$target" "$backup"
-  VPN_UI_ROLLBACK_MARKER="$marker" SKIP_SYSUPGRADE_BACKUP=1 \
-    INSTALL_GEOSITE=1 UPDATE_GEOSITE=0 sh "$installer" >>"$LOG_FILE" 2>&1 || {
-      set_state "running" "rollback" "Installation failed; restoring the pre-update snapshot…" "$target" "$backup"
-      run_rollback "$marker" || true
-      rm -rf "$tmpdir"
-      return 18
-    }
+  set_state "running" "install" "Installing Premier Router packages through opkg…" "$target" "$backup"
+  ROUTER_UI_VERSION="$target" ROUTER_UI_REPO="$REPO" \
+    ROUTER_UI_SKIP_BACKUP=1 ROUTER_UI_EXISTING_BACKUP="$backup" \
+    sh /usr/sbin/install-router-ui-release >>"$LOG_FILE" 2>&1 || return 18
 
   set_state "running" "validate" "Validating services, configuration, and LuCI files…" "$target" "$backup"
-  validate_install "$target" || {
-    set_state "running" "rollback" "Validation failed; restoring the pre-update snapshot…" "$target" "$backup"
-    run_rollback "$marker" || true
-    rm -rf "$tmpdir"
-    return 19
-  }
-  rm -rf "$tmpdir"
+  validate_install "$target" || return 19
   printf '%s' "$backup"
 }
 
 apply_worker() {
-  local target backup rc
+  local target compatible backup rc
   target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
   [ -n "$target" ] || {
     set_state "failed" "apply" "Check for updates before installing." "" ""
+    return 1
+  }
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] || {
+    set_state "failed" "apply" "The published release does not contain package-first update metadata and cannot be installed by this updater." "$target" ""
     return 1
   }
   version_is_newer "$target" "$(current_version)" || {
@@ -444,7 +427,7 @@ apply_worker() {
 }
 
 status_json() {
-  local current latest released_at changelog checked_at available
+  local current latest released_at changelog checked_at available compatible current_ahead release_reachable
   local job_status job_stage job_message job_target job_backup job_updated
   load_config
   current="$(current_version)"
@@ -453,8 +436,13 @@ status_json() {
   released_at="$(read_file "$CACHE_DIR/released_at" | sed -n '1p' | tr -d '\r\n')"
   changelog="$(read_file "$CACHE_DIR/changelog")"
   checked_at="$(read_file "$CACHE_DIR/checked_at" | sed -n '1p' | tr -d '\r\n')"
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] && compatible=true || compatible=false
+  [ -n "$checked_at" ] && release_reachable=true || release_reachable=false
   available="false"
-  version_is_newer "$latest" "$current" && available="true"
+  [ "$compatible" = true ] && version_is_newer "$latest" "$current" && available="true"
+  current_ahead=false
+  version_is_newer "$current" "$latest" && current_ahead=true
   job_status="$(read_file "$STATE_DIR/status" | sed -n '1p')"
   [ -n "$job_status" ] || job_status="idle"
   job_stage="$(read_file "$STATE_DIR/stage" | sed -n '1p')"
@@ -473,8 +461,8 @@ status_json() {
   json_string "$changelog"
   printf ',"checked_at":'
   json_string "$checked_at"
-  printf ',"available":%s,"auto_update":%s,"auto_schedule":' \
-    "$available" "$([ "$AUTO_UPDATE" = "1" ] && printf true || printf false)"
+  printf ',"available":%s,"compatible_release":%s,"release_reachable":%s,"current_ahead":%s,"auto_update":%s,"auto_schedule":' \
+    "$available" "$compatible" "$release_reachable" "$current_ahead" "$([ "$AUTO_UPDATE" = "1" ] && printf true || printf false)"
   json_string "$AUTO_SCHEDULE"
   printf ',"job":{"status":'
   json_string "$job_status"
@@ -492,12 +480,14 @@ status_json() {
 }
 
 auto_update() {
-  local current latest
+  local current latest compatible
   load_config
   [ "$AUTO_UPDATE" = "1" ] || exit 0
   check_worker || exit 1
   current="$(current_version)"
   latest="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
+  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
+  [ "$compatible" = "1" ] || exit 0
   [ -n "$latest" ] && version_is_newer "$latest" "$current" || exit 0
   apply_worker
 }
