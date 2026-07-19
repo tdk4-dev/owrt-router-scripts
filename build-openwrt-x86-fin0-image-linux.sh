@@ -72,7 +72,11 @@ fi
 
 install_project_feed() {
   pkg_dir="$IB_DIR/packages"
+  local pkg
   mkdir -p "$pkg_dir"
+  for pkg in $PROJECT_PACKAGES; do
+    rm -f "$pkg_dir/${pkg}_"*.ipk
+  done
   cp "$PROJECT_PACKAGE_DIR"/*.ipk "$pkg_dir/"
   if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
     (

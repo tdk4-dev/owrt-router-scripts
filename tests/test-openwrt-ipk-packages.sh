@@ -2,6 +2,8 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+CUSTOM_IMAGE_BUILDER="$ROOT_DIR/build-openwrt-custom-image-linux.sh"
+X86_IMAGE_BUILDER="$ROOT_DIR/build-openwrt-x86-fin0-image-linux.sh"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 PKG_VERSION="$APP_VERSION-1"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/router-ipk-test.XXXXXX")"
@@ -10,6 +12,11 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
+
+for image_builder in "$CUSTOM_IMAGE_BUILDER" "$X86_IMAGE_BUILDER"; do
+  grep -Fq 'rm -f "$pkg_dir/${pkg}_"*.ipk' "$image_builder"
+done
+grep -Fq 'cp "$PROJECT_PACKAGE_DIR/router-ui-packages.txt"' "$CUSTOM_IMAGE_BUILDER"
 
 "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
 first_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"

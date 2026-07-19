@@ -86,7 +86,11 @@ fi
 
 install_project_feed() {
   local pkg_dir="$IB_DIR/packages"
+  local pkg
   mkdir -p "$pkg_dir"
+  for pkg in $PROJECT_PACKAGES; do
+    rm -f "$pkg_dir/${pkg}_"*.ipk
+  done
   cp "$PROJECT_PACKAGE_DIR"/*.ipk "$pkg_dir/"
   if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
     (
@@ -148,7 +152,7 @@ find "$TARGET_OUT" -maxdepth 1 -type f \
   -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
-cp "$ROOT_DIR/dist/ipk/router-ui-packages.txt" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
+cp "$PROJECT_PACKAGE_DIR/router-ui-packages.txt" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
 sha256sum "$PROJECT_PACKAGE_DIR"/*.ipk > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
 
