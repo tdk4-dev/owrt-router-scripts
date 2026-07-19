@@ -14,3 +14,6 @@ Router UI 0.7.10
   does not enroll Tailscale or install AdGuardHome.
 • Retains the stable LuCI assets, mandatory verified backups, automatic
   rollback, background update jobs, and routing fixes from Router UI 0.7.9.
+• Makes tag publication retry-safe: an already existing release is accepted
+  only when its title and every expected asset are byte-identical, and existing
+  assets are never overwritten.

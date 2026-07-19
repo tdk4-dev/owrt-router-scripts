@@ -32,6 +32,7 @@ jobs:
             install-openwrt-vpn-ui.sh \
             install-friend-vpn-panel.sh \
             make-vpn-ui-release-bundle.sh
+          bash -n publish-vpn-panel-release.sh
 
       - name: Validate JavaScript
         run: |
@@ -46,4 +47,5 @@ jobs:
         run: |
           sh tests/test-vpn-hotfixes.sh
           sh tests/test-luci-stable-assets.sh
+          sh tests/test-release-publisher.sh
           node tests/test-tailscale-ping-ui.mjs
