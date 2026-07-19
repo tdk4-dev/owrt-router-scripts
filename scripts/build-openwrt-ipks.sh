@@ -10,13 +10,16 @@ OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist/ipk}"
 FEED_DIR="${FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)}"
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
-SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT" 2>/dev/null || printf 0)}"
+UPDATER_PROTOCOL=2
+RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/tests/fixtures/keys/router-ui-test.pub}"
+RELEASE_KEY_ID="${RELEASE_KEY_ID:-test-21ff375c021d4c72}"
 
 if [ -z "$SOURCE_DIRTY" ]; then
   if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
-    SOURCE_DIRTY=1
+    SOURCE_DIRTY=true
   else
-    SOURCE_DIRTY=0
+    SOURCE_DIRTY=false
   fi
 fi
 
@@ -35,6 +38,18 @@ done
   printf 'luci-vpn-ui/VERSION is empty\n' >&2
   exit 1
 }
+case "$SOURCE_DIRTY" in true|false) ;; *)
+  printf 'SOURCE_DIRTY must be true or false\n' >&2
+  exit 1
+esac
+[ -s "$RELEASE_PUBLIC_KEY" ] || {
+  printf 'Release verification public key is missing: %s\n' "$RELEASE_PUBLIC_KEY" >&2
+  exit 1
+}
+printf '%s' "$RELEASE_KEY_ID" | grep -Eq '^[A-Za-z0-9._-]+$' || {
+  printf 'RELEASE_KEY_ID is malformed\n' >&2
+  exit 1
+}
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$OUT_DIR" "$FEED_DIR"
@@ -50,6 +65,22 @@ copy_file() {
   mkdir -p "$(dirname "$dst")"
   cp "$src" "$dst"
   chmod "$mode" "$dst"
+}
+
+render_trust_script() {
+  src="$1"
+  dst="$2"
+  key_comment="$(sed -n '1p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  key_data="$(sed -n '2p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  printf '%s' "$key_comment" | grep -Eq '^untrusted comment: [A-Za-z0-9 ._:/+-]+$' || exit 1
+  printf '%s' "$key_data" | grep -Eq '^RW[A-Za-z0-9+/=]+$' || exit 1
+  awk -v key_id="$RELEASE_KEY_ID" -v key_comment="$key_comment" -v key_data="$key_data" '
+    /^TRUSTED_KEY_ID=/ { print "TRUSTED_KEY_ID=\047" key_id "\047"; next }
+    /^TRUSTED_KEY_COMMENT=/ { print "TRUSTED_KEY_COMMENT=\047" key_comment "\047"; next }
+    /^TRUSTED_KEY_DATA=/ { print "TRUSTED_KEY_DATA=\047" key_data "\047"; next }
+    { print }
+  ' "$src" > "$dst"
+  chmod 755 "$dst"
 }
 
 copy_tree_file_modes() {
@@ -111,6 +142,7 @@ printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1
 if [ -x /usr/sbin/vpn-ui-update ]; then
   /usr/sbin/vpn-ui-update configure-cron >/tmp/premier-router-update-cron.log 2>&1 || true
 fi
+/etc/init.d/premier-router-update-recovery enable >/dev/null 2>&1 || true
 
 /etc/init.d/cron enable >/dev/null 2>&1 || true
 /etc/init.d/cron restart >/dev/null 2>&1 || true
@@ -263,9 +295,29 @@ CORE_ROOT="$BUILD_DIR/premier-router-core/root"
 CORE_CONTROL="$BUILD_DIR/premier-router-core/control"
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" "$CORE_ROOT/usr/sbin/vpn-ui" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" "$CORE_ROOT/usr/sbin/vpn-ui-update" 755
-copy_file "$ROOT_DIR/install-router-ui-release.sh" "$CORE_ROOT/usr/sbin/install-router-ui-release" 755
+mkdir -p "$CORE_ROOT/usr/sbin"
+render_trust_script "$ROOT_DIR/install-router-ui-release.sh" "$CORE_ROOT/usr/sbin/install-router-ui-release"
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" \
+  "$CORE_ROOT/usr/libexec/premier-router/update-lib.sh" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator" \
+  "$CORE_ROOT/usr/libexec/premier-router/candidate-validator" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery" \
+  "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
+copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/release.pub" 644
+printf '%s\n' "$RELEASE_KEY_ID" > "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
+chmod 644 "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
+cat > "$CORE_ROOT/usr/share/premier-router/build-info" <<EOF
+APP_VERSION=$APP_VERSION
+PACKAGE_VERSION=$PKG_VERSION
+SOURCE_COMMIT=$SOURCE_COMMIT
+SOURCE_DIRTY=$SOURCE_DIRTY
+SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
+UPDATER_PROTOCOL=$UPDATER_PROTOCOL
+RELEASE_KEY_ID=$RELEASE_KEY_ID
+EOF
+chmod 644 "$CORE_ROOT/usr/share/premier-router/build-info"
 mkdir -p "$CORE_ROOT/usr/share/vpn-ui"
 cat > "$CORE_ROOT/usr/share/vpn-ui/build-info" <<EOF
 VERSION=$APP_VERSION
@@ -273,6 +325,8 @@ PACKAGE_VERSION=$PKG_VERSION
 SOURCE_COMMIT=$SOURCE_COMMIT
 SOURCE_DIRTY=$SOURCE_DIRTY
 BUILD_DATE=
+UPDATER_PROTOCOL=$UPDATER_PROTOCOL
+RELEASE_KEY_ID=$RELEASE_KEY_ID
 EOF
 chmod 644 "$CORE_ROOT/usr/share/vpn-ui/build-info"
 mkdir -p "$CORE_ROOT/etc"
@@ -282,10 +336,11 @@ AUTO_SCHEDULE='Sunday 04:17'
 EOF
 chmod 600 "$CORE_ROOT/etc/vpn-ui-update.conf"
 write_legacy_manifest "$CORE_ROOT/usr/share/vpn-ui/legacy-files.list"
+write_legacy_manifest "$CORE_ROOT/usr/share/premier-router/legacy-files.list"
 write_control \
   "premier-router-core" \
-  "curl, jsonfilter, nftables-json, coreutils-base64, socat, tailscale, xray-core" \
-  "Premier Router backend scripts, VPN generation, update checks, health checks, and reset control." \
+  "curl, jsonfilter, usign, nftables-json, coreutils-base64, socat, tailscale, xray-core" \
+  "Premier Router backend, signed updater v2, validator, recovery, VPN health, metadata, and reset control." \
   "$CORE_CONTROL"
 write_core_scripts "$CORE_CONTROL"
 
@@ -355,7 +410,7 @@ SETUP_IPK="$(create_package premier-router-setup)"
     printf 'Size: %s\n' "$size"
     printf 'SHA256sum: %s\n\n' "$sha"
   done > Packages
-  gzip -kf Packages
+  gzip -n -c Packages > Packages.gz
   sha256sum *.ipk Packages Packages.gz > SHA256SUMS
 )
 

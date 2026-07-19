@@ -3,72 +3,62 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 UPDATER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/update-compat-test.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+UPDATE_LIB="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh"
+VALIDATOR="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator"
+RECOVERY="$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery"
+BUILDER="$ROOT_DIR/scripts/build-openwrt-ipks.sh"
 
-mkdir -p "$TMP_DIR/bin" "$TMP_DIR/release" "$TMP_DIR/cache" "$TMP_DIR/state"
-printf '%s\n' 0.8.0RC2 > "$TMP_DIR/current-version"
-printf '%s\n' 0.7.9 > "$TMP_DIR/release/vpn-ui-version.txt"
-printf '%s\n' 'Legacy release notes' > "$TMP_DIR/release/vpn-ui-changelog.txt"
-printf '%s\n' '2026-07-01' > "$TMP_DIR/release/vpn-ui-release-date.txt"
+# Release discovery is signed-pointer -> exact tagged manifest. The unsigned
+# legacy version/changelog/date triplet must never influence update authority.
+grep -q 'DISCOVERY_BASE=.*releases/latest/download' "$UPDATER"
+grep -q 'stable-channel.json' "$UPDATER"
+grep -q 'router-release-manifest.json.sig' "$UPDATER"
+grep -q 'releases/download/\$tag' "$UPDATER"
+! grep -q 'vpn-ui-version.txt' "$UPDATER"
+! grep -q 'vpn-ui-changelog.txt' "$UPDATER"
+! grep -q 'vpn-ui-release-date.txt' "$UPDATER"
 
-cat > "$TMP_DIR/bin/curl" <<'EOF'
-#!/bin/sh
-set -eu
-dst=""
-url=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -o) dst="$2"; shift 2 ;;
-    https://*) url="$1"; shift ;;
-    *) shift ;;
-  esac
-done
-src="${FAKE_RELEASE_DIR:?}/${url##*/}"
-[ -f "$src" ] || exit 22
-cp "$src" "$dst"
-EOF
-cat > "$TMP_DIR/bin/sleep" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod 755 "$TMP_DIR/bin/curl" "$TMP_DIR/bin/sleep"
+pointer_verify="$(grep -n 'pr_verify_signature "$pointer"' "$UPDATER" | sed -n '1s/:.*//p')"
+pointer_read="$(grep -n 'tag="$(pr_json_get "$pointer"' "$UPDATER" | sed -n '2s/:.*//p')"
+manifest_hash="$(grep -n 'pr_sha256 "$manifest"' "$UPDATER" | sed -n '1s/:.*//p')"
+manifest_verify="$(grep -n 'pr_verify_signature "$manifest"' "$UPDATER" | sed -n '1s/:.*//p')"
+manifest_validate="$(grep -n 'pr_manifest_validate "$manifest"' "$UPDATER" | sed -n '1s/:.*//p')"
+[ -n "$pointer_verify" ] && [ -n "$pointer_read" ] &&
+  [ "$pointer_verify" -lt "$pointer_read" ]
+[ -n "$manifest_hash" ] && [ -n "$manifest_verify" ] && [ -n "$manifest_validate" ] &&
+  [ "$manifest_hash" -lt "$manifest_verify" ] &&
+  [ "$manifest_verify" -lt "$manifest_validate" ]
 
-run_update() {
-  PATH="$TMP_DIR/bin:$PATH" \
-  FAKE_RELEASE_DIR="$TMP_DIR/release" \
-  VPN_UI_RELEASE_BASE='https://release.example.test/latest/download' \
-  VPN_UI_VERSION_FILE="$TMP_DIR/current-version" \
-  VPN_UI_UPDATE_CONFIG="$TMP_DIR/config" \
-  VPN_UI_UPDATE_CACHE="$TMP_DIR/cache" \
-  VPN_UI_UPDATE_STATE="$TMP_DIR/state" \
-  VPN_UI_UPDATE_LOCK="$TMP_DIR/lock" \
-  VPN_UI_UPDATE_LOG="$TMP_DIR/update.log" \
-  VPN_UI_UPDATE_RESTART_CRON=0 \
-    sh "$UPDATER" "$@"
-}
+# RC and four-component comparisons are part of the signed compatibility
+# contract used by both the bridge release and later mainline releases.
+PREMIER_ROUTER_HOST_TEST=1 sh -c '
+  . "$1"
+  pr_version_newer 0.8.0 0.8.0RC2
+  ! pr_version_newer 0.8.0RC2 0.8.0
+  pr_version_newer 0.8.0RC3 0.8.0RC2
+  pr_version_newer 0.8.0.1 0.8.0
+  pr_version_valid 24.10.5
+  pr_version_valid 0.8.0RC2
+  ! pr_version_valid 0.8
+  ! pr_version_valid 0.8.0-rc2
+  pr_safe_asset_name premier-router-core_0.8.0RC2-1_all.ipk
+  ! pr_safe_asset_name ../escape.ipk
+' sh "$UPDATE_LIB"
 
-run_update check-worker
-legacy_status="$(run_update status)"
-printf '%s\n' "$legacy_status" | grep -q '"compatible_release":false'
-printf '%s\n' "$legacy_status" | grep -q '"release_reachable":true'
-printf '%s\n' "$legacy_status" | grep -q '"current_ahead":true'
-printf '%s\n' "$legacy_status" | grep -q '"status":"success"'
-printf '%s\n' "$legacy_status" | grep -q 'published legacy-format release'
-if printf '%s\n' "$legacy_status" | grep -q 'Could not contact'; then
-  printf 'legacy release was misreported as a connectivity failure\n' >&2
-  exit 1
-fi
+grep -q '^UPDATER_PROTOCOL=2$' "$BUILDER"
+grep -q '"curl, jsonfilter, usign,' "$BUILDER"
+grep -q 'premier-router-update-recovery enable' "$BUILDER"
+grep -q 'PERSIST_ROOT=.*premier-router-updates' "$UPDATER"
+grep -q 'state.json' "$UPDATER"
+grep -q 'rollback_failed\|recovery_required' "$UPDATER"
+grep -q '^START=5$' "$RECOVERY"
+grep -q 'vpn-ui-update recover' "$RECOVERY"
 
-printf '%s\n' 0.8.1 > "$TMP_DIR/release/vpn-ui-version.txt"
-printf '%s\n' '{}' > "$TMP_DIR/release/router-release-manifest.json"
-printf '%s\n' 'premier-router-core_0.8.1-1_all.ipk' > "$TMP_DIR/release/router-ui-packages.txt"
-rm -rf "$TMP_DIR/cache" "$TMP_DIR/state"
-mkdir -p "$TMP_DIR/cache" "$TMP_DIR/state"
-run_update check-worker
-package_status="$(run_update status)"
-printf '%s\n' "$package_status" | grep -q '"compatible_release":true'
-printf '%s\n' "$package_status" | grep -q '"available":true'
-printf '%s\n' "$package_status" | grep -q '"latest":"0.8.1"'
+# The mainline target validator retains the 0.8-only features while accepting
+# input solely through protocol-v2 package metadata.
+grep -q 'view/network/adguard.js' "$VALIDATOR"
+grep -q 'view/system/reset.js' "$VALIDATOR"
+grep -q 'tools/router_footer.js' "$VALIDATOR"
+grep -q 'updater protocol v2 is not installed' "$VALIDATOR"
 
-printf '%s\n' 'Updater legacy/package-first compatibility checks passed'
+printf 'Signed updater-v2 mainline compatibility checks passed\n'

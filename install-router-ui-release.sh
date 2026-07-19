@@ -1,82 +1,34 @@
-#!/bin/ash
+#!/bin/sh
 set -eu
-
-# Run this script directly on an already-running OpenWrt router as root.
-#
-# Latest stable release:
-#   sh install-router-ui-release.sh
-#
-# Pin a release:
-#   ROUTER_UI_VERSION=0.8.0RC2 sh install-router-ui-release.sh
+umask 077
 
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 REQUESTED_VERSION="${ROUTER_UI_VERSION:-}"
-TS="$(date +%Y%m%d-%H%M%S)"
-WORK_DIR="/tmp/router-ui-release-$TS"
-BACKUP_DIR="/root/router-ui-backups"
-LOG_FILE="/tmp/router-ui-release-install.log"
-PACKAGES_FILE="router-ui-packages.txt"
-MANIFEST_FILE="router-release-manifest.json"
-LEGACY_BUNDLE="luci-vpn-ui.tar.gz"
-PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
-SKIP_BACKUP="${ROUTER_UI_SKIP_BACKUP:-0}"
-EXISTING_BACKUP="${ROUTER_UI_EXISTING_BACKUP:-}"
-
-LEGACY_PACKAGE_FILES="/usr/sbin/vpn-ui
-/usr/sbin/vpn-ui-update
-/usr/sbin/install-router-ui-release
-/usr/sbin/router-prep
-/usr/share/vpn-ui/version
-/usr/share/vpn-ui/legacy-files.list
-/usr/share/luci/menu.d/luci-app-vpn-ui.json
-/usr/share/rpcd/acl.d/luci-app-vpn-ui.json
-/www/luci-static/resources/view/network/vpn.js
-/www/luci-static/resources/view/network/tailscale.js
-/www/luci-static/resources/view/network/adguard.js
-/www/luci-static/resources/tools/router_footer.js
-/www/luci-static/resources/view/status/include/35_vpn.js
-/www/luci-static/resources/view/status/include/_35_vpn.js
-/www/luci-static/resources/view/system/update.js
-/www/luci-static/resources/view/system/reset.js
-/www/luci-static/resources/view/network/vpn-0-7-0.js
-/www/luci-static/resources/view/network/tailscale-0-7-5.js
-/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
-/www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
-/www/luci-static/resources/view/system/update-0-7-3.js
-/www/luci-static/resources/view/system/reset-0-8-0.js
-/www/luci-static/resources/view/network/vpn-0-6-0.js
-/www/luci-static/resources/view/network/tailscale-0-6-0.js
-/www/luci-static/resources/view/network/tailscale-0-7-0.js
-/www/luci-static/resources/view/network/tailscale-0-7-4.js
-/www/luci-static/resources/view/network/vpn-0-5-2.js
-/www/luci-static/resources/view/network/tailscale-0-5-2.js
-/www/luci-static/resources/view/system/update-0-6-0.js
-/www/luci-static/resources/view/system/update-0-7-0.js
-/www/luci-static/resources/view/system/update-0-7-1.js
-/www/luci-static/resources/view/system/update-0-7-2.js
-/etc/uci-defaults/99-openwrt-fin0-firstboot
-/www/cgi-bin/firstboot-setup
-/www/cgi-bin/router-prep
-/www/setup/index.html
-/www/setup/styles.css
-/www/setup/app.js
-/www/prepare/index.html
-/www/prepare/styles.css
-/www/prepare/app.js"
+DISCOVERY_BASE="${ROUTER_UI_DISCOVERY_BASE:-https://github.com/$REPO/releases/latest/download}"
+WORK_DIR="$(mktemp -d /tmp/router-ui-package-install.XXXXXX)"
+TRUSTED_KEY_ID='test-21ff375c021d4c72'
+TRUSTED_KEY_COMMENT='untrusted comment: DEVELOPMENT ONLY Router UI 0.7.11 test key'
+TRUSTED_KEY_DATA='RWQh/zdcAh1Mcj/PUhA2hZ1LsFkip+XD1Z/dNfSM0FiTFhGV4c1vRDml'
+PUBLIC_KEY="$WORK_DIR/release.pub"
+OPENWRT_RELEASE_FILE="${ROUTER_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
+cleanup() {
+  case "$WORK_DIR" in /tmp/router-ui-package-install.*) rm -rf "$WORK_DIR" ;; esac
+}
+trap cleanup EXIT INT TERM
 
 fetch() {
-  local url="$1"
-  local dst="$2"
-  local attempt=1
-
+  local url="$1" dst="$2" attempt=1
+  case "$url" in https://*) ;; *) return 1 ;; esac
   while [ "$attempt" -le 3 ]; do
+    rm -f "$dst"
     if command -v curl >/dev/null 2>&1; then
-      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 120 "$url" -o "$dst" && return 0
+      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 120 \
+        "$url" -o "$dst" && return 0
     elif command -v wget >/dev/null 2>&1; then
       wget -T 120 -qO "$dst" "$url" && return 0
     elif command -v uclient-fetch >/dev/null 2>&1; then
@@ -84,350 +36,138 @@ fetch() {
     else
       die "curl, wget, or uclient-fetch is required"
     fi
-    rm -f "$dst"
     sleep $((attempt * 2))
     attempt=$((attempt + 1))
   done
   return 1
 }
-
-validate_archive_paths() {
-  tar -tzf "$1" |
-    awk '
-      /^\// { bad=1 }
-      /(^|\/)\.\.(\/|$)/ { bad=1 }
-      END { exit bad ? 1 : 0 }
-    '
+jget() {
+  jsonfilter -i "$1" -e "$2" | sed -n '1p'
+}
+safe_name() {
+  [ -n "$1" ] || return 1
+  case "$1" in /*|.|..|*\\*) return 1 ;; esac
+  ! printf '%s' "$1" | grep -q '/'
+}
+verify_file() {
+  local file="$1" size="$2" sha="$3"
+  [ -s "$file" ] &&
+    [ "$(wc -c < "$file" | tr -d ' ')" = "$size" ] &&
+    [ "$(sha256sum "$file" | awk '{print $1}')" = "$sha" ]
+}
+download_manifest_asset() {
+  local base="$1" manifest="$2" object="$3"
+  local name size sha
+  name="$(jget "$manifest" "@.$object.filename")"
+  size="$(jget "$manifest" "@.$object.size")"
+  sha="$(jget "$manifest" "@.$object.sha256")"
+  safe_name "$name" || die "unsafe asset name in $object"
+  fetch "$base/$name" "$WORK_DIR/assets/$name" ||
+    die "could not download $name"
+  verify_file "$WORK_DIR/assets/$name" "$size" "$sha" ||
+    die "asset verification failed: $name"
+  printf '%s\n' "$name"
 }
 
-package_installed() {
-  opkg status "$1" 2>/dev/null | grep -q '^Status: .* installed'
-}
+if [ "$(id -u)" != 0 ] && [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
+  die "run this installer as root on OpenWrt"
+fi
+[ -f "$OPENWRT_RELEASE_FILE" ] || die "this does not appear to be OpenWrt"
+for tool in jsonfilter usign sha256sum tar mktemp; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
+done
+printf '%s\n%s\n' "$TRUSTED_KEY_COMMENT" "$TRUSTED_KEY_DATA" > "$PUBLIC_KEY"
+mkdir -p "$WORK_DIR/assets"
 
-detect_install_type() {
-  if package_installed premier-router-core || package_installed luci-app-premier-router; then
-    printf 'ipk'
-  elif [ -e /usr/sbin/vpn-ui ] || [ -e /usr/share/vpn-ui/version ] ||
-    [ -e /www/luci-static/resources/view/network/vpn-0-7-0.js ]; then
-    printf 'legacy-tar'
+if [ -n "${ROUTER_UI_ASSET_DIR:-}" ]; then
+  [ -s "${ROUTER_UI_VERIFIED_MANIFEST:-}" ] &&
+    [ -s "${ROUTER_UI_VERIFIED_MANIFEST_SIGNATURE:-}" ] ||
+    die "verified local mode requires a manifest and signature"
+  ASSET_DIR="$ROUTER_UI_ASSET_DIR"
+  MANIFEST="$ROUTER_UI_VERIFIED_MANIFEST"
+  SIGNATURE="$ROUTER_UI_VERIFIED_MANIFEST_SIGNATURE"
+  SUPERVISOR="$ASSET_DIR/$(jget "$MANIFEST" '@.transaction_supervisor.filename')"
+  UPDATE_LIB="$ASSET_DIR/$(jget "$MANIFEST" '@.update_library.filename')"
+else
+  POINTER="$WORK_DIR/stable-channel.json"
+  POINTER_SIG="$WORK_DIR/stable-channel.json.sig"
+  if [ -n "$REQUESTED_VERSION" ]; then
+    printf '%s' "$REQUESTED_VERSION" |
+      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(RC[0-9]+)?$' ||
+      die "requested version is malformed"
+    TAG="vpn-panel-v$REQUESTED_VERSION"
   else
-    printf 'clean'
+    fetch "$DISCOVERY_BASE/stable-channel.json" "$POINTER" ||
+      die "could not download the stable-channel pointer"
+    fetch "$DISCOVERY_BASE/stable-channel.json.sig" "$POINTER_SIG" ||
+      die "could not download the stable-channel signature"
+    usign -q -V -p "$PUBLIC_KEY" -m "$POINTER" -x "$POINTER_SIG" ||
+      die "stable-channel signature verification failed"
+    [ "$(jget "$POINTER" '@.schema_version')" = 1 ] ||
+      die "unsupported stable-channel schema"
+    [ "$(jget "$POINTER" '@.channel')" = stable ] ||
+      die "stable-channel metadata names another channel"
+    [ "$(jget "$POINTER" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
+      die "stable-channel signing key ID mismatch"
+    TAG="$(jget "$POINTER" '@.release_tag')"
+    REQUESTED_VERSION="$(jget "$POINTER" '@.target_version')"
+    [ "$TAG" = "vpn-panel-v$REQUESTED_VERSION" ] ||
+      die "stable-channel tag/version mismatch"
   fi
-}
 
-create_full_backup() {
-  local version="$1"
-  local full_backup temp_backup bytes size_kb free_kb checksum
+  RELEASE_BASE="https://github.com/$REPO/releases/download/$TAG"
+  MANIFEST="$WORK_DIR/router-release-manifest.json"
+  SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
+  fetch "$RELEASE_BASE/router-release-manifest.json" "$MANIFEST" ||
+    die "could not download the exact release manifest"
+  fetch "$RELEASE_BASE/router-release-manifest.json.sig" "$SIGNATURE" ||
+    die "could not download the exact release signature"
+  usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
+    die "release manifest signature verification failed"
+  [ "$(jget "$MANIFEST" '@.release_tag')" = "$TAG" ] ||
+    die "manifest release tag mismatch"
+  [ "$(jget "$MANIFEST" '@.app_version')" = "$REQUESTED_VERSION" ] ||
+    die "manifest version mismatch"
+  [ "$(jget "$MANIFEST" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
+    die "manifest signing key ID mismatch"
 
-  full_backup="$BACKUP_DIR/openwrt-before-router-ui-$version-$TS.tar.gz"
-  temp_backup="/tmp/openwrt-before-router-ui-$version-$TS.tar.gz"
-  printf 'Creating mandatory full OpenWrt backup: %s\n' "$full_backup"
-  rm -f "$temp_backup"
-  sysupgrade -b "$temp_backup" >/tmp/router-ui-sysupgrade-backup.log 2>&1 || {
-    rm -f "$temp_backup"
-    die "could not create full OpenWrt backup"
-  }
-  [ -s "$temp_backup" ] || {
-    rm -f "$temp_backup"
-    die "full OpenWrt backup is empty"
-  }
-  tar -tzf "$temp_backup" >/dev/null 2>&1 || {
-    rm -f "$temp_backup"
-    die "full OpenWrt backup validation failed"
-  }
-  bytes="$(wc -c < "$temp_backup" | tr -d ' ')"
-  size_kb=$(((bytes + 1023) / 1024))
-  free_kb="$(df -Pk "$BACKUP_DIR" 2>/dev/null | awk 'NR == 2 { print $4 }')"
-  [ -n "$free_kb" ] && [ "$free_kb" -ge $((size_kb + 2048)) ] || {
-    rm -f "$temp_backup"
-    die "not enough persistent free space for the verified OpenWrt backup"
-  }
-  cp "$temp_backup" "$full_backup" || {
-    rm -f "$temp_backup" "$full_backup"
-    die "could not persist the verified OpenWrt backup"
-  }
-  rm -f "$temp_backup"
-  tar -tzf "$full_backup" >/dev/null 2>&1 || {
-    rm -f "$full_backup"
-    die "persisted OpenWrt backup validation failed"
-  }
-  checksum="$(sha256sum "$full_backup" | awk '{ print $1 }')"
-  printf '%s  %s\n' "$checksum" "$(basename "$full_backup")" > "$full_backup.sha256"
-  chmod 600 "$full_backup" "$full_backup.sha256"
-  printf '%s' "$full_backup"
-}
-
-backup_legacy_files() {
-  local snapshot="$1"
-  local path target
-  mkdir -p "$snapshot/files"
-  : > "$snapshot/removed-files"
-  printf '%s\n' "$LEGACY_PACKAGE_FILES" | while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    [ -e "$path" ] || continue
-    target="$snapshot/files$path"
-    mkdir -p "$(dirname "$target")"
-    cp -pR "$path" "$target"
-    printf '%s\n' "$path" >> "$snapshot/removed-files"
+  index=0
+  while [ "$index" -lt 16 ]; do
+    name="$(jget "$MANIFEST" "@.packages[$index].filename")"
+    [ -n "$name" ] || break
+    size="$(jget "$MANIFEST" "@.packages[$index].size")"
+    sha="$(jget "$MANIFEST" "@.packages[$index].sha256")"
+    safe_name "$name" || die "unsafe package filename"
+    fetch "$RELEASE_BASE/$name" "$WORK_DIR/assets/$name" ||
+      die "could not download package $name"
+    verify_file "$WORK_DIR/assets/$name" "$size" "$sha" ||
+      die "package verification failed: $name"
+    index=$((index + 1))
   done
-}
-
-remove_legacy_files() {
-  local path
-  printf '%s\n' "$LEGACY_PACKAGE_FILES" | while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    case "$path" in
-      /usr/sbin/vpn-ui|/usr/sbin/vpn-ui-update|/usr/sbin/install-router-ui-release|/usr/sbin/router-prep|/usr/share/vpn-ui/*|/usr/share/luci/menu.d/luci-app-vpn-ui.json|/usr/share/rpcd/acl.d/luci-app-vpn-ui.json|/etc/uci-defaults/99-openwrt-fin0-firstboot|/www/cgi-bin/firstboot-setup|/www/cgi-bin/router-prep|/www/setup/*|/www/prepare/*|/www/luci-static/resources/view/*)
-        rm -f "$path"
-        ;;
-      *)
-        printf 'Refusing to remove unexpected legacy path: %s\n' "$path" >&2
-        return 1
-        ;;
-    esac
-  done
-}
-
-restore_legacy_files() {
-  local snapshot="$1"
-  local path source
-  [ -f "$snapshot/removed-files" ] || return 0
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    source="$snapshot/files$path"
-    [ -e "$source" ] || continue
-    mkdir -p "$(dirname "$path")"
-    cp -pR "$source" "$path"
-  done < "$snapshot/removed-files"
-}
-
-rollback_ipk_install() {
-  local snapshot="$1"
-  printf 'Installation failed; removing project packages and restoring backed-up legacy files when available.\n' >&2
-  opkg remove luci-app-premier-router premier-router-setup premier-router-core >>"$LOG_FILE" 2>&1 || true
-  restore_legacy_files "$snapshot"
-  rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
-  /etc/init.d/rpcd restart >>"$LOG_FILE" 2>&1 || true
-  /etc/init.d/uhttpd restart >>"$LOG_FILE" 2>&1 || true
-}
-
-validate_package_line() {
-  local pkg="$1"
-  local version="$2"
-  local arch="$3"
-  local sha="$4"
-  local size="$5"
-  local file="$6"
-
-  case " $PROJECT_PACKAGES " in *" $pkg "*) ;; *) return 1 ;; esac
-  [ -n "$version" ] && [ -n "$sha" ] && [ -n "$size" ] && [ -n "$file" ] || return 1
-  [ "$arch" = "all" ] || return 1
-  case "$file" in
-    "$pkg"_*.ipk) ;;
-    *) return 1 ;;
-  esac
-  printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
-  printf '%s' "$size" | grep -Eq '^[0-9]+$' || return 1
-}
-
-download_and_verify_ipks() {
-  local pkg version arch sha size file ipk actual actual_size
-  : > "$WORK_DIR/install-order"
-  while read -r pkg version arch sha size file; do
-    [ -n "${pkg:-}" ] || continue
-    validate_package_line "$pkg" "$version" "$arch" "$sha" "$size" "$file" ||
-      die "invalid package metadata line for $pkg"
-    [ "$version" = "$PACKAGE_VERSION" ] ||
-      die "package $pkg version $version does not match expected $PACKAGE_VERSION"
-    ipk="$WORK_DIR/$file"
-    fetch "$RELEASE_BASE/$file" "$ipk" ||
-      die "could not download package $file"
-    actual="$(sha256sum "$ipk" | awk '{ print $1 }')"
-    [ "$actual" = "$sha" ] || die "checksum mismatch for $file"
-    actual_size="$(wc -c < "$ipk" | tr -d ' ')"
-    [ "$actual_size" = "$size" ] || die "size mismatch for $file"
-    printf '%s\n' "$ipk" >> "$WORK_DIR/install-order"
-  done < "$WORK_DIR/$PACKAGES_FILE"
-  grep -q 'premier-router-core_' "$WORK_DIR/install-order" ||
-    die "release package set is missing premier-router-core"
-  grep -q 'luci-app-premier-router_' "$WORK_DIR/install-order" ||
-    die "release package set is missing luci-app-premier-router"
-  grep -q 'premier-router-setup_' "$WORK_DIR/install-order" ||
-    die "release package set is missing premier-router-setup"
-}
-
-install_ipks() {
-  local ipk
-  while IFS= read -r ipk; do
-    [ -n "$ipk" ] || continue
-    opkg install "$ipk" >>"$LOG_FILE" 2>&1 || return 1
-  done < "$WORK_DIR/install-order"
-}
-
-validate_install() {
-  local pkg
-  [ "$(cat /usr/share/vpn-ui/version 2>/dev/null)" = "$APP_VERSION" ] || return 1
-  for pkg in $PROJECT_PACKAGES; do
-    package_installed "$pkg" || return 1
-  done
-  # A package-first install is valid before the owner adds a VLESS profile.
-  # `vpn-ui check` intentionally reports that empty state as not working, so
-  # validate the backend/status contract here instead of requiring live VPN.
-  /usr/sbin/vpn-ui status 2>/dev/null | grep -q '"ok":true' || return 1
-  /usr/sbin/vpn-ui tailscale-status 2>/dev/null | grep -q '"ok":true' || return 1
-  /usr/sbin/vpn-ui footer-info 2>/dev/null | grep -q '"footer_label":"Router Scripts v' || return 1
-  grep -q '"path":[[:space:]]*"system/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json || return 1
-  [ -f /www/luci-static/resources/view/network/vpn.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/tailscale.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/update.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/reset.js ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] || return 1
-  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f \
-    \( -name '_35_vpn*.js' -o -name '35_vpn-*.js' \) | grep -q .; then
-    return 1
-  fi
-  [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/adguard.js ] || return 1
-  [ -f /www/luci-static/resources/tools/router_footer.js ] || return 1
-  [ -f /www/cgi-bin/firstboot-setup ] || return 1
-}
-
-legacy_tarball_install() {
-  local bundle checksum expected actual installer marker before_sum current_sum rollback
-  marker="$WORK_DIR/rollback-marker"
-  bundle="$WORK_DIR/$LEGACY_BUNDLE"
-  checksum="$WORK_DIR/$LEGACY_BUNDLE.sha256"
-
-  printf 'Package metadata is not available; using deprecated tar.gz installer fallback.\n' >&2
-  fetch "$RELEASE_BASE/$LEGACY_BUNDLE" "$bundle" ||
-    die "could not download legacy release bundle"
-  fetch "$RELEASE_BASE/$LEGACY_BUNDLE.sha256" "$checksum" ||
-    die "could not download legacy release checksum"
-  expected="$(awk '{ print $1 }' "$checksum" | sed -n '1p')"
-  actual="$(sha256sum "$bundle" | awk '{ print $1 }')"
-  [ -n "$expected" ] && [ "$expected" = "$actual" ] ||
-    die "legacy release checksum verification failed"
-  validate_archive_paths "$bundle" ||
-    die "legacy release archive contains unsafe paths"
-  tar -xzf "$bundle" -C "$WORK_DIR" ||
-    die "could not extract legacy release"
-  installer="$WORK_DIR/luci-vpn-ui/install.sh"
-  [ -f "$installer" ] || die "legacy release is missing install.sh"
-  before_sum=""
-  [ ! -f /root/rollback-vpn-ui.sh ] ||
-    before_sum="$(sha256sum /root/rollback-vpn-ui.sh | awk '{ print $1 }')"
-  if ! VPN_UI_ROLLBACK_MARKER="$marker" SKIP_SYSUPGRADE_BACKUP=1 INSTALL_GEOSITE=1 UPDATE_GEOSITE=0 \
-    sh "$installer" >"$LOG_FILE" 2>&1; then
-    rollback=""
-    [ -f "$marker" ] && rollback="$(sed -n '1p' "$marker")"
-    if [ -z "$rollback" ] && [ -x /root/rollback-vpn-ui.sh ]; then
-      current_sum="$(sha256sum /root/rollback-vpn-ui.sh 2>/dev/null | awk '{ print $1 }')"
-      if [ -z "$before_sum" ] || [ "$before_sum" != "$current_sum" ]; then
-        rollback="/root/rollback-vpn-ui.sh"
-      fi
-    fi
-    [ -n "$rollback" ] && [ -x "$rollback" ] && sh "$rollback" >>"$LOG_FILE" 2>&1 || true
-    die "legacy tar.gz installation failed safely; inspect $LOG_FILE"
-  fi
-}
-
-[ "$(id -u)" = "0" ] || die "run this script as root on OpenWrt"
-[ -f /etc/openwrt_release ] || die "this does not appear to be OpenWrt"
-command -v sysupgrade >/dev/null 2>&1 || die "sysupgrade is required"
-command -v tar >/dev/null 2>&1 || die "tar is required"
-command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
-command -v opkg >/dev/null 2>&1 || die "opkg is required"
-
-mkdir -p "$WORK_DIR" "$BACKUP_DIR"
-chmod 700 "$WORK_DIR" "$BACKUP_DIR"
-: > "$LOG_FILE"
-
-if [ -n "$REQUESTED_VERSION" ]; then
-  RELEASE_BASE="https://github.com/$REPO/releases/download/vpn-panel-v$REQUESTED_VERSION"
-else
-  RELEASE_BASE="https://github.com/$REPO/releases/latest/download"
+  [ "$index" = 3 ] || die "manifest does not contain the exact package set"
+  download_manifest_asset "$RELEASE_BASE" "$MANIFEST" candidate_validator >/dev/null
+  download_manifest_asset "$RELEASE_BASE" "$MANIFEST" transaction_supervisor >/dev/null
+  download_manifest_asset "$RELEASE_BASE" "$MANIFEST" update_library >/dev/null
+  download_manifest_asset "$RELEASE_BASE" "$MANIFEST" compatibility.status_0_7_9 >/dev/null
+  cp "$MANIFEST" "$WORK_DIR/assets/router-release-manifest.json"
+  cp "$SIGNATURE" "$WORK_DIR/assets/router-release-manifest.json.sig"
+  ASSET_DIR="$WORK_DIR/assets"
+  SUPERVISOR="$ASSET_DIR/$(jget "$MANIFEST" '@.transaction_supervisor.filename')"
+  UPDATE_LIB="$ASSET_DIR/$(jget "$MANIFEST" '@.update_library.filename')"
 fi
 
-printf 'Reading release metadata from %s\n' "$RELEASE_BASE"
-fetch "$RELEASE_BASE/vpn-ui-version.txt" "$WORK_DIR/version" ||
-  die "could not download release version"
-APP_VERSION="$(sed -n '1p' "$WORK_DIR/version" | tr -d '\r\n')"
-[ -n "$APP_VERSION" ] || die "release version is empty"
-[ -z "$REQUESTED_VERSION" ] || [ "$APP_VERSION" = "$REQUESTED_VERSION" ] ||
-  die "requested $REQUESTED_VERSION but release metadata reports $APP_VERSION"
-PACKAGE_VERSION="${ROUTER_UI_PACKAGE_VERSION:-$APP_VERSION-1}"
+[ -s "$SUPERVISOR" ] && [ -s "$UPDATE_LIB" ] || die "verified supervisor assets are missing"
+sh -n "$SUPERVISOR" || die "transaction supervisor shell syntax is invalid"
+sh -n "$UPDATE_LIB" || die "update library shell syntax is invalid"
+chmod 700 "$SUPERVISOR" "$UPDATE_LIB"
+printf '%s\n' "$TRUSTED_KEY_ID" > "$WORK_DIR/release-key-id"
 
-if ! fetch "$RELEASE_BASE/$MANIFEST_FILE" "$WORK_DIR/$MANIFEST_FILE"; then
-  legacy_tarball_install
-  rm -rf "$WORK_DIR"
-  printf '\nRouter UI %s installed through deprecated tar.gz fallback.\n' "$APP_VERSION"
-  exit 0
-fi
+VPN_UI_UPDATE_LIB="$UPDATE_LIB" \
+VPN_UI_UPDATE_SELF="$SUPERVISOR" \
+VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC_KEY" \
+VPN_UI_RELEASE_KEY_ID_FILE="$WORK_DIR/release-key-id" \
+VPN_UI_EXISTING_CONFIG_RECOVERY="${ROUTER_UI_EXISTING_CONFIG_RECOVERY:-}" \
+  "$SUPERVISOR" apply-local "$ASSET_DIR" "$MANIFEST" "$SIGNATURE" standalone no
 
-fetch "$RELEASE_BASE/$PACKAGES_FILE" "$WORK_DIR/$PACKAGES_FILE" ||
-  die "release manifest exists but package list is missing"
-
-if [ "$SKIP_BACKUP" = "1" ]; then
-  FULL_BACKUP="$EXISTING_BACKUP"
-  [ -n "$FULL_BACKUP" ] || FULL_BACKUP="backup-created-by-caller"
-else
-  FULL_BACKUP="$(create_full_backup "$APP_VERSION")"
-fi
-INSTALL_TYPE="$(detect_install_type)"
-MIGRATION_SNAPSHOT="$BACKUP_DIR/router-ui-migration-$APP_VERSION-$TS"
-mkdir -p "$MIGRATION_SNAPSHOT"
-printf 'Detected installation type: %s\n' "$INSTALL_TYPE"
-printf 'Migration snapshot: %s\n' "$MIGRATION_SNAPSHOT"
-
-download_and_verify_ipks
-
-if [ "$INSTALL_TYPE" = "legacy-tar" ]; then
-  backup_legacy_files "$MIGRATION_SNAPSHOT"
-  remove_legacy_files
-fi
-
-printf 'Installing Premier Router packages %s\n' "$PACKAGE_VERSION"
-if ! install_ipks; then
-  rollback_ipk_install "$MIGRATION_SNAPSHOT"
-  die "package installation failed safely; inspect $LOG_FILE"
-fi
-
-if [ "$INSTALL_TYPE" = "legacy-tar" ] &&
-  ! /usr/sbin/vpn-ui metadata-set legacy-migrated self-managed local-only 0 0 >>"$LOG_FILE" 2>&1; then
-  rollback_ipk_install "$MIGRATION_SNAPSHOT"
-  die "legacy metadata migration failed safely; inspect $LOG_FILE"
-fi
-
-if ! validate_install; then
-  rollback_ipk_install "$MIGRATION_SNAPSHOT"
-  die "post-install validation failed safely; inspect $LOG_FILE"
-fi
-
-mkdir -p /etc/premier_router
-cp "$WORK_DIR/$MANIFEST_FILE" /etc/premier_router/installed-manifest.json
-chmod 600 /etc/premier_router/installed-manifest.json
-if [ "$INSTALL_TYPE" = "legacy-tar" ]; then
-  INSTALL_SOURCE=legacy-migrated
-else
-  INSTALL_SOURCE=package-first-staged
-fi
-/usr/sbin/vpn-ui metadata-installed "$INSTALL_SOURCE" >>"$LOG_FILE" 2>&1 || {
-  rm -f /etc/premier_router/installed-manifest.json
-  rollback_ipk_install "$MIGRATION_SNAPSHOT"
-  die "installed build metadata could not be recorded safely; inspect $LOG_FILE"
-}
-
-if [ -f /usr/share/vpn-ui/legacy-files.list ]; then
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    rm -f "$path"
-  done < /usr/share/vpn-ui/legacy-files.list
-fi
-
-rm -rf "$WORK_DIR"
-printf '\nPremier Router %s installed and validated through opkg packages.\n' "$APP_VERSION"
-printf 'Full backup: %s\n' "$FULL_BACKUP"
-printf 'Migration snapshot: %s\n' "$MIGRATION_SNAPSHOT"
+printf 'Router UI %s installed through updater protocol v2.\n' \
+  "$(jget "$MANIFEST" '@.app_version')"

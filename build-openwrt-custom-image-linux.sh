@@ -9,11 +9,21 @@ PROFILE="${PROFILE:-generic}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-512}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.imagebuilder}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
-PACKAGE_FILE="${PACKAGE_FILE:-$ROOT_DIR/image/openwrt-fin0-packages.txt}"
+if [ -n "${PACKAGE_FILE:-}" ]; then
+  PACKAGE_FILE="$PACKAGE_FILE"
+elif [ "$TARGET_DIR" = "mediatek/filogic" ]; then
+  PACKAGE_FILE="$ROOT_DIR/image/openwrt-rd23-packages.txt"
+else
+  PACKAGE_FILE="$ROOT_DIR/image/openwrt-fin0-packages.txt"
+fi
 PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
 PROJECT_PACKAGE_MANIFEST="${PROJECT_PACKAGE_MANIFEST:-$PROJECT_PACKAGE_DIR/router-ui-packages.txt}"
 PROJECT_FEED_DIR="${PROJECT_FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
+PKG_VERSION="$APP_VERSION-1"
+SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
+SOURCE_DIRTY="${SOURCE_DIRTY:-false}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")}"
 IB_TARGET_NAME="$(printf '%s' "$TARGET_DIR" | tr '/' '-')"
 if [ "$TARGET_DIR" = "x86/64" ] && [ "$PROFILE" = "generic" ]; then
   DEFAULT_ARTIFACT_PREFIX="premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-x86-64"
@@ -78,6 +88,16 @@ done
   printf 'Missing project package manifest: %s\n' "$PROJECT_PACKAGE_MANIFEST" >&2
   exit 1
 }
+while read -r pkg version architecture sha size filename; do
+  [ -n "${pkg:-}" ] || continue
+  [ "$version" = "$PKG_VERSION" ] && [ "$architecture" = all ] ||
+    { printf 'Canonical package manifest version mismatch: %s\n' "$pkg" >&2; exit 1; }
+  file="$PROJECT_PACKAGE_DIR/$filename"
+  [ -f "$file" ] &&
+    [ "$(sha256sum "$file" | awk '{print $1}')" = "$sha" ] &&
+    [ "$(wc -c < "$file" | tr -d ' ')" = "$size" ] ||
+    { printf 'Canonical package manifest hash/size mismatch: %s\n' "$pkg" >&2; exit 1; }
+done < "$PROJECT_PACKAGE_MANIFEST"
 
 if [ ! -d "$IB_DIR" ]; then
   if [ ! -f "$WORK_DIR/$IB_ARCHIVE" ]; then
@@ -96,12 +116,26 @@ install_project_feed() {
   for pkg in $PROJECT_PACKAGES; do
     rm -f "$pkg_dir/${pkg}_"*.ipk
   done
-  cp "$PROJECT_PACKAGE_DIR"/*.ipk "$pkg_dir/"
+  for pkg in $PROJECT_PACKAGES; do
+    file="$PROJECT_PACKAGE_DIR/${pkg}_${PKG_VERSION}_all.ipk"
+    [ -f "$file" ] || {
+      printf 'Missing exact canonical package: %s\n' "$file" >&2
+      exit 1
+    }
+    cp "$file" "$pkg_dir/"
+  done
+  stale_count="$(find "$pkg_dir" -maxdepth 1 -type f \
+    \( -name 'premier-router-core_*.ipk' -o -name 'luci-app-premier-router_*.ipk' \
+       -o -name 'premier-router-setup_*.ipk' \) | wc -l | tr -d ' ')"
+  [ "$stale_count" = 3 ] || {
+    printf 'ImageBuilder contains stale project IPKs\n' >&2
+    exit 1
+  }
   if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
     (
       cd "$IB_DIR"
       ./scripts/ipkg-make-index.sh packages > packages/Packages
-      gzip -kf packages/Packages
+      gzip -n -c packages/Packages > packages/Packages.gz
     )
   fi
   if [ -x "$IB_DIR/staging_dir/host/bin/usign" ] && [ -f "$IB_DIR/key-build" ]; then
@@ -152,6 +186,16 @@ fi
 cat "$BUILD_LOG"
 
 MANIFEST_SRC="$(find "$TARGET_OUT" -maxdepth 1 -type f -name '*.manifest' | sort | tail -n 1)"
+[ -n "$MANIFEST_SRC" ] || {
+  printf 'ImageBuilder did not produce a package manifest\n' >&2
+  exit 1
+}
+for pkg in $PROJECT_PACKAGES; do
+  grep -q "^$pkg - $PKG_VERSION$" "$MANIFEST_SRC" || {
+    printf 'Built image manifest is missing %s %s\n' "$pkg" "$PKG_VERSION" >&2
+    exit 1
+  }
+done
 PROFILE_ARTIFACT_DIR="$OUT_DIR/$ARTIFACT_PREFIX"
 ARCHIVE="$OUT_DIR/$ARTIFACT_PREFIX.tar.gz"
 
@@ -168,6 +212,20 @@ cp "$PROJECT_PACKAGE_MANIFEST" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
   sha256sum ./*.ipk | sed 's#  \./#  #'
 ) > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
+cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
+{
+  "schema_version": 1,
+  "app_version": "$APP_VERSION",
+  "package_version": "$PKG_VERSION",
+  "openwrt_version": "$OPENWRT_VERSION",
+  "target": "$TARGET_DIR",
+  "profile": "$PROFILE",
+  "source_commit": "$SOURCE_COMMIT",
+  "source_dirty": $SOURCE_DIRTY,
+  "source_date_epoch": $SOURCE_DATE_EPOCH,
+  "updater_protocol": 2
+}
+EOF
 (
   cd "$PROFILE_ARTIFACT_DIR"
   find . -maxdepth 1 -type f ! -name sha256sums -print |
@@ -178,7 +236,16 @@ cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
     done > sha256sums
 )
 
-tar -czf "$ARCHIVE" -C "$OUT_DIR" "$(basename "$PROFILE_ARTIFACT_DIR")"
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+    --numeric-owner -czf "$ARCHIVE" -C "$OUT_DIR" "$(basename "$PROFILE_ARTIFACT_DIR")"
+else
+  normalized="$(date -u -r "$SOURCE_DATE_EPOCH" '+%Y%m%d%H%M.%S')"
+  find "$PROFILE_ARTIFACT_DIR" -exec env TZ=UTC touch -h -t "$normalized" {} +
+  COPYFILE_DISABLE=1 tar --format ustar --no-xattrs --no-mac-metadata \
+    --owner=0 --group=0 --numeric-owner -czf "$ARCHIVE" -C "$OUT_DIR" \
+    "$(basename "$PROFILE_ARTIFACT_DIR")"
+fi
 archive_name="$(basename "$ARCHIVE")"
 (
   cd "$OUT_DIR"

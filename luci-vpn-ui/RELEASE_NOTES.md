@@ -1,6 +1,9 @@
 Router UI 0.8.0RC2
 
-• Builds on Router UI 0.7.10 and retains its clean-unconfigured health state,
+• Builds on the Router UI 0.7.11 migration bridge and retains its signed
+  package-first updater protocol, persistent journal, boot recovery, exact
+  previous-IPK rollback, target-owned validation, and fail-closed rescue.
+• Retains the 0.7.10 clean-unconfigured health state,
   exact stable Update-route validation, single Status Overview include,
   metadata-clean bundles, mandatory backups, rollback behavior, and retry-safe
   release publication checks.

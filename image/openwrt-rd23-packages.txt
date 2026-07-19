@@ -15,4 +15,5 @@ nftables-json
 rpcd-mod-file
 socat
 tailscale
+usign
 xray-core

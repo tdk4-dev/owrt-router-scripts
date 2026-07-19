@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 HELPER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 UPDATER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
+UPDATE_LIB="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh"
 VIEW="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js"
 SETUP_CGI="$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
 SETUP_APP="$ROOT_DIR/firstboot-wizard/www/app.js"
@@ -15,19 +16,15 @@ INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/v
 [ "$VERSION" = "0.8.0RC2" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
-version_is_newer_definition="$(
-  sed -n '/^version_is_newer() {$/,/^}$/p' "$UPDATER"
-)"
-[ -n "$version_is_newer_definition" ]
-eval "$version_is_newer_definition"
-version_is_newer 0.7.10 0.7.9.1
-! version_is_newer 0.7.10 0.7.10
-version_is_newer 0.8.0RC2 0.7.10
-version_is_newer 0.8.0RC2 0.8.0RC1
-version_is_newer 0.8.0 0.8.0RC2
-! version_is_newer 0.8.0RC2 0.8.0
-! version_is_newer 0.8.0RC2 0.8.0RC2
-! version_is_newer 0.7.9.1 0.7.10
+. "$UPDATE_LIB"
+pr_version_newer 0.7.10 0.7.9.1
+! pr_version_newer 0.7.10 0.7.10
+pr_version_newer 0.8.0RC2 0.7.10
+pr_version_newer 0.8.0RC2 0.8.0RC1
+pr_version_newer 0.8.0 0.8.0RC2
+! pr_version_newer 0.8.0RC2 0.8.0
+! pr_version_newer 0.8.0RC2 0.8.0RC2
+! pr_version_newer 0.7.9.1 0.7.10
 
 grep -q 'flow_json=""' "$HELPER"
 grep -q '"encryption": "none"\$flow_json' "$HELPER"
@@ -52,8 +49,8 @@ grep -q 'interval: 24h' "$SETUP_CGI"
 grep -q '"configured":false' "$HELPER"
 grep -q 'configuration is not enabled' "$HELPER"
 grep -q '"configured":true' "$HELPER"
-grep -q '"path".*"system/update"' "$RELEASE_INSTALLER"
-grep -q '/www/luci-static/resources/view/system/update.js' "$RELEASE_INSTALLER"
+grep -q 'router-release-manifest.json' "$RELEASE_INSTALLER"
+grep -q 'usign -q -V' "$RELEASE_INSTALLER"
 
 count="$(grep -c 'ui.addNotification' "$VIEW")"
 [ "$count" -eq 1 ] || {

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "audited_at": "2026-07-20",
+  "target": "0.7.11",
+  "baselines": [
+    {"version":"0.5.1","tag_commit":"407247ba666a02d039125b9fd84c068955a029f4","published_release":true,"transport":"legacy-tar","comparison":"string-inequality","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.5.2","tag_commit":"a4f86faf22d3424dda1fc3aff219ead6b23f1bf7","published_release":true,"transport":"legacy-tar","comparison":"string-inequality","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.6.0","tag_commit":"9d11b6a10a505fce545d4778e528e05adf77b740","published_release":true,"transport":"legacy-tar","comparison":"string-inequality","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.0","tag_commit":"067b4eb8a399e96a8bd071f802cdbcd066a4ba61","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.1","tag_commit":"fc839b3288f91414b183f66e9d5d0761dae3b15d","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.2","tag_commit":"9c8e41e1262850617d363f8f25dbb9908b8a55c8","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.3","tag_commit":"3559ab565228277d92c1ef82da438b4fed143d8d","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.4","tag_commit":"2467951df54ada347c0ac2ae7d3723ee117f8f42","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.5","tag_commit":"bd690d3ae1c8f607d9fd6cc9131c25a2f0dabafe","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.6","tag_commit":"ddc7feeb146b72be8343df0c74174653029f7967","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.7","tag_commit":"cb67957a3292cf8e3d8fd211f673215d1e1d3cad","published_release":false,"transport":"unavailable","comparison":"numeric-components","normal_panel":"unsupported-tag-only","direct_rescue":"refused"},
+    {"version":"0.7.8","tag_commit":"bd3ee5fb562fa9dafcbad0c490cc2c0213f6a585","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","normal_panel":"not-claimed","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.9","tag_commit":"aec4591dc0ae6bfcc2fb295e3235d060327d32a4","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","old_worker_predicate":"35_vpn.js-present-and-_35_vpn.js-present","normal_panel":"host-tested-vm-pending","direct_rescue":"implemented-vm-pending"},
+    {"version":"0.7.10","tag_commit":"ce758c54ca37daa64bb1a738ae5dee20dcf8bddd","published_release":true,"transport":"legacy-tar-plus-standalone","comparison":"numeric-components","old_worker_predicate":"35_vpn.js-present-and-_35_vpn.js-absent","normal_panel":"host-tested-vm-pending","direct_rescue":"implemented-vm-pending"}
+  ]
+}

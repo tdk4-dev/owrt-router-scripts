@@ -13,23 +13,32 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for image_builder in "$CUSTOM_IMAGE_BUILDER" "$X86_IMAGE_BUILDER"; do
-  grep -Fq 'rm -f "$pkg_dir/${pkg}_"*.ipk' "$image_builder"
-done
+grep -Fq 'rm -f "$pkg_dir/${pkg}_"*.ipk' "$CUSTOM_IMAGE_BUILDER"
+grep -Fq 'exec "$ROOT_DIR/build-openwrt-custom-image-linux.sh"' "$X86_IMAGE_BUILDER"
 grep -Fq 'PROJECT_PACKAGE_MANIFEST="${PROJECT_PACKAGE_MANIFEST:-$PROJECT_PACKAGE_DIR/router-ui-packages.txt}"' "$CUSTOM_IMAGE_BUILDER"
 grep -Fq 'cp "$PROJECT_PACKAGE_MANIFEST"' "$CUSTOM_IMAGE_BUILDER"
 
-"$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
-first_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"
-"$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
-second_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"
+build_ipks() {
+  SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+  SOURCE_DIRTY=false \
+  SOURCE_DATE_EPOCH=1700000000 \
+  BUILD_DIR="$TMP_DIR/build" \
+  OUT_DIR="$TMP_DIR/ipk" \
+  FEED_DIR="$TMP_DIR/feed" \
+    "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >"$TMP_DIR/build.log"
+}
+
+build_ipks
+first_build_hashes="$(sha256sum "$TMP_DIR"/ipk/*.ipk)"
+build_ipks
+second_build_hashes="$(sha256sum "$TMP_DIR"/ipk/*.ipk)"
 [ "$first_build_hashes" = "$second_build_hashes" ] || {
   printf 'repeated clean IPK builds produced different checksums\n' >&2
   exit 1
 }
 
 for pkg in premier-router-core luci-app-premier-router premier-router-setup; do
-  ipk="$ROOT_DIR/dist/ipk/${pkg}_${PKG_VERSION}_all.ipk"
+  ipk="$TMP_DIR/ipk/${pkg}_${PKG_VERSION}_all.ipk"
   [ -f "$ipk" ] || {
     printf 'missing package: %s\n' "$ipk" >&2
     exit 1
@@ -69,9 +78,15 @@ done
 [ -x "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui" ]
 [ -x "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui-update" ]
 [ -x "$TMP_DIR/premier-router-core/data/usr/sbin/install-router-ui-release" ]
+[ -x "$TMP_DIR/premier-router-core/data/usr/libexec/premier-router/update-lib.sh" ]
+[ -x "$TMP_DIR/premier-router-core/data/usr/libexec/premier-router/candidate-validator" ]
+[ -x "$TMP_DIR/premier-router-core/data/etc/init.d/premier-router-update-recovery" ]
 [ -f "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/version" ]
 [ -f "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/build-info" ]
+[ -f "$TMP_DIR/premier-router-core/data/usr/share/premier-router/build-info" ]
 [ -f "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/legacy-files.list" ]
+[ -f "$TMP_DIR/premier-router-core/data/usr/share/premier-router/keys/release.pub" ]
+[ -f "$TMP_DIR/premier-router-core/data/usr/share/premier-router/keys/release-key-id" ]
 [ -f "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf" ]
 [ -f "$TMP_DIR/premier-router-core/data/etc/config/premier_router" ]
 grep -q 'metadata|router-metadata|footer-info' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
@@ -84,6 +99,9 @@ grep -q "option support_level 'self-managed'" "$TMP_DIR/premier-router-core/data
 grep -q "option registration_state 'local-only'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
 grep -q "option direct_rules_channel 'stable'" "$TMP_DIR/premier-router-core/data/etc/config/premier_router"
 grep -q 'support_access_state' "$TMP_DIR/premier-router-core/data/usr/sbin/vpn-ui"
+grep -q '^UPDATER_PROTOCOL=2$' "$TMP_DIR/premier-router-core/data/usr/share/premier-router/build-info"
+grep -q '^SOURCE_DIRTY=false$' "$TMP_DIR/premier-router-core/data/usr/share/premier-router/build-info"
+grep -q '^UPDATER_PROTOCOL=2$' "$TMP_DIR/premier-router-core/data/usr/share/vpn-ui/build-info"
 if command -v stat >/dev/null 2>&1; then
   mode="$(stat -c '%a' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf" 2>/dev/null ||
     stat -f '%Lp' "$TMP_DIR/premier-router-core/data/etc/vpn-ui-update.conf")"

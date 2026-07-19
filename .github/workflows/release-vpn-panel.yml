@@ -1,78 +1,187 @@
-name: Validate router release
+name: Prepare verified Router UI release
 
 on:
-  push:
-    tags:
-      - "vpn-panel-v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag
+        required: true
+        type: string
+      publish:
+        description: Publish only after the draft round-trip verifies
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+concurrency:
+  group: router-ui-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  canonical-ipks:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Validate version sources
-        run: |
-          app_version="$(sed -n '1p' luci-vpn-ui/VERSION | tr -d '\r\n')"
-          installed_app_version="$(sed -n '1p' luci-vpn-ui/files/usr/share/vpn-ui/version | tr -d '\r\n')"
-          test "$app_version" = "$installed_app_version"
-          if [ -n "${GITHUB_REF_NAME:-}" ] && printf '%s' "$GITHUB_REF_NAME" | grep -q '^vpn-panel-v'; then
-            test "$GITHUB_REF_NAME" = "vpn-panel-v${app_version}"
-          fi
-
-      - name: Validate scripts and LuCI views
-        run: |
-          sh -n \
-            luci-vpn-ui/install.sh \
-            luci-vpn-ui/files/usr/sbin/vpn-ui \
-            luci-vpn-ui/files/usr/sbin/vpn-ui-update \
-            install-router-ui-release.sh \
-            install-openwrt-vpn-ui.sh \
-            install-friend-vpn-panel.sh \
-            make-vpn-ui-release-bundle.sh \
-            scripts/build-openwrt-ipks.sh \
-            scripts/stage-router-release.sh \
-            scripts/validate-staged-release.sh
-          bash -n publish-vpn-panel-release.sh
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/adguard.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
-
-      - name: Run tests
-        run: |
-          sh tests/test-vpn-hotfixes.sh
-          sh tests/test-luci-stable-assets.sh
-          sh tests/test-release-publisher.sh
-          sh tests/test-openwrt-ipk-packages.sh
-          sh tests/test-release-staging.sh
-          sh tests/test-version-variable-names.sh
-          sh tests/test-luci-status-include.sh
-          sh tests/test-router-reset-ui.sh
-          sh tests/test-firstboot-root-only.sh
-          sh tests/test-firstboot-install-options.sh
-          sh tests/test-firstboot-vless-import.sh
-          sh tests/test-firstboot-wifi.sh
-          sh tests/test-router-prep-policy.sh
-          sh tests/test-router-metadata.sh
-          sh tests/test-adguard-panel.sh
-          sh tests/test-rd23-profile.sh
-          sh tests/test-tailscale-registration.sh
-          sh tests/test-update-release-compat.sh
-          node tests/test-tailscale-ping-ui.mjs
-
-      - name: Stage package-first release directory
-        run: ./scripts/stage-router-release.sh
-
-      - name: Upload dry-run release assets
-        uses: actions/upload-artifact@v4
         with:
-          name: router-release-dry-run
-          path: dist/release-v*/
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Verify immutable source identity
+        run: |
+          test "$(git cat-file -t "refs/tags/${{ inputs.tag }}")" = tag
+          version="$(sed -n '1p' luci-vpn-ui/VERSION)"
+          test "${{ inputs.tag }}" = "vpn-panel-v${version}"
+          test "$(sed -n '1p' luci-vpn-ui/files/usr/share/vpn-ui/version)" = "$version"
+          test -z "$(git status --porcelain)"
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor "${{ inputs.tag }}^{commit}" origin/main
+      - name: Install package tools
+        run: sudo apt-get update && sudo apt-get install -y jq usign
+      - name: Build canonical IPKs exactly once
+        env:
+          RELEASE_PUBLIC_KEY: ${{ runner.temp }}/release.pub
+          RELEASE_KEY_ID: ${{ vars.ROUTER_UI_RELEASE_KEY_ID }}
+          RELEASE_PUBLIC_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_PUBLIC_KEY }}
+        run: |
+          printf '%s\n' "$RELEASE_PUBLIC_KEY_DATA" > "$RELEASE_PUBLIC_KEY"
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export SOURCE_DIRTY=false
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          BUILD_DIR="$RUNNER_TEMP/ipk-build-a" OUT_DIR="$RUNNER_TEMP/ipk-a" \
+            FEED_DIR="$RUNNER_TEMP/feed-a" ./scripts/build-openwrt-ipks.sh
+          BUILD_DIR="$RUNNER_TEMP/ipk-build-b" OUT_DIR="$RUNNER_TEMP/ipk-b" \
+            FEED_DIR="$RUNNER_TEMP/feed-b" ./scripts/build-openwrt-ipks.sh
+          diff -u "$RUNNER_TEMP/ipk-a/router-ui-packages.txt" "$RUNNER_TEMP/ipk-b/router-ui-packages.txt"
+          for file in "$RUNNER_TEMP/ipk-a"/*.ipk; do
+            cmp -s "$file" "$RUNNER_TEMP/ipk-b/$(basename "$file")"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canonical-router-ui-ipks
+          path: ${{ runner.temp }}/ipk-a/
+          if-no-files-found: error
+
+  images:
+    needs: canonical-ipks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86-64
+            target: x86/64
+            profile: generic
+          - name: rd23-stock
+            target: mediatek/filogic
+            profile: xiaomi_mi-router-ax3000t-stock
+          - name: rd23-ubootmod
+            target: mediatek/filogic
+            profile: xiaomi_mi-router-ax3000t-ubootmod
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonical-router-ui-ipks
+          path: ${{ runner.temp }}/canonical-ipks
+      - name: Build image only from canonical IPKs
+        env:
+          TARGET_DIR: ${{ matrix.target }}
+          PROFILE: ${{ matrix.profile }}
+          PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
+          PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
+          OUT_DIR: ${{ runner.temp }}/images
+          WORK_DIR: ${{ runner.temp }}/imagebuilder
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd jq
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export SOURCE_DIRTY=false
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          ./build-openwrt-custom-image-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: router-image-${{ matrix.name }}
+          path: ${{ runner.temp }}/images/
+          if-no-files-found: error
+
+  assemble-and-sign:
+    needs: images
+    runs-on: ubuntu-24.04
+    environment: router-ui-production-signing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonical-router-ui-ipks
+          path: ${{ runner.temp }}/canonical-ipks
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: router-image-*
+          path: ${{ runner.temp }}/stage-root
+          merge-multiple: true
+      - name: Assemble, sign, and strictly validate flat assets
+        env:
+          RELEASE_KEY_ID: ${{ vars.ROUTER_UI_RELEASE_KEY_ID }}
+          EXPECTED_RELEASE_KEY_ID: ${{ vars.ROUTER_UI_RELEASE_KEY_ID }}
+          SIGNING_KEY: ${{ runner.temp }}/release.sec
+          RELEASE_PUBLIC_KEY: ${{ runner.temp }}/release.pub
+          IPK_DIR: ${{ runner.temp }}/canonical-ipks
+          OUT_ROOT: ${{ runner.temp }}/stage-root
+          RELEASE_DIR: ${{ runner.temp }}/verified-flat-release
+          STRICT_RELEASE: "1"
+          REQUIRE_IMAGES: "1"
+          RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
+          RELEASE_PUBLIC_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_PUBLIC_KEY }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq usign
+          printf '%s\n' "$RELEASE_SECRET_KEY_DATA" > "$SIGNING_KEY"
+          printf '%s\n' "$RELEASE_PUBLIC_KEY_DATA" > "$RELEASE_PUBLIC_KEY"
+          chmod 600 "$SIGNING_KEY"
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT"
+          export SOURCE_DIRTY=false
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          ./scripts/stage-router-release.sh
+          ./scripts/validate-staged-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-flat-release
+          path: ${{ runner.temp }}/verified-flat-release/
+          if-no-files-found: error
+
+  draft-round-trip:
+    needs: assemble-and-sign
+    runs-on: ubuntu-24.04
+    environment: router-ui-production-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-flat-release
+          path: ${{ runner.temp }}/verified-flat-release
+      - name: Create draft, download, verify, and optionally publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REF_NAME: ${{ inputs.tag }}
+          RELEASE_DIR: ${{ runner.temp }}/verified-flat-release
+          RELEASE_PUBLIC_KEY: ${{ runner.temp }}/release.pub
+          EXPECTED_RELEASE_KEY_ID: ${{ vars.ROUTER_UI_RELEASE_KEY_ID }}
+          PUBLISH_VERIFIED_RELEASE: ${{ inputs.publish && '1' || '0' }}
+          RELEASE_PUBLIC_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_PUBLIC_KEY }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq usign
+          printf '%s\n' "$RELEASE_PUBLIC_KEY_DATA" > "$RELEASE_PUBLIC_KEY"
+          git fetch origin main --no-tags
+          ./publish-vpn-panel-release.sh

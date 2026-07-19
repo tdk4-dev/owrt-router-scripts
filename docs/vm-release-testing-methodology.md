@@ -446,3 +446,23 @@ Use these status labels:
 - `hardware-verified`
 
 Do not use a stronger label unless the corresponding runtime evidence exists.
+
+## Protocol-v2 transition and interruption matrix
+
+Use exact downloaded source artifacts for every baseline in
+`router-ui-update-transition-matrix.md`. Keep the exact 0.7.9 or 0.7.10 worker
+in memory during its bridge install. Generic rescue must pin 0.7.11; later
+package targets must require source updater protocol v2.
+
+Inject interruption before mutation, after each IPK, during target validation
+and commit, at rollback start, after every rollback IPK, and during cleanup.
+Reboot after each mutating interruption and run the recovery init service.
+Accept only a committed target that passes its downloaded validator or an
+exact source that passes source validation. Record the transaction journal,
+boot ID, package status, installed manifest hash, configuration hashes,
+recovery archive, rollback assets, service state, LuCI routes, and exactly one
+visible status card before and after reboot.
+
+Serve the flat set under both `releases/latest/download` and
+`releases/download/<exact-tag>`. Boot the x86 image with at most 300 MB RAM and
+extract both RD23 variants to compare their embedded canonical-IPK hashes.
