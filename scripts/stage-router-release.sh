@@ -9,7 +9,7 @@ OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 OUT_ROOT="${OUT_ROOT:-$ROOT_DIR/dist}"
 RELEASE_DIR="${RELEASE_DIR:-$OUT_ROOT/release-v$APP_VERSION}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)}"
-SOURCE_DIRTY="false"
+SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -32,9 +32,16 @@ have_project_ipks() {
   return 0
 }
 
-if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
-  SOURCE_DIRTY="true"
+if [ -z "$SOURCE_DIRTY" ]; then
+  SOURCE_DIRTY="false"
+  if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
+    SOURCE_DIRTY="true"
+  fi
 fi
+case "$SOURCE_DIRTY" in
+  true|false) ;;
+  *) printf 'SOURCE_DIRTY must be true or false\n' >&2; exit 1 ;;
+esac
 
 if have_project_ipks; then
   printf 'Using existing project IPKs from %s/ipk\n' "$OUT_ROOT"
@@ -45,11 +52,11 @@ fi
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR/packages" "$RELEASE_DIR/opkg-feed"
 
-cp "$ROOT_DIR"/dist/ipk/*.ipk "$RELEASE_DIR/packages/"
-cp "$ROOT_DIR/dist/ipk/router-ui-packages.txt" "$RELEASE_DIR/router-ui-packages.txt"
-cp "$ROOT_DIR/dist/opkg-feed/Packages" "$RELEASE_DIR/opkg-feed/Packages"
-cp "$ROOT_DIR/dist/opkg-feed/Packages.gz" "$RELEASE_DIR/opkg-feed/Packages.gz"
-cp "$ROOT_DIR"/dist/opkg-feed/*.ipk "$RELEASE_DIR/opkg-feed/"
+cp "$OUT_ROOT"/ipk/*.ipk "$RELEASE_DIR/packages/"
+cp "$OUT_ROOT/ipk/router-ui-packages.txt" "$RELEASE_DIR/router-ui-packages.txt"
+cp "$OUT_ROOT/opkg-feed/Packages" "$RELEASE_DIR/opkg-feed/Packages"
+cp "$OUT_ROOT/opkg-feed/Packages.gz" "$RELEASE_DIR/opkg-feed/Packages.gz"
+cp "$OUT_ROOT"/opkg-feed/*.ipk "$RELEASE_DIR/opkg-feed/"
 cp "$ROOT_DIR/install-router-ui-release.sh" "$RELEASE_DIR/install-router-ui-release.sh"
 chmod 755 "$RELEASE_DIR/install-router-ui-release.sh"
 printf '%s\n' "$APP_VERSION" > "$RELEASE_DIR/vpn-ui-version.txt"

@@ -5,6 +5,8 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 RELEASE_DIR="$ROOT_DIR/dist/release-v$APP_VERSION"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/router-release-staging-test.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 "$ROOT_DIR/scripts/stage-router-release.sh" >/tmp/router-release-stage-test.log
 
@@ -49,6 +51,24 @@ grep -q 'metadata-installed.*package-first-staged\|INSTALL_SOURCE=package-first-
 )
 
 RELEASE_DIR="$RELEASE_DIR" "$ROOT_DIR/scripts/validate-staged-release.sh" >/tmp/router-release-validator-test.log
+
+CUSTOM_OUT="$TMP_DIR/custom-output"
+BUILD_DIR="$TMP_DIR/build" \
+OUT_DIR="$CUSTOM_OUT/ipk" \
+FEED_DIR="$CUSTOM_OUT/opkg-feed" \
+SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+SOURCE_DIRTY=0 \
+  "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-release-custom-build-test.log
+OUT_ROOT="$CUSTOM_OUT" \
+RELEASE_DIR="$CUSTOM_OUT/release-v$APP_VERSION" \
+SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+SOURCE_DIRTY=false \
+  "$ROOT_DIR/scripts/stage-router-release.sh" >/tmp/router-release-custom-stage-test.log
+RELEASE_DIR="$CUSTOM_OUT/release-v$APP_VERSION" \
+STRICT_RELEASE=1 \
+  "$ROOT_DIR/scripts/validate-staged-release.sh" >/tmp/router-release-custom-validate-test.log
+grep -q 'SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567' \
+  "$TMP_DIR/build/premier-router-core/root/usr/share/vpn-ui/build-info"
 
 if find "$RELEASE_DIR" -type f | grep -E '/(\.DS_Store|id_rsa|\.env|\.pcap|luci-vpn-ui\.tar\.gz)$'; then
   printf 'release directory contains forbidden local or legacy tarball artifacts\n' >&2
