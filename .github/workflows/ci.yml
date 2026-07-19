@@ -29,6 +29,7 @@ jobs:
             luci-vpn-ui/files/usr/sbin/vpn-ui \
             luci-vpn-ui/files/usr/sbin/vpn-ui-update \
             install-router-ui-release.sh \
+            rescue-router-ui-0.7.1.sh \
             install-openwrt-vpn-ui.sh \
             install-friend-vpn-panel.sh \
             make-vpn-ui-release-bundle.sh \
@@ -69,4 +70,5 @@ jobs:
           sh tests/test-rd23-profile.sh
           sh tests/test-tailscale-registration.sh
           sh tests/test-update-release-compat.sh
+          sh tests/test-router-ui-071-updater-rescue.sh
           node tests/test-tailscale-ping-ui.mjs
