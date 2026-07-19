@@ -22,6 +22,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 [ -f "$RELEASE_DIR/opkg-feed/Packages" ]
 [ -f "$RELEASE_DIR/opkg-feed/Packages.gz" ]
 grep -Fq 'sha256sum "$archive_name" > "$archive_name.sha256"' "$IMAGE_BUILDER"
+grep -Fq 'rm -rf "$TARGET_OUT"' "$IMAGE_BUILDER"
+grep -Fq 'cd "$PROJECT_PACKAGE_DIR"' "$IMAGE_BUILDER"
+grep -Fq "sed 's#  \\./#  #'" "$IMAGE_BUILDER"
+grep -Fq 'find . -maxdepth 1 -type f ! -name sha256sums -print' "$IMAGE_BUILDER"
 
 grep -q '/usr/sbin/vpn-ui status' "$RELEASE_DIR/install-router-ui-release.sh"
 ! grep -q '/usr/sbin/vpn-ui check' "$RELEASE_DIR/install-router-ui-release.sh"
