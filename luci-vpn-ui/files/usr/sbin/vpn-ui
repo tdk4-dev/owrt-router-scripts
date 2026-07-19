@@ -1831,8 +1831,24 @@ vpn_summary_json() {
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   file="$PROFILE_DIR/$selected.conf"
-  [ -n "$selected" ] && [ -f "$file" ] ||
-    die_json "no selected VPN profile is available"
+  xray_state="stopped"
+  transparent_state="inactive"
+  vpn_enabled="false"
+  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
+    xray_state="running"
+  fi
+  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
+  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
+
+  if [ -z "$selected" ] || [ ! -f "$file" ]; then
+    printf '{"ok":true,"configured":false,"working":%s,"xray":' "$vpn_enabled"
+    json_string "$xray_state"
+    printf ',"transparent":'
+    json_string "$transparent_state"
+    printf ',"selected_id":"","selected_name":"","endpoint":"","ip":"","direct_domain_rules":0,"ping":"not tested"}\n'
+    return 0
+  fi
+
   load_profile_file "$file"
   domain_count="$(awk '
     {
@@ -1844,16 +1860,8 @@ vpn_summary_json() {
     END { print count + 0 }
   ' "$DOMAINS_FILE" 2>/dev/null)"
   ping="$(profile_ping_cached "$selected")"
-  xray_state="stopped"
-  transparent_state="inactive"
-  vpn_enabled="false"
-  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
-    xray_state="running"
-  fi
-  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
-  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && vpn_enabled="true"
 
-  printf '{"ok":true,"working":%s,"xray":' "$vpn_enabled"
+  printf '{"ok":true,"configured":true,"working":%s,"xray":' "$vpn_enabled"
   json_string "$xray_state"
   printf ',"transparent":'
   json_string "$transparent_state"
@@ -1917,7 +1925,10 @@ cmd_check() {
 
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
-  [ -n "$selected" ] || die_json "no selected VLESS profile"
+  [ -n "$selected" ] || {
+    printf '{"ok":true,"configured":false,"message":"no selected VLESS profile; configuration is not enabled"}\n'
+    return 0
+  }
   load_profile_id "$selected"
   tmpcfg="/tmp/vpn-ui-check.$$.json"
   ensure_domain_rule_data "$DOMAINS_FILE"
@@ -1928,7 +1939,7 @@ cmd_check() {
     die_json "Xray validation failed: $(one_line "$test_out")"
   fi
   rm -f "$tmpcfg"
-  printf '{"ok":true,"message":"configuration validates"}\n'
+  printf '{"ok":true,"configured":true,"message":"configuration validates"}\n'
 }
 
 cmd_device() {

@@ -3,10 +3,27 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 HELPER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+UPDATER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
 VIEW="$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js"
 SETUP_CGI="$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
 SETUP_APP="$ROOT_DIR/firstboot-wizard/www/app.js"
 SETUP_SERVER="$ROOT_DIR/firstboot-wizard/server.mjs"
+RELEASE_INSTALLER="$ROOT_DIR/install-router-ui-release.sh"
+VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
+INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
+
+[ "$VERSION" = "0.7.10" ]
+[ "$INSTALLED_VERSION" = "$VERSION" ]
+
+version_is_newer_definition="$(
+  sed -n '/^version_is_newer() {$/,/^}$/p' "$UPDATER"
+)"
+[ -n "$version_is_newer_definition" ]
+eval "$version_is_newer_definition"
+version_is_newer 0.7.10 0.7.9.1
+! version_is_newer 0.7.10 0.7.10
+version_is_newer 0.8.0 0.7.10
+! version_is_newer 0.7.9.1 0.7.10
 
 grep -q 'flow_json=""' "$HELPER"
 grep -q '"encryption": "none"\$flow_json' "$HELPER"
@@ -23,6 +40,11 @@ grep -q 'file_enabled: false' "$ROOT_DIR/setup-openwrt-x86-fin0.sh"
 grep -q 'interval: 24h' "$ROOT_DIR/setup-openwrt-x86-fin0.sh"
 grep -q 'file_enabled: false' "$SETUP_CGI"
 grep -q 'interval: 24h' "$SETUP_CGI"
+grep -q '"configured":false' "$HELPER"
+grep -q 'configuration is not enabled' "$HELPER"
+grep -q '"configured":true' "$HELPER"
+grep -Fq '\(system\/update\)".*/\1/p' "$RELEASE_INSTALLER"
+grep -Fq '\(system\/update-[^"][^"]*\)".*/\1/p' "$RELEASE_INSTALLER"
 
 count="$(grep -c 'ui.addNotification' "$VIEW")"
 [ "$count" -eq 1 ] || {
@@ -37,4 +59,4 @@ grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.9 hotfix static checks passed\n'
+printf 'VPN 0.7.10 hotfix static checks passed\n'

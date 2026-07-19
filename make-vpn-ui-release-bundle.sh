@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# Prevent macOS copyfile metadata from becoming hidden AppleDouble entries that
+# Linux tar exposes as extra release payload files.
+export COPYFILE_DISABLE=1
+
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
@@ -20,7 +24,7 @@ mkdir -p "$OUT_DIR" "$STAGE/luci-vpn-ui"
 cp -R "$ROOT_DIR/luci-vpn-ui/." "$STAGE/luci-vpn-ui/"
 rm -f "$STAGE/luci-vpn-ui.zip"
 
-tar -C "$STAGE" -czf "$OUT_DIR/luci-vpn-ui.tar.gz" luci-vpn-ui
+tar --no-xattrs -C "$STAGE" -czf "$OUT_DIR/luci-vpn-ui.tar.gz" luci-vpn-ui
 if command -v sha256sum >/dev/null 2>&1; then
   (
     cd "$OUT_DIR"

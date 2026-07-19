@@ -16,6 +16,13 @@ Record:
 - VM name and host;
 - network mode and expected test URL.
 
+## VM Resource Limit
+
+- Allocate no more than 300 MB of RAM to an OpenWrt release-test VM.
+- Record the configured RAM amount with the test evidence.
+- If a test genuinely cannot run within 300 MB, treat that as a failed resource
+  check and investigate the workload instead of silently increasing VM memory.
+
 ## Clean Image Test
 
 1. Create or reset a VirtualBox VM from the exact x86 image archive under test.
