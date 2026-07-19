@@ -184,8 +184,39 @@ Before modifying any running OpenWrt router:
 - Avoid service restarts not required by the change.
 - Keep a rollback command.
 
-OpenWrt file transfer should use `ssh` + `cat` or `ssh` + `tar`. Do not assume
-SFTP/SCP is available on Dropbear-based routers.
+### File Transfer To Minimal OpenWrt
+
+- Prefer an ordinary SSH stream into BusyBox `cat` for a single file:
+
+  ```sh
+  ssh root@<router-ip> 'umask 077; cat > /tmp/<file>' < ./<file>
+  ```
+
+  For a custom port, use lowercase `ssh -p <ssh-port>`. This path requires
+  neither SFTP nor a router-side `scp` client.
+- Prefer `ssh` plus `tar` streaming for directories or multiple files.
+- Do not recommend plain `scp` as universally compatible. OpenSSH 9.0 and
+  newer use SFTP by default, while stock OpenWrt Dropbear does not provide an
+  SFTP server by itself.
+- If `scp` is specifically needed, force the legacy SCP protocol with uppercase
+  `-O`, for example:
+
+  ```sh
+  scp -O ./<file> root@<router-ip>:/tmp/<file>
+  ```
+
+  A custom port uses uppercase `-P <ssh-port>` in addition to uppercase `-O`.
+- Do not install `openssh-sftp-server` solely for a one-off transfer when the
+  SSH-stream method is sufficient.
+- After every router file transfer and before execution, verify the exact file
+  hash on the router, for example:
+
+  ```sh
+  echo '<sha256>  /tmp/<file>' | sha256sum -c -
+  ```
+
+  Stop on any mismatch; never weaken host-key, TLS, or checksum verification to
+  make a transfer succeed.
 
 ## Package-First Release Policy
 
