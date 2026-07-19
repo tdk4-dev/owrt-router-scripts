@@ -62,12 +62,25 @@ make_release() {
   version="$1"
   release_dir="$FIXTURE_DIR/$version"
   printf '%s\n' "$version" > "$release_dir/vpn-ui-version.txt"
-  cat > "$release_dir/install-router-ui-release.sh" <<'EOF'
+  if [ "$version" = "0.7.9" ]; then
+    cat > "$release_dir/install-router-ui-release.sh" <<'EOF'
+#!/bin/sh
+set -eu
+validate_legacy_update_route() {
+  sed -n 's/.*"path":[[:space:]]*"\(system\/update-[^"]*\)".*/\1/p' /dev/null
+}
+grep -Fq '\(system\/update\(-[^"]*\)\{0,1\}\)' "$0"
+printf '%s\n' "${ROUTER_UI_VERSION:?}" > "${ROUTER_UI_VERSION_FILE:?}"
+printf '%s %s\n' "$ROUTER_UI_VERSION" "${ROUTER_UI_REPO:?}" >> "${RESCUE_INSTALL_LOG:?}"
+EOF
+  else
+    cat > "$release_dir/install-router-ui-release.sh" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "${ROUTER_UI_VERSION:?}" > "${ROUTER_UI_VERSION_FILE:?}"
 printf '%s %s\n' "$ROUTER_UI_VERSION" "${ROUTER_UI_REPO:?}" >> "${RESCUE_INSTALL_LOG:?}"
 EOF
+  fi
   chmod 755 "$release_dir/install-router-ui-release.sh"
   (
     cd "$release_dir"

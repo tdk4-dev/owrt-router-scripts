@@ -35,6 +35,7 @@ cleanup() {
         "$WORK_DIR/latest-version" \
         "$WORK_DIR/release-version" \
         "$WORK_DIR/install-router-ui-release.sh" \
+        "$WORK_DIR/install-router-ui-release.sh.compat" \
         "$WORK_DIR/install-router-ui-release.sh.sha256" 2>/dev/null || true
       rmdir "$WORK_DIR" 2>/dev/null || true
       ;;
@@ -72,6 +73,32 @@ version_is_allowed() {
   case "$1" in
     0.7.9|0.7.10) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+patch_legacy_installer_route_validation() {
+  local installer="$1"
+  local patched="$WORK_DIR/install-router-ui-release.sh.compat"
+  local legacy_pattern='\(system\/update-[^"]*\)'
+  local fixed_pattern='\(system\/update\(-[^"]*\)\{0,1\}\)'
+  local matches
+
+  matches="$(grep -Fc "$legacy_pattern" "$installer" || true)"
+  case "$matches" in
+    0)
+      return 0
+      ;;
+    1)
+      printf 'Applying the narrow stable-route compatibility repair to the verified legacy installer...\n'
+      sed 's#system\\/update-\[\^"\]\*#system\\/update\\(-[^\"]*\\)\\{0,1\\}#' \
+        "$installer" > "$patched" || die "could not patch legacy installer validation"
+      grep -Fq "$fixed_pattern" "$patched" ||
+        die "legacy installer validation repair did not produce the expected result"
+      mv "$patched" "$installer"
+      ;;
+    *)
+      die "legacy installer validation pattern appeared an unexpected number of times"
+      ;;
   esac
 }
 
@@ -141,6 +168,7 @@ printf '%s' "$EXPECTED_SUM" | grep -Eq '^[0-9a-f]{64}$' ||
 ACTUAL_SUM="$(sha256sum "$INSTALLER" | awk '{ print $1 }')"
 [ "$ACTUAL_SUM" = "$EXPECTED_SUM" ] ||
   die "installer checksum verification failed"
+patch_legacy_installer_route_validation "$INSTALLER"
 sh -n "$INSTALLER" || die "downloaded installer has invalid shell syntax"
 chmod 700 "$INSTALLER"
 
