@@ -162,6 +162,10 @@ sha256sum "$PROJECT_PACKAGE_DIR"/*.ipk > "$PROFILE_ARTIFACT_DIR/project-ipk-sha2
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
 
 tar -czf "$ARCHIVE" -C "$OUT_DIR" "$(basename "$PROFILE_ARTIFACT_DIR")"
-sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+archive_name="$(basename "$ARCHIVE")"
+(
+  cd "$OUT_DIR"
+  sha256sum "$archive_name" > "$archive_name.sha256"
+)
 
 printf 'Built artifact archive: %s\n' "$ARCHIVE"

@@ -2,6 +2,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+IMAGE_BUILDER="$ROOT_DIR/build-openwrt-custom-image-linux.sh"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 RELEASE_DIR="$ROOT_DIR/dist/release-v$APP_VERSION"
@@ -20,6 +21,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 [ -x "$RELEASE_DIR/install-router-ui-release.sh" ]
 [ -f "$RELEASE_DIR/opkg-feed/Packages" ]
 [ -f "$RELEASE_DIR/opkg-feed/Packages.gz" ]
+grep -Fq 'sha256sum "$archive_name" > "$archive_name.sha256"' "$IMAGE_BUILDER"
 
 grep -q '/usr/sbin/vpn-ui status' "$RELEASE_DIR/install-router-ui-release.sh"
 ! grep -q '/usr/sbin/vpn-ui check' "$RELEASE_DIR/install-router-ui-release.sh"
