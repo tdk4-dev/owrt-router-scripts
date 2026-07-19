@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$SCRIPT_DIR/files"
-VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
 TS="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/root/vpn-ui-preinstall-$TS"
 ROLLBACK="/root/rollback-vpn-ui-$TS.sh"
@@ -28,20 +28,23 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/sbin/vpn-ui-update
 /www/luci-static/resources/view/network/vpn.js
 /www/luci-static/resources/view/network/tailscale.js
+/www/luci-static/resources/view/network/adguard.js
+/www/luci-static/resources/tools/router_footer.js
 /www/luci-static/resources/view/system/update.js
+/www/luci-static/resources/view/system/reset.js
 /www/luci-static/resources/view/status/include/35_vpn.js
 /www/luci-static/resources/view/status/include/_35_vpn.js
-/www/luci-static/resources/view/network/vpn-0-7-6.js
 /www/luci-static/resources/view/network/vpn-0-7-0.js
 /www/luci-static/resources/view/network/tailscale-0-7-5.js
 /www/luci-static/resources/view/network/tailscale-0-7-4.js
 /www/luci-static/resources/view/network/tailscale-0-7-0.js
+/www/luci-static/resources/view/system/reset-0-8-0.js
 /www/luci-static/resources/view/system/update-0-7-3.js
 /www/luci-static/resources/view/system/update-0-7-2.js
 /www/luci-static/resources/view/system/update-0-7-1.js
 /www/luci-static/resources/view/system/update-0-7-0.js
-/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
+/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 /www/luci-static/resources/view/network/vpn-0-6-0.js
 /www/luci-static/resources/view/network/tailscale-0-6-0.js
 /www/luci-static/resources/view/system/update-0-6-0.js
@@ -50,6 +53,7 @@ TOUCHED_PATHS="/usr/sbin/vpn-ui
 /usr/share/luci/menu.d/luci-app-vpn-ui.json
 /usr/share/rpcd/acl.d/luci-app-vpn-ui.json
 /usr/share/vpn-ui/version
+/etc/config/premier_router
 /etc/vpn-ui-update.conf
 /etc/crontabs/root
 /etc/xray/vless-profiles.d
@@ -130,11 +134,15 @@ fetch_branch_files() {
     usr/sbin/vpn-ui-update \
     www/luci-static/resources/view/network/vpn.js \
     www/luci-static/resources/view/network/tailscale.js \
+    www/luci-static/resources/view/network/adguard.js \
+    www/luci-static/resources/view/system/reset.js \
     www/luci-static/resources/view/system/update.js \
     www/luci-static/resources/view/status/include/35_vpn.js \
+    www/luci-static/resources/tools/router_footer.js \
     usr/share/luci/menu.d/luci-app-vpn-ui.json \
     usr/share/rpcd/acl.d/luci-app-vpn-ui.json \
-    usr/share/vpn-ui/version
+    usr/share/vpn-ui/version \
+    etc/config/premier_router
   do
     download_file "${VPN_UI_RAW_BASE%/}/$path" "$dst/$path"
   done
@@ -146,11 +154,15 @@ ensure_source_files() {
     [ -f "$SRC_DIR/usr/sbin/vpn-ui-update" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/network/adguard.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/view/system/reset.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/system/update.js" ] &&
     [ -f "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
+    [ -f "$SRC_DIR/www/luci-static/resources/tools/router_footer.js" ] &&
     [ -f "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" ] &&
     [ -f "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" ] &&
-    [ -f "$SRC_DIR/usr/share/vpn-ui/version" ]; then
+    [ -f "$SRC_DIR/usr/share/vpn-ui/version" ] &&
+    [ -f "$SRC_DIR/etc/config/premier_router" ]; then
     return 0
   fi
 
@@ -189,9 +201,9 @@ create_full_backup() {
     die "sysupgrade is required to create the mandatory pre-install backup"
   mkdir -p "$FULL_BACKUP_DIR"
   chmod 700 "$FULL_BACKUP_DIR"
-  FULL_BACKUP="$FULL_BACKUP_DIR/openwrt-before-router-ui-${VERSION:-unknown}-$TS.tar.gz"
+  FULL_BACKUP="$FULL_BACKUP_DIR/openwrt-before-router-ui-${APP_VERSION:-unknown}-$TS.tar.gz"
   printf 'Creating mandatory OpenWrt backup: %s\n' "$FULL_BACKUP"
-  temporary="/tmp/openwrt-before-router-ui-${VERSION:-unknown}-$TS.tar.gz"
+  temporary="/tmp/openwrt-before-router-ui-${APP_VERSION:-unknown}-$TS.tar.gz"
   rm -f "$temporary"
   sysupgrade -b "$temporary" >/tmp/vpn-ui-sysupgrade-backup.log 2>&1 || {
     rm -f "$temporary"
@@ -227,8 +239,8 @@ create_full_backup() {
 }
 
 ensure_source_files
-[ -n "$VERSION" ] ||
-  VERSION="$(sed -n '1p' "$SRC_DIR/usr/share/vpn-ui/version" 2>/dev/null | tr -d '\r\n' || true)"
+[ -n "$APP_VERSION" ] ||
+  APP_VERSION="$(sed -n '1p' "$SRC_DIR/usr/share/vpn-ui/version" 2>/dev/null | tr -d '\r\n' || true)"
 create_full_backup
 
 mkdir -p "$BACKUP_DIR/files"
@@ -309,28 +321,42 @@ copy_file "$SRC_DIR/usr/sbin/vpn-ui" /usr/sbin/vpn-ui 755
 copy_file "$SRC_DIR/usr/sbin/vpn-ui-update" /usr/sbin/vpn-ui-update 755
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/adguard.js" /www/luci-static/resources/view/network/adguard.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update.js 644
 copy_file "$SRC_DIR/www/luci-static/resources/view/status/include/35_vpn.js" /www/luci-static/resources/view/status/include/35_vpn.js 644
-rm -f /www/luci-static/resources/view/status/include/_35_vpn.js
+copy_file "$SRC_DIR/www/luci-static/resources/tools/router_footer.js" /www/luci-static/resources/tools/router_footer.js 644
+# Transitional aliases let pre-0.7.9 updaters validate the install after
+# stable LuCI filenames are introduced.
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/vpn.js" /www/luci-static/resources/view/network/vpn-0-7-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/network/tailscale.js" /www/luci-static/resources/view/network/tailscale-0-7-5.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/reset.js" /www/luci-static/resources/view/system/reset-0-8-0.js 644
+copy_file "$SRC_DIR/www/luci-static/resources/view/system/update.js" /www/luci-static/resources/view/system/update-0-7-3.js 644
+rm -f \
+  /www/luci-static/resources/view/status/include/_35_vpn.js \
+  /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js \
+  /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-7-6.js
-rm -f /www/luci-static/resources/view/network/vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-6-0.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-6-0.js
-rm -f /www/luci-static/resources/view/network/tailscale-0-7-5.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-4.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-7-0.js
-rm -f /www/luci-static/resources/view/system/update-0-7-3.js
 rm -f /www/luci-static/resources/view/system/update-0-6-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-0.js
 rm -f /www/luci-static/resources/view/system/update-0-7-1.js
 rm -f /www/luci-static/resources/view/system/update-0-7-2.js
-rm -f /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
-rm -f /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js
 rm -f /www/luci-static/resources/view/network/vpn-0-5-2.js
 rm -f /www/luci-static/resources/view/network/tailscale-0-5-2.js
 copy_file "$SRC_DIR/usr/share/luci/menu.d/luci-app-vpn-ui.json" /usr/share/luci/menu.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" /usr/share/rpcd/acl.d/luci-app-vpn-ui.json 644
 copy_file "$SRC_DIR/usr/share/vpn-ui/version" /usr/share/vpn-ui/version 644
+[ -f /etc/config/premier_router ] ||
+  copy_file "$SRC_DIR/etc/config/premier_router" /etc/config/premier_router 600
+rm -rf /tmp/vpn-ui-pings
+/usr/sbin/vpn-ui metadata-set legacy-migrated self-managed local-only 0 0 >/tmp/vpn-ui-metadata-init.log 2>&1 ||
+  die "could not initialize router installation metadata"
+[ ! -x /usr/sbin/router-prep ] || [ ! -f /etc/router-prep/customer-policy.conf ] ||
+  /usr/sbin/router-prep apply-policy
 ensure_geosite_data
 
 mkdir -p /etc/crontabs
@@ -353,15 +379,26 @@ printf '%s\n' "$INIT_OUT" | grep -q '"ok":true' || {
 /usr/sbin/vpn-ui vpn-summary | grep -q '"ok":true' ||
   die "VPN status validation failed after installation"
 grep -q '"path":[[:space:]]*"network/vpn"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI VPN menu validation failed"
-grep -q '"path":[[:space:]]*"network/tailscale"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Tailscale menu validation failed"
+  grep -q "CUSTOMER_VPN='0'" /etc/router-prep/customer-policy.conf 2>/dev/null ||
+    die "LuCI VPN menu validation failed"
+[ -f /www/luci-static/resources/view/network/tailscale.js ] ||
+  die "LuCI Tailscale view validation failed"
+[ -f /www/luci-static/resources/view/network/adguard.js ] ||
+  die "LuCI AdGuardHome view validation failed"
+[ -f /www/luci-static/resources/view/system/update.js ] ||
+  die "LuCI Update view validation failed"
 grep -q '"path":[[:space:]]*"system/update"' /usr/share/luci/menu.d/luci-app-vpn-ui.json ||
-  die "LuCI Update menu validation failed"
+  die "LuCI Update menu route validation failed"
+[ -f /www/luci-static/resources/view/system/reset.js ] ||
+  die "LuCI Reset view validation failed"
 [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] ||
   die "LuCI VPN status include validation failed"
-[ ! -e /www/luci-static/resources/view/status/include/_35_vpn.js ] ||
-  die "duplicate LuCI VPN status include is still installed"
+[ -f /www/luci-static/resources/tools/router_footer.js ] ||
+  die "LuCI Router Scripts footer helper validation failed"
+if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f \
+  \( -name '_35_vpn*.js' -o -name '35_vpn-*.js' \) | grep -q .; then
+  die "duplicate LuCI VPN status includes remain installed"
+fi
 
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 /etc/init.d/rpcd restart >/tmp/vpn-ui-install-rpcd.log 2>&1 || true

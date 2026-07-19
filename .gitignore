@@ -12,6 +12,8 @@
 *.swo
 .vscode/
 .idea/
+.worktrees/
+_local/
 
 # Logs, temporary files, and patch leftovers
 *.log

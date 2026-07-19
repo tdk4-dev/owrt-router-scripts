@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
 var isReadonlyView = !L.hasViewPermission() || null;
@@ -47,12 +48,21 @@ return view.extend({
 	},
 
 	load: function() {
-		return this.callHelper(['tailscale-status']);
+		return Promise.all([
+			this.callHelper(['tailscale-status']),
+			this.callHelper(['footer-info'])
+		]).then(function(result) {
+			result[0].metadata = result[1];
+			return result[0];
+		});
 	},
 
 	refresh: function(data) {
+		data.metadata = data.metadata || this.metadata || {};
+		this.metadata = data.metadata;
 		this.data = data;
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
+		routerFooter.apply(data.metadata);
 	},
 
 	runAction: function(args, title) {
@@ -308,7 +318,9 @@ return view.extend({
 	},
 
 	render: function(data) {
+		this.metadata = data.metadata || {};
 		this.data = data;
+		routerFooter.apply(data.metadata);
 
 		return E('div', { 'class': 'cbi-map tailscale-ui' }, [
 			E('style', {}, css),
