@@ -11,6 +11,7 @@ WORK_DIR="${WORK_DIR:-$ROOT_DIR/.imagebuilder}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
 PACKAGE_FILE="${PACKAGE_FILE:-$ROOT_DIR/image/openwrt-fin0-packages.txt}"
 PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
+PROJECT_PACKAGE_MANIFEST="${PROJECT_PACKAGE_MANIFEST:-$PROJECT_PACKAGE_DIR/router-ui-packages.txt}"
 PROJECT_FEED_DIR="${PROJECT_FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
 IB_TARGET_NAME="$(printf '%s' "$TARGET_DIR" | tr '/' '-')"
@@ -73,6 +74,10 @@ for pkg in $PROJECT_PACKAGES; do
     exit 1
   }
 done
+[ -f "$PROJECT_PACKAGE_MANIFEST" ] || {
+  printf 'Missing project package manifest: %s\n' "$PROJECT_PACKAGE_MANIFEST" >&2
+  exit 1
+}
 
 if [ ! -d "$IB_DIR" ]; then
   if [ ! -f "$WORK_DIR/$IB_ARCHIVE" ]; then
@@ -152,7 +157,7 @@ find "$TARGET_OUT" -maxdepth 1 -type f \
   -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
-cp "$PROJECT_PACKAGE_DIR/router-ui-packages.txt" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
+cp "$PROJECT_PACKAGE_MANIFEST" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
 sha256sum "$PROJECT_PACKAGE_DIR"/*.ipk > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
 

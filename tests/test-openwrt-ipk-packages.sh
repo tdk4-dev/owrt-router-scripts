@@ -16,7 +16,8 @@ trap cleanup EXIT INT TERM
 for image_builder in "$CUSTOM_IMAGE_BUILDER" "$X86_IMAGE_BUILDER"; do
   grep -Fq 'rm -f "$pkg_dir/${pkg}_"*.ipk' "$image_builder"
 done
-grep -Fq 'cp "$PROJECT_PACKAGE_DIR/router-ui-packages.txt"' "$CUSTOM_IMAGE_BUILDER"
+grep -Fq 'PROJECT_PACKAGE_MANIFEST="${PROJECT_PACKAGE_MANIFEST:-$PROJECT_PACKAGE_DIR/router-ui-packages.txt}"' "$CUSTOM_IMAGE_BUILDER"
+grep -Fq 'cp "$PROJECT_PACKAGE_MANIFEST"' "$CUSTOM_IMAGE_BUILDER"
 
 "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/tmp/router-ipk-build-test.log
 first_build_hashes="$(sha256sum "$ROOT_DIR"/dist/ipk/*.ipk)"
