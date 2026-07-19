@@ -123,6 +123,12 @@ if [ -f "$copy_root_redirect" ]; then
 fi
 
 PACKAGES="$(awk 'NF && $1 !~ /^#/ { printf "%s ", $1 }' "$PACKAGE_FILE") $PROJECT_PACKAGES"
+TARGET_OUT="$IB_DIR/bin/targets/$TARGET_DIR"
+
+# ImageBuilder keeps prior profile outputs in bin/targets. Start each artifact
+# assembly from one profile so cached stock and ubootmod files cannot leak into
+# each other's archive or checksum manifest.
+rm -rf "$TARGET_OUT"
 
 printf 'Building OpenWrt %s %s profile %s...\n' "$OPENWRT_VERSION" "$TARGET_DIR" "$PROFILE"
 if [ "$TARGET_DIR" = "x86/64" ]; then
@@ -145,7 +151,6 @@ else
 fi
 cat "$BUILD_LOG"
 
-TARGET_OUT="$IB_DIR/bin/targets/$TARGET_DIR"
 MANIFEST_SRC="$(find "$TARGET_OUT" -maxdepth 1 -type f -name '*.manifest' | sort | tail -n 1)"
 PROFILE_ARTIFACT_DIR="$OUT_DIR/$ARTIFACT_PREFIX"
 ARCHIVE="$OUT_DIR/$ARTIFACT_PREFIX.tar.gz"
@@ -153,13 +158,25 @@ ARCHIVE="$OUT_DIR/$ARTIFACT_PREFIX.tar.gz"
 rm -rf "$PROFILE_ARTIFACT_DIR"
 mkdir -p "$PROFILE_ARTIFACT_DIR"
 find "$TARGET_OUT" -maxdepth 1 -type f \
-  \( -name "*$PROFILE*" -o -name 'profiles.json' -o -name 'sha256sums' \) \
+  \( -name "*$PROFILE*" -o -name 'profiles.json' \) \
   -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
 cp "$PROJECT_PACKAGE_MANIFEST" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
-sha256sum "$PROJECT_PACKAGE_DIR"/*.ipk > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
+(
+  cd "$PROJECT_PACKAGE_DIR"
+  sha256sum ./*.ipk | sed 's#  \./#  #'
+) > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
+(
+  cd "$PROFILE_ARTIFACT_DIR"
+  find . -maxdepth 1 -type f ! -name sha256sums -print |
+    sort |
+    sed 's#^\./##' |
+    while IFS= read -r artifact; do
+      sha256sum "$artifact"
+    done > sha256sums
+)
 
 tar -czf "$ARCHIVE" -C "$OUT_DIR" "$(basename "$PROFILE_ARTIFACT_DIR")"
 archive_name="$(basename "$ARCHIVE")"
