@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-non-secret-test-profile",
+  "endpoint": "192.0.2.1",
+  "endpoint_class": "IANA-TEST-NET-1",
+  "reachable_endpoint": false,
+  "direct_domain_rule": "domain:router-ui-vm.invalid",
+  "direct_domain_class": "RFC-6761-invalid",
+  "subscription_url_present": false,
+  "private_key_present": false,
+  "installed_paths": {
+    "profile.conf": "/etc/xray/vless-profiles.d/disposable-vm-fixture.conf",
+    "selected": "/etc/xray/vless-selected",
+    "direct-domains.txt": "/etc/xray/direct-domains.txt"
+  }
+}

@@ -70,33 +70,19 @@ protected_hash() {
 
 install_non_secret_test_profile() {
   source_version="$1"
+  fixture_base="$2"
   case "$source_version" in
-    0.5.1|0.5.2|0.6.0) return 0 ;;
-    0.7.*) ;;
+    0.5.1|0.5.2|0.6.0|0.7.*) ;;
     *) die "test profile requested for unsupported baseline: $source_version" ;;
   esac
 
   mkdir -p /etc/xray/vless-profiles.d
-  cat > /etc/xray/vless-profiles.d/disposable-vm-fixture.conf <<'EOF'
-P_ID='disposable-vm-fixture'
-P_NAME='Non-routable disposable VM fixture'
-P_URL=''
-P_UUID='5783a3e7-e373-51cd-8642-c83782b807c5'
-P_HOST='192.0.2.1'
-P_PORT='443'
-P_VPS_IP='192.0.2.1'
-P_NETWORK='tcp'
-P_SECURITY='reality'
-P_FLOW='xtls-rprx-vision'
-P_PUBLIC_KEY='ioE61VC3V30U7IdRmQ3bjhOq2ij9tPhVIgAD4JZ4YRY'
-P_SHORT_ID='906f47df46efecc5'
-P_SNI='example.com'
-P_FINGERPRINT='chrome'
-P_SPIDERX='/'
-P_SOURCE_ID=''
-EOF
-  printf '%s\n' disposable-vm-fixture > /etc/xray/vless-selected
-  printf '%s\n' domain:router-ui-vm.invalid > /etc/xray/direct-domains.txt
+  curl -fsSL --proto '=https' "$fixture_base/profile.conf" \
+    -o /etc/xray/vless-profiles.d/disposable-vm-fixture.conf
+  curl -fsSL --proto '=https' "$fixture_base/selected" \
+    -o /etc/xray/vless-selected
+  curl -fsSL --proto '=https' "$fixture_base/direct-domains.txt" \
+    -o /etc/xray/direct-domains.txt
   chmod 700 /etc/xray/vless-profiles.d
   chmod 600 /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
     /etc/xray/vless-selected /etc/xray/direct-domains.txt
@@ -111,10 +97,70 @@ install_baseline() {
   [ "$expected" = "$(sha256sum "$work/luci-vpn-ui.tar.gz" | awk '{print $1}')" ] || die "published $version checksum mismatch"
   tar -xzf "$work/luci-vpn-ui.tar.gz" -C "$work"
   [ "$(sed -n '1p' "$work/luci-vpn-ui/VERSION")" = "$version" ] || die "published $version bundle metadata mismatch"
-  install_non_secret_test_profile "$version"
+  fixture_origin="${base%/baselines}/fixtures/legacy-nonsecret"
+  install_non_secret_test_profile "$version" "$fixture_origin"
   SKIP_SYSUPGRADE_BACKUP=1 INSTALL_GEOSITE=0 UPDATE_GEOSITE=0 sh "$work/luci-vpn-ui/install.sh"
   [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ] || die "baseline $version did not install exactly"
   rm -rf "$work"
+}
+
+validate_baseline() {
+  version="$1" expected_worker="$2" expected_validator="$3"
+  expected_xray_version="$4" expected_xray_binary="$5"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ] ||
+    die "baseline version contract failed: $version"
+  worker_sha="$(sha256sum /usr/sbin/vpn-ui-update | awk '{print $1}')"
+  validator_sha="$(sha256sum /usr/sbin/vpn-ui | awk '{print $1}')"
+  [ "$worker_sha" = "$expected_worker" ] || die "legacy worker hash mismatch: $version"
+  [ "$validator_sha" = "$expected_validator" ] || die "legacy validator hash mismatch: $version"
+  for path in \
+    /usr/share/vpn-ui/version \
+    /usr/sbin/vpn-ui \
+    /usr/sbin/vpn-ui-update \
+    /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
+    /etc/xray/vless-selected \
+    /etc/xray/direct-domains.txt; do
+    [ -f "$path" ] || die "baseline filesystem contract missing: $path"
+  done
+  set +e
+  /usr/sbin/vpn-ui check > /tmp/vpn-ui-baseline-self-validation.log 2>&1
+  validator_rc=$?
+  set -e
+  cat /tmp/vpn-ui-baseline-self-validation.log
+  [ "$validator_rc" -eq 0 ] || die "legacy self-validation command failed: $version (rc=$validator_rc)"
+  grep -q '"ok":true' /tmp/vpn-ui-baseline-self-validation.log ||
+    die "legacy self-validation rejected its installed baseline: $version"
+  contract_file="/tmp/router-ui-baseline-contract.$$"
+  {
+    printf '%s\n' "$version"
+    for path in \
+      /usr/share/vpn-ui/version \
+      /usr/sbin/vpn-ui \
+      /usr/sbin/vpn-ui-update \
+      /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
+      /etc/xray/vless-selected \
+      /etc/xray/direct-domains.txt; do
+      sha256sum "$path"
+    done
+  } > "$contract_file"
+  contract_sha="$(sha256sum "$contract_file" | awk '{print $1}')"
+  rm -f "$contract_file"
+  xray_version="$(opkg status xray-core | sed -n 's/^Version: //p' | sed -n '1p')"
+  [ "$xray_version" = "$expected_xray_version" ] ||
+    die "installed Xray package version differs from the exact locked IPK: $xray_version"
+  xray_binary="$(command -v xray || command -v xray-latest || true)"
+  [ -n "$xray_binary" ] || die "baseline Xray binary is missing"
+  xray_binary_sha="$(sha256sum "$xray_binary" | awk '{print $1}')"
+  [ "$xray_binary_sha" = "$expected_xray_binary" ] ||
+    die "installed Xray binary differs from the exact locked IPK: $xray_binary_sha"
+  protected_sha="$(protected_hash)"
+  printf '{"version":"%s","worker_sha256":"%s","validator_sha256":"%s",' \
+    "$version" "$worker_sha" "$validator_sha"
+  printf '"filesystem_contract_sha256":"%s","protected_sha256":"%s",' \
+    "$contract_sha" "$protected_sha"
+  printf '"xray_package_version":"%s","xray_binary":"%s","xray_binary_sha256":"%s",' \
+    "$xray_version" "$xray_binary" "$xray_binary_sha"
+  printf '"self_validation":{"command":"/usr/sbin/vpn-ui check","exit_code":0,"ok":true}}\n'
 }
 
 old_status_is() {
@@ -249,6 +295,7 @@ case "${1:-}" in
   measure) shift; measure "$@" ;;
   protected-hash) protected_hash ;;
   install-baseline) shift; install_baseline "$@" ;;
+  validate-baseline) shift; validate_baseline "$@" ;;
   old-worker) shift; run_old_worker "$@" ;;
   rescue) shift; run_rescue "$@" ;;
   verify-target) shift; verify_target "$@" ;;
