@@ -53,6 +53,9 @@ grep -q 'HOST_ORIGIN="https://127.0.0.1:' "$VM_GATE"
 grep -q 'host_bin/sha256' "$VM_GATE"
 grep -q 'VM base build failed' "$VM_GATE"
 grep -q 'umask 022.*make -C.*image' "$VM_GATE"
+grep -q 'extract_openwrt_gzip_image' "$VM_GATE"
+grep -q 'decompression OK, trailing garbage ignored' "$VM_GATE"
+grep -q 'qemu-img info --output=json' "$VM_GATE"
 grep -q '/proc/mounts' "$VM_GUEST"
 
 # The overlay may contain only the root redirect and the signed exact-package

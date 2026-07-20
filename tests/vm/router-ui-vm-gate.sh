@@ -48,6 +48,25 @@ record_result() {
     --argjson details "$details" '{kind:$kind,name:$name,status:$status,details:$details}' >> "$file"
 }
 
+extract_openwrt_gzip_image() {
+  local source="$1" destination="$2" log="$3" status=0 lines
+  if gzip -dc "$source" > "$destination" 2> "$log"; then
+    :
+  else
+    status=$?
+    lines="$(wc -l < "$log" | tr -d ' ')"
+    if [[ "$status" -ne 2 ]] || [[ "$lines" -ne 1 ]] ||
+      ! grep -Eq '^gzip: .*: decompression OK, trailing garbage ignored$' "$log"; then
+      cat "$log" >&2
+      fail "OpenWrt image decompression failed: $(basename "$source")"
+    fi
+  fi
+  [[ -s "$destination" ]] || fail "OpenWrt image decompressed to an empty file: $(basename "$source")"
+  qemu-img info --output=json "$destination" |
+    jq -e '.format == "raw" and .["virtual-size"] > 0' >/dev/null ||
+    fail "OpenWrt image is not a nonempty raw disk: $(basename "$source")"
+}
+
 setup_tls() {
   openssl genrsa -out "$WORK/ca.key" 2048 >/dev/null 2>&1
   openssl req -x509 -new -key "$WORK/ca.key" -sha256 -days 2 \
@@ -137,7 +156,8 @@ EOF
     fi
     base_gz="$(find "$ib/bin/targets/x86/64" -maxdepth 1 -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
     [[ -n "$base_gz" ]] || fail "VM base build did not produce ${size} MiB combined squashfs image"
-    gzip -dc "$base_gz" > "$WORK/vm-base-$size.img"
+    extract_openwrt_gzip_image "$base_gz" "$WORK/vm-base-$size.img" \
+      "$EVIDENCE_DIR/vm-base-${size}mib-gzip.log"
   done
   ln -s "$WORK/vm-base-60.img" "$WORK/vm-base.img"
 }
@@ -147,7 +167,8 @@ extract_candidate_image() {
   tar -xzf "$X86_IMAGE_ARCHIVE" -C "$WORK/candidate-archive"
   candidate_gz="$(find "$WORK/candidate-archive" -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
   [[ -n "$candidate_gz" ]] || fail "candidate archive lacks x86 combined squashfs image"
-  gzip -dc "$candidate_gz" > "$WORK/candidate.img"
+  extract_openwrt_gzip_image "$candidate_gz" "$WORK/candidate.img" \
+    "$EVIDENCE_DIR/candidate-image-gzip.log"
 }
 
 clone_disk() {
