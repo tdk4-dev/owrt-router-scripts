@@ -1,0 +1,206 @@
+name: Diagnostic Router UI VM gate using immutable run 107 bytes
+
+on:
+  push:
+    branches:
+      - codex/router-ui-0.7.11-vm-diagnostics
+      - codex/router-ui-0.7.11-vm-diagnostics-full
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: router-ui-vm-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic-vm:
+    name: Diagnostic only - not release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CANDIDATE_RUN_ID: "29770661240"
+      CANDIDATE_RUN_NUMBER: "107"
+      CANDIDATE_ARTIFACT_ID: "8473240890"
+      CANDIDATE_ARTIFACT_NAME: pretag-router-ui-candidate-373d88c3636340d1610187992ec256ecdf65e123
+      CANDIDATE_ARTIFACT_ZIP_SHA256: 1fea2b2e49d95ee544c70ff95db5698c51d7cc0cf3b8362e8c03281c0d64c6bb
+      CANDIDATE_SOURCE_SHA: 373d88c3636340d1610187992ec256ecdf65e123
+      CANDIDATE_MANIFEST_SHA256: 2205cd47209a758f013e5e288a7f97a8f2b4f5eaefd27cf3994140760a5cb623
+      CANDIDATE_SHA256SUMS_SHA256: c562f94fe7474e314294dfd210ee7c2e151546a690579f6b159723f109c585b3
+      SYNTHETIC_MANIFEST_SHA256: a78095ea1ace797287c8d4d5b0fd20082c19a0affd149b48c22f8cd292f7e20c
+      SYNTHETIC_SHA256SUMS_SHA256: e2344b7319a0342289f23e16b6975367c720ef1f98cc4028baa427c19c5d0422
+      EXPECTED_KEY_ID: router-ui-prod-5b001ed1f9e63c96
+      EXPECTED_KEY_FINGERPRINT: 5b001ed1f9e63c96
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pin the diagnostic harness identity and case
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          case "$GITHUB_REF_NAME" in
+            codex/router-ui-0.7.11-vm-diagnostics)
+              vm_case=rescue-0.7.0
+              ;;
+            codex/router-ui-0.7.11-vm-diagnostics-full)
+              vm_case=full
+              ;;
+            *)
+              echo "Unexpected diagnostic ref: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+          printf 'VM_CASE=%s\n' "$vm_case" >> "$GITHUB_ENV"
+          printf 'HARNESS_SOURCE_SHA=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/diagnostic-evidence"
+
+      - name: Install artifact-verification and VM dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake jq openssl qemu-system-x86 qemu-utils unzip zstd
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Download and fail-closed verify the exact run 107 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          evidence="$RUNNER_TEMP/diagnostic-evidence"
+          input="$RUNNER_TEMP/run-107-input"
+          archive="$RUNNER_TEMP/run-107-artifact.zip"
+          mkdir -p "$input"
+
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" \
+            > "$evidence/candidate-workflow-run.json"
+          jq -e --argjson id "$CANDIDATE_RUN_ID" \
+            --argjson number "$CANDIDATE_RUN_NUMBER" \
+            --arg sha "$CANDIDATE_SOURCE_SHA" '
+              .id == $id and .run_number == $number and .head_sha == $sha
+            ' "$evidence/candidate-workflow-run.json" >/dev/null
+
+          gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ARTIFACT_ID" \
+            > "$evidence/candidate-artifact.json"
+          jq -e --argjson id "$CANDIDATE_ARTIFACT_ID" \
+            --argjson run "$CANDIDATE_RUN_ID" \
+            --arg name "$CANDIDATE_ARTIFACT_NAME" \
+            --arg digest "sha256:$CANDIDATE_ARTIFACT_ZIP_SHA256" '
+              .id == $id and .name == $name and .expired == false and
+              .workflow_run.id == $run and .digest == $digest
+            ' "$evidence/candidate-artifact.json" >/dev/null
+
+          gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ARTIFACT_ID/zip" \
+            > "$archive"
+          printf '%s  %s\n' "$CANDIDATE_ARTIFACT_ZIP_SHA256" "$archive" | sha256sum -c -
+          unzip -q "$archive" -d "$input"
+          test -d "$input/release-v0.7.11"
+          test -d "$input/synthetic-next"
+
+          release="$input/release-v0.7.11"
+          synthetic="$input/synthetic-next"
+          test "$(sha256sum "$release/SHA256SUMS" | awk '{print $1}')" = \
+            "$CANDIDATE_SHA256SUMS_SHA256"
+          test "$(sha256sum "$release/router-release-manifest.json" | awk '{print $1}')" = \
+            "$CANDIDATE_MANIFEST_SHA256"
+          test "$(sha256sum "$synthetic/SHA256SUMS" | awk '{print $1}')" = \
+            "$SYNTHETIC_SHA256SUMS_SHA256"
+          test "$(sha256sum "$synthetic/router-release-manifest.json" | awk '{print $1}')" = \
+            "$SYNTHETIC_MANIFEST_SHA256"
+
+          for directory in "$release" "$synthetic"; do
+            (cd "$directory" && sha256sum -c SHA256SUMS)
+            find "$directory" -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; |
+              LC_ALL=C sort > "$RUNNER_TEMP/files.actual"
+            awk '{print $2}' "$directory/SHA256SUMS" | sed 's#^\*##' |
+              LC_ALL=C sort > "$RUNNER_TEMP/files.expected"
+            cmp -s "$RUNNER_TEMP/files.actual" "$RUNNER_TEMP/files.expected"
+            for signed in router-release-manifest.json stable-channel.json release-provenance.json; do
+              usign -q -V -p release/keys/router-ui-production.pub \
+                -m "$directory/$signed" -x "$directory/$signed.sig"
+            done
+          done
+
+          test "$(usign -F -p release/keys/router-ui-production.pub)" = \
+            "$EXPECTED_KEY_FINGERPRINT"
+          test "$(sed -n '1p' release/keys/router-ui-production.key-id)" = "$EXPECTED_KEY_ID"
+          jq -e --arg sha "$CANDIDATE_SOURCE_SHA" --arg key "$EXPECTED_KEY_ID" '
+            .source_commit == $sha and .source_dirty == false and
+            .app_version == "0.7.11" and .signing_key_id == $key
+          ' "$release/router-release-manifest.json" >/dev/null
+          jq -e --arg sha "$CANDIDATE_SOURCE_SHA" --arg key "$EXPECTED_KEY_ID" '
+            .source_commit == $sha and .source_dirty == false and
+            .app_version == "0.7.12" and .signing_key_id == $key
+          ' "$synthetic/router-release-manifest.json" >/dev/null
+
+          RELEASE_DIR="$release" RELEASE_PUBLIC_KEY="$GITHUB_WORKSPACE/release/keys/router-ui-production.pub" \
+            STRICT_RELEASE=1 REQUIRE_IMAGES=1 REQUIRE_MAIN_ANCESTRY=0 \
+            EXPECTED_SOURCE_COMMIT="$CANDIDATE_SOURCE_SHA" USIGN_BIN=usign \
+            ./scripts/validate-staged-release.sh
+
+          jq -n --argjson run_id "$CANDIDATE_RUN_ID" \
+            --argjson run_number "$CANDIDATE_RUN_NUMBER" \
+            --argjson artifact_id "$CANDIDATE_ARTIFACT_ID" \
+            --arg artifact_name "$CANDIDATE_ARTIFACT_NAME" \
+            --arg artifact_zip_sha256 "$CANDIDATE_ARTIFACT_ZIP_SHA256" \
+            --arg candidate_source_sha "$CANDIDATE_SOURCE_SHA" \
+            --arg harness_source_sha "$HARNESS_SOURCE_SHA" \
+            --arg vm_case "$VM_CASE" \
+            --arg manifest_sha256 "$CANDIDATE_MANIFEST_SHA256" \
+            --arg key_id "$EXPECTED_KEY_ID" \
+            --arg key_fingerprint "$EXPECTED_KEY_FINGERPRINT" '
+              {schema_version:1,diagnostic:true,release_evidence:false,
+               candidate_workflow_run_id:$run_id,candidate_workflow_run_number:$run_number,
+               candidate_artifact_id:$artifact_id,candidate_artifact_name:$artifact_name,
+               candidate_artifact_zip_sha256:$artifact_zip_sha256,
+               candidate_source_sha:$candidate_source_sha,harness_source_sha:$harness_source_sha,
+               vm_case:$vm_case,manifest_sha256:$manifest_sha256,
+               production_key_id:$key_id,production_key_fingerprint:$key_fingerprint,
+               artifact_identity_verified:true,all_manifested_files_verified:true,
+               signatures_verified:true,strict_release_validation_passed:true}
+            ' > "$evidence/diagnostic-identity.json"
+          printf 'RELEASE_DIR=%s\n' "$release" >> "$GITHUB_ENV"
+          printf 'SYNTHETIC_DIR=%s\n' "$synthetic" >> "$GITHUB_ENV"
+
+      - name: Install browser dependency only for the complete diagnostic matrix
+        if: env.VM_CASE == 'full'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright" playwright@1.55.1
+          npx --prefix "$RUNNER_TEMP/playwright" playwright install --with-deps chromium
+
+      - name: Run the serial diagnostic VM case against immutable run 107 bytes
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/diagnostic-evidence
+          NODE_PATH: ${{ runner.temp }}/playwright/node_modules
+          ROUTER_UI_VM_DIAGNOSTIC: "1"
+          ROUTER_UI_VM_DIAGNOSTIC_CASE: ${{ env.VM_CASE }}
+          ROUTER_UI_VM_HARNESS_SHA: ${{ env.HARNESS_SOURCE_SHA }}
+        run: |
+          x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
+          test -n "$x86_archive"
+          export X86_IMAGE_ARCHIVE="$x86_archive"
+          ./tests/vm/router-ui-vm-gate.sh 2>&1 |
+            tee "$EVIDENCE_DIR/vm-gate.log"
+
+      - name: Finalize diagnostic evidence checksums
+        if: always()
+        run: |
+          evidence="$RUNNER_TEMP/diagnostic-evidence"
+          mkdir -p "$evidence"
+          if test -d "${RELEASE_DIR:-}"; then
+            cp "$RELEASE_DIR/router-release-manifest.json" "$evidence/" 2>/dev/null || true
+            cp "$RELEASE_DIR/router-ui-packages.txt" "$evidence/" 2>/dev/null || true
+          fi
+          find "$evidence" -maxdepth 1 -type f ! -name evidence-files-sha256sums -print |
+            LC_ALL=C sort | while IFS= read -r file; do sha256sum "$file"; done \
+            > "$evidence/evidence-files-sha256sums"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-router-ui-vm-${{ github.sha }}-${{ env.VM_CASE }}
+          path: ${{ runner.temp }}/diagnostic-evidence/
+          if-no-files-found: error
+          retention-days: 30
+

@@ -7,6 +7,9 @@ RELEASE_DIR="${RELEASE_DIR:?RELEASE_DIR is required}"
 X86_IMAGE_ARCHIVE="${X86_IMAGE_ARCHIVE:?X86_IMAGE_ARCHIVE is required}"
 SYNTHETIC_DIR="${SYNTHETIC_DIR:?SYNTHETIC_DIR is required}"
 EVIDENCE_DIR="${EVIDENCE_DIR:?EVIDENCE_DIR is required}"
+DIAGNOSTIC_CASE="${ROUTER_UI_VM_DIAGNOSTIC_CASE:-full}"
+DIAGNOSTIC_RUN="${ROUTER_UI_VM_DIAGNOSTIC:-0}"
+HARNESS_SOURCE_SHA="${ROUTER_UI_VM_HARNESS_SHA:-}"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 SERVER_PORT="${ROUTER_UI_VM_HTTPS_PORT:-18443}"
 SSH_PORT="${ROUTER_UI_VM_SSH_PORT:-22220}"
@@ -29,6 +32,9 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
   if [[ -n "$CURRENT_PID" ]]; then
+    if kill -0 "$CURRENT_PID" 2>/dev/null && declare -F capture_guest_state >/dev/null; then
+      capture_guest_state "cleanup-failure" >/dev/null 2>&1 || true
+    fi
     kill -9 "$CURRENT_PID" 2>/dev/null
     wait "$CURRENT_PID" 2>/dev/null
     CURRENT_PID=""
@@ -47,7 +53,18 @@ trap 'exit 143' TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
-for tool in awk curl gzip jq make node openssl python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
+case "$DIAGNOSTIC_CASE" in
+  full|rescue-0.7.0) ;;
+  *) fail "unsupported VM gate case selector: $DIAGNOSTIC_CASE" ;;
+esac
+case "$DIAGNOSTIC_RUN" in 0|1) ;; *) fail "ROUTER_UI_VM_DIAGNOSTIC must be 0 or 1" ;; esac
+if [[ "$DIAGNOSTIC_RUN" = 1 ]]; then
+  [[ "$HARNESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "diagnostic VM gate requires an exact harness source SHA"
+else
+  [[ "$DIAGNOSTIC_CASE" = full ]] || fail "targeted cases are diagnostic-only"
+fi
+for tool in awk curl gzip jq make node openssl python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar tee timeout zstd; do need "$tool"; done
 mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
   "$WORK/server/releases/download/vpn-panel-v0.7.11" "$WORK/server/baselines" "$WORK/server/vm"
 : > "$EVIDENCE_DIR/vm-measurements.jsonl"
@@ -124,7 +141,7 @@ setup_tls() {
 }
 
 prepare_server() {
-  local file version base
+  local file version base versions
   for file in "$RELEASE_DIR"/*; do
     [[ -f "$file" ]] || continue
     ln "$file" "$WORK/server/releases/latest/download/$(basename "$file")"
@@ -136,7 +153,12 @@ prepare_server() {
     ln "$file" "$WORK/server/releases/download/vpn-panel-v0.7.12/$(basename "$file")"
   done
   cp "$ROOT_DIR/tests/vm/router-ui-vm-guest.sh" "$WORK/server/vm/"
-  for version in "${BASELINE_VERSIONS[@]}"; do
+  if [[ "$DIAGNOSTIC_CASE" = rescue-0.7.0 ]]; then
+    versions=(0.7.0)
+  else
+    versions=("${BASELINE_VERSIONS[@]}")
+  fi
+  for version in "${versions[@]}"; do
     base="https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v$version"
     mkdir -p "$WORK/server/baselines/$version"
     curl -fL --retry 3 "$base/luci-vpn-ui.tar.gz" -o "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz"
@@ -164,6 +186,11 @@ build_vm_base() {
   local ib_name="openwrt-imagebuilder-$OPENWRT_VERSION-x86-64.Linux-x86_64"
   local archive="$WORK/$ib_name.tar.zst" ib="$WORK/$ib_name" packages overlay="$WORK/base-overlay"
   local host_bin="$WORK/host-bin"
+  jq -n '{kind:"deterministic-non-secret-test-profile",
+    applies_to:["0.7.0","0.7.1","0.7.2","0.7.3","0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"],
+    endpoint:"192.0.2.1",endpoint_class:"IANA-TEST-NET-1",reachable_endpoint:false,
+    subscription_url_present:false,private_key_present:false,
+    protected_by_hash_contract:true}' > "$EVIDENCE_DIR/vm-test-profile.json"
   mkdir -p "$host_bin"
   cat > "$host_bin/sha256" <<'EOF'
 #!/bin/sh
@@ -215,8 +242,13 @@ EOF
   [[ "$(stat -c '%a' "$overlay/etc/ssl/certs/router-ui-vm-ca.pem")" = 644 ]] ||
     fail "unsafe VM test-CA mode"
   packages="$(awk 'NF && $1 !~ /^#/ {printf "%s ",$1}' "$ROOT_DIR/image/openwrt-fin0-packages.txt") dropbear ca-bundle usign"
-  local profile budget
-  for profile in rd23-stock rd23-ubootmod; do
+  local profile budget profiles
+  if [[ "$DIAGNOSTIC_CASE" = rescue-0.7.0 ]]; then
+    profiles=(rd23-stock)
+  else
+    profiles=(rd23-stock rd23-ubootmod)
+  fi
+  for profile in "${profiles[@]}"; do
     case "$profile" in
       rd23-stock) budget="$STOCK_WRITABLE_KIB" ;;
       rd23-ubootmod) budget="$UBOOTMOD_WRITABLE_KIB" ;;
@@ -330,6 +362,43 @@ guest() {
   for arg in "$@"; do printf -v quoted '%q' "$arg"; command+=" $quoted"; done
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/vm/router-ui-vm-guest.sh' -o /tmp/router-ui-vm-guest.sh && chmod 700 /tmp/router-ui-vm-guest.sh && /tmp/router-ui-vm-guest.sh$command"
 }
+capture_guest_state() {
+  local name="$1" out="$EVIDENCE_DIR/$1"
+  [[ -n "$CURRENT_PID" ]] && kill -0 "$CURRENT_PID" 2>/dev/null || return 0
+  timeout 20 "${ssh_base[@]}" '
+    echo "== version =="
+    sed -n "1p" /usr/share/vpn-ui/version 2>/dev/null || true
+    echo "== updater status =="
+    /usr/sbin/vpn-ui-update status 2>/dev/null || true
+    echo "== project opkg status =="
+    for package in premier-router-core luci-app-premier-router premier-router-setup; do
+      opkg status "$package" 2>/dev/null || true
+    done
+    echo "== filesystems =="
+    df -Pk / /overlay /tmp 2>/dev/null || true
+    echo "== memory =="
+    sed -n "/^MemTotal:/p" /proc/meminfo
+    echo "== protected filesystem hashes =="
+    for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root; do
+      if [ -f "$path" ]; then sha256sum "$path"; fi
+      if [ -d "$path" ]; then find "$path" -type f -exec sha256sum {} \; | sort; fi
+    done
+    echo "== updater evidence hashes =="
+    find /root/premier-router-updates -maxdepth 4 -type f -exec sha256sum {} \; 2>/dev/null | sort
+    echo "== updater service state =="
+    /etc/init.d/premier-router-update-recovery enabled 2>/dev/null; echo "enabled_rc=$?"
+    /etc/init.d/premier-router-update-recovery running 2>/dev/null; echo "running_rc=$?"
+  ' > "$out.filesystem.txt" 2>&1 || true
+  timeout 20 "${ssh_base[@]}" '
+    find /root/premier-router-updates -maxdepth 4 -type f \
+      \( -name "*.json" -o -name "*.log" -o -name "*.txt" \) -print 2>/dev/null | sort |
+    while IFS= read -r file; do
+      echo "===== $file ====="
+      sed -n "1,800p" "$file"
+    done
+  ' > "$out.transaction-evidence.txt" 2>&1 || true
+  timeout 20 "${ssh_base[@]}" logread > "$out.logread.txt" 2>&1 || true
+}
 record_measurement() {
   name="$1" profile="${2:-rd23-stock}"
   case "$profile" in
@@ -367,11 +436,19 @@ normal_reboot() {
 }
 
 prepare_baselines() {
-  for version in "${BASELINE_VERSIONS[@]}"; do
+  local versions version
+  if [[ "$DIAGNOSTIC_CASE" = rescue-0.7.0 ]]; then
+    versions=(0.7.0)
+  else
+    versions=("${BASELINE_VERSIONS[@]}")
+  fi
+  for version in "${versions[@]}"; do
     disk="$WORK/baseline-$version.qcow2"
     clone_disk "$WORK/vm-base.img" "$disk" raw
     start_vm "$disk" "prepare-$version"; wait_ssh; record_measurement "prepare-$version"
-    guest install-baseline "$version" "$ORIGIN/baselines"
+    guest install-baseline "$version" "$ORIGIN/baselines" 2>&1 |
+      tee "$EVIDENCE_DIR/prepare-$version.guest-bootstrap.log"
+    capture_guest_state "prepare-$version-complete"
     shutdown_vm
   done
 }
@@ -405,16 +482,31 @@ run_old_worker_matrix() {
 }
 
 run_rescue_matrix() {
-  for version in "${BASELINE_VERSIONS[@]}"; do
+  local versions version rescue_log
+  if [[ "$DIAGNOSTIC_CASE" = rescue-0.7.0 ]]; then
+    versions=(0.7.0)
+  else
+    versions=("${BASELINE_VERSIONS[@]}")
+  fi
+  for version in "${versions[@]}"; do
     disk="$WORK/rescue-$version.qcow2"
     clone_disk "$WORK/baseline-$version.qcow2" "$disk" qcow2
     start_vm "$disk" "rescue-$version"; wait_ssh; record_measurement "rescue-$version"
     before="$(guest protected-hash)"; usage_before="$(measure_stock)"
-    transaction="$(guest rescue "$ORIGIN" "$version" | tail -n 1)"
+    rescue_log="$EVIDENCE_DIR/rescue-$version.guest-validator.log"
+    guest rescue "$ORIGIN" "$version" 2>&1 | tee "$rescue_log"
+    transaction="$(tail -n 1 "$rescue_log")"
     usage_candidate="$(measure_stock)"
-    guest verify-target 0.7.11 "$version" pending; normal_reboot
-    guest verify-target 0.7.11 "$version" post-reboot; usage_committed="$(measure_stock)"
-    guest rollback "$transaction" "$version"; usage_rolled_back="$(measure_stock)"; normal_reboot
+    guest verify-target 0.7.11 "$version" pending
+    capture_guest_state "rescue-$version-pending-reboot"
+    normal_reboot
+    guest verify-target 0.7.11 "$version" post-reboot
+    usage_committed="$(measure_stock)"
+    capture_guest_state "rescue-$version-committed"
+    guest rollback "$transaction" "$version"
+    usage_rolled_back="$(measure_stock)"
+    capture_guest_state "rescue-$version-rolled-back"
+    normal_reboot
     usage_final="$(measure_stock)"
     [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ]] || fail "rescue rollback did not persist: $version"
     [[ "$(guest protected-hash)" = "$before" ]] || fail "rescue protected hash drift: $version"
@@ -635,6 +727,10 @@ run_storage_profiles() {
 }
 
 finalize_evidence() {
+  local candidate_source harness_source
+  candidate_source="$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.json")"
+  harness_source="$HARNESS_SOURCE_SHA"
+  [[ -n "$harness_source" ]] || harness_source="$candidate_source"
   jq -s '.' "$EVIDENCE_DIR/vm-measurements.jsonl" > "$EVIDENCE_DIR/vm-measurements.json"
   jq -s '.' "$EVIDENCE_DIR/transition-results.jsonl" > "$EVIDENCE_DIR/transition-results.json"
   jq -s '.' "$EVIDENCE_DIR/fault-results.jsonl" > "$EVIDENCE_DIR/fault-results.json"
@@ -645,9 +741,14 @@ finalize_evidence() {
     --argjson stock_ubifs_df "$STOCK_UBIFS_DF_KIB" \
     --argjson ubootmod_backing "$UBOOTMOD_WRITABLE_KIB" \
     --argjson ubootmod_ubifs_df "$UBOOTMOD_UBIFS_DF_KIB" \
-    --arg source_commit "$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.json")" \
+    --arg source_commit "$candidate_source" \
+    --arg harness_source_sha "$harness_source" \
+    --arg diagnostic_case "$DIAGNOSTIC_CASE" \
+    --arg diagnostic_run "$DIAGNOSTIC_RUN" \
     --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
+      harness_source_sha:$harness_source_sha,diagnostic_case:$diagnostic_case,
+      diagnostic:($diagnostic_run == "1"),release_evidence:($diagnostic_run != "1"),
       configured_ram_mib:$configured,vm_execution_mode:"strictly-serial-exact-child-pid",
       storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
         expected_ubifs_df_total_kib:$stock_ubifs_df},
@@ -664,16 +765,21 @@ setup_tls
 prepare_server
 load_storage_profiles
 build_vm_base
-extract_candidate_image
-prepare_baselines
-run_old_worker_matrix
-run_rescue_matrix
-run_refusals
-run_clean_image
-run_protocol_v2
-run_concurrency
-run_fault_matrix
-run_storage_pressure
-run_storage_profiles
+if [[ "$DIAGNOSTIC_CASE" = rescue-0.7.0 ]]; then
+  prepare_baselines
+  run_rescue_matrix
+else
+  extract_candidate_image
+  prepare_baselines
+  run_old_worker_matrix
+  run_rescue_matrix
+  run_refusals
+  run_clean_image
+  run_protocol_v2
+  run_concurrency
+  run_fault_matrix
+  run_storage_pressure
+  run_storage_profiles
+fi
 finalize_evidence
-printf 'Constrained Router UI VM gate passed; evidence: %s\n' "$EVIDENCE_DIR"
+printf 'Constrained Router UI VM gate passed (%s); evidence: %s\n' "$DIAGNOSTIC_CASE" "$EVIDENCE_DIR"

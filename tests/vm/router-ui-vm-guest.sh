@@ -68,6 +68,39 @@ protected_hash() {
   rm -f "$work"
 }
 
+install_non_secret_test_profile() {
+  source_version="$1"
+  case "$source_version" in
+    0.5.1|0.5.2|0.6.0) return 0 ;;
+    0.7.*) ;;
+    *) die "test profile requested for unsupported baseline: $source_version" ;;
+  esac
+
+  mkdir -p /etc/xray/vless-profiles.d
+  cat > /etc/xray/vless-profiles.d/disposable-vm-fixture.conf <<'EOF'
+P_ID='disposable-vm-fixture'
+P_NAME='Non-routable disposable VM fixture'
+P_URL=''
+P_UUID='5783a3e7-e373-51cd-8642-c83782b807c5'
+P_HOST='192.0.2.1'
+P_PORT='443'
+P_VPS_IP='192.0.2.1'
+P_NETWORK='tcp'
+P_SECURITY='reality'
+P_FLOW='xtls-rprx-vision'
+P_PUBLIC_KEY='ioE61VC3V30U7IdRmQ3bjhOq2ij9tPhVIgAD4JZ4YRY'
+P_SHORT_ID='906f47df46efecc5'
+P_SNI='example.com'
+P_FINGERPRINT='chrome'
+P_SPIDERX='/'
+P_SOURCE_ID=''
+EOF
+  printf '%s\n' disposable-vm-fixture > /etc/xray/vless-selected
+  chmod 700 /etc/xray/vless-profiles.d
+  chmod 600 /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
+    /etc/xray/vless-selected
+}
+
 install_baseline() {
   version="$1" base="$2"
   work="$(mktemp -d /tmp/router-ui-baseline.XXXXXX)"
@@ -77,6 +110,7 @@ install_baseline() {
   [ "$expected" = "$(sha256sum "$work/luci-vpn-ui.tar.gz" | awk '{print $1}')" ] || die "published $version checksum mismatch"
   tar -xzf "$work/luci-vpn-ui.tar.gz" -C "$work"
   [ "$(sed -n '1p' "$work/luci-vpn-ui/VERSION")" = "$version" ] || die "published $version bundle metadata mismatch"
+  install_non_secret_test_profile "$version"
   SKIP_SYSUPGRADE_BACKUP=1 INSTALL_GEOSITE=0 UPDATE_GEOSITE=0 sh "$work/luci-vpn-ui/install.sh"
   [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ] || die "baseline $version did not install exactly"
   rm -rf "$work"
