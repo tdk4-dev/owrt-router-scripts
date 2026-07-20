@@ -230,7 +230,7 @@ start_vm() {
     -serial "telnet:127.0.0.1:$SERIAL_PORT,server=on,wait=off" -display none \
     >"$EVIDENCE_DIR/$name.qemu.log" 2>&1 &
   CURRENT_PID=$!
-  count="$(pgrep -f '^(/[^ ]*/)?qemu-system-x86_64 .* -name router-ui-vm-' | wc -l | tr -d ' ')"
+  count="$(pgrep -f '^(/[^ ]*/)?qemu-system-x86_64[[:space:]].*-name[[:space:]]router-ui-vm-' | wc -l | tr -d ' ')"
   (( count <= 2 )) || fail "more than two project VMs observed"
   (( count > MAX_RUNNING )) && MAX_RUNNING="$count"
 }

@@ -82,8 +82,14 @@ grep -q 'extract_openwrt_gzip_image' "$VM_GATE"
 grep -q 'decompression OK, trailing garbage ignored' "$VM_GATE"
 grep -q "awk 'NF { count++ } END { print count + 0 }'" "$VM_GATE"
 grep -q 'qemu-img info --output=json' "$VM_GATE"
-grep -Fq "pgrep -fc '^(/[^ ]*/)?qemu-system-x86_64 .* -name router-ui-vm-'" "$QEMU_GUARD"
-grep -Fq "pgrep -f '^(/[^ ]*/)?qemu-system-x86_64 .* -name router-ui-vm-'" "$VM_GATE"
+QEMU_PROCESS_PATTERN='^(/[^ ]*/)?qemu-system-x86_64[[:space:]].*-name[[:space:]]router-ui-vm-'
+grep -Fq "pgrep -fc '$QEMU_PROCESS_PATTERN'" "$QEMU_GUARD"
+grep -Fq "pgrep -f '$QEMU_PROCESS_PATTERN'" "$VM_GATE"
+[ "$(printf '%s\n' 'qemu-system-x86_64 -name router-ui-vm-bare -m 256' \
+  '/usr/bin/qemu-system-x86_64 -m 256 -name router-ui-vm-path' |
+  grep -Ec "$QEMU_PROCESS_PATTERN")" -eq 2 ]
+! printf '%s\n' '/bin/bash qemu-guard.sh qemu-system-x86_64 -name router-ui-vm-wrapper' |
+  grep -Eq "$QEMU_PROCESS_PATTERN"
 grep -q 'running="${running:-0}"' "$QEMU_GUARD"
 grep -q '/proc/mounts' "$VM_GUEST"
 grep -q '/sys/class/block/' "$VM_GUEST"
