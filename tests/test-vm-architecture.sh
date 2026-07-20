@@ -58,6 +58,10 @@ grep -q "timeout-minutes: \${{ inputs.selector == 'all' && 360 || 90 }}" "$BASEL
 for workflow in "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
   grep -q 'download-immutable-actions-artifact.sh' "$workflow" ||
     fail "workflow does not derive immutable artifact descriptors: $workflow"
+  grep -q 'vm_work_root="$RUNNER_TEMP/baseline-pack-work"' "$workflow" ||
+    fail "baseline consumer does not preserve the relocatable overlay layout: $workflow"
+  grep -q 'export TMPDIR="$vm_work_root/overlays"' "$workflow" ||
+    fail "VM work directory is not rooted beside the baseline bases directory: $workflow"
 done
 [ -s "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is missing'
 [ -x "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is not executable'
@@ -149,6 +153,18 @@ fixture_sha="$(cd "$FIXTURE" && find . -type f -print0 | LC_ALL=C sort -z |
   xargs -0 sha256sum | sha256sum | awk '{print $1}')"
 [ "$fixture_sha" = "$(jq -r .fixture.tree_sha256 "$LOCK")" ] ||
   fail 'deterministic fixture tree hash drifted'
+
+layout_tmp="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-baseline-layout.XXXXXX")"
+mkdir -p "$layout_tmp/pack/bases" "$layout_tmp/pack/overlays/rd23-stock" \
+  "$layout_tmp/consumer/overlays/router-ui-vm-gate.test"
+: > "$layout_tmp/pack/bases/rd23-stock.img"
+: > "$layout_tmp/pack/overlays/rd23-stock/baseline-0.7.0.qcow2"
+ln -s "$layout_tmp/pack/bases" "$layout_tmp/consumer/bases"
+ln -s "$layout_tmp/pack/overlays/rd23-stock/baseline-0.7.0.qcow2" \
+  "$layout_tmp/consumer/overlays/router-ui-vm-gate.test/baseline-0.7.0.qcow2"
+[ -e "$layout_tmp/consumer/overlays/router-ui-vm-gate.test/../../bases/rd23-stock.img" ] ||
+  fail 'relocatable baseline backing path does not resolve from the VM work directory'
+rm -rf "$layout_tmp"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-runner-test.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT INT TERM
