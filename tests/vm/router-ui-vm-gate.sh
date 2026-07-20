@@ -15,6 +15,7 @@ SERIAL_PORT="${ROUTER_UI_VM_SERIAL_PORT:-22330}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-vm-gate.XXXXXX")"
 LOCK_ROOT="$WORK/semaphore"
 ORIGIN="https://10.0.2.2:$SERVER_PORT"
+HOST_ORIGIN="https://127.0.0.1:$SERVER_PORT"
 BASELINE_VERSIONS=(0.5.1 0.5.2 0.6.0 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10)
 FAULT_BOUNDARIES=(before-mutation snapshot_ready applying after-premier-router-core after-luci-app-premier-router after-premier-router-setup validating committing rollback_pending rolling_back rollback-after-premier-router-core rollback-after-luci-app-premier-router rollback-after-premier-router-setup compatibility-cleanup post-reboot-validation)
 CURRENT_PID=""
@@ -87,7 +88,11 @@ prepare_server() {
     --cert "$WORK/server.crt" --key "$WORK/server.key" --port "$SERVER_PORT" \
     >"$EVIDENCE_DIR/https-server.log" 2>&1 &
   SERVER_PID=$!
-  for _ in {1..30}; do curl -fsS --cacert "$WORK/ca.crt" "$ORIGIN/releases/latest/download/vpn-ui-version.txt" >/dev/null && return; sleep 1; done
+  for _ in {1..30}; do
+    curl -fsS --connect-timeout 1 --max-time 5 --cacert "$WORK/ca.crt" \
+      "$HOST_ORIGIN/releases/latest/download/vpn-ui-version.txt" >/dev/null && return
+    sleep 1
+  done
   fail "local TLS-valid artifact server did not start"
 }
 
