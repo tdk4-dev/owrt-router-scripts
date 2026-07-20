@@ -12,8 +12,10 @@ SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null 
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT" 2>/dev/null || printf 0)}"
 UPDATER_PROTOCOL=2
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/tests/fixtures/keys/router-ui-test.pub}"
-RELEASE_KEY_ID="${RELEASE_KEY_ID:-test-21ff375c021d4c72}"
+RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
+RELEASE_KEY_ID="${RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
+USIGN_BIN="${USIGN_BIN:-usign}"
+STRICT_RELEASE="${STRICT_RELEASE:-0}"
 
 if [ -z "$SOURCE_DIRTY" ]; then
   if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
@@ -54,6 +56,16 @@ printf '%s' "$RELEASE_KEY_ID" | grep -Eq '^[A-Za-z0-9._-]+$' || {
   printf 'RELEASE_KEY_ID is malformed\n' >&2
   exit 1
 }
+if [ "$STRICT_RELEASE" = 1 ]; then
+  need "$USIGN_BIN"
+  expected_fingerprint="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')"
+  expected_key_id="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')"
+  [ "$RELEASE_KEY_ID" = "$expected_key_id" ] &&
+    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$expected_fingerprint" ] || {
+    printf 'Strict build requires the committed production public key and key ID\n' >&2
+    exit 1
+  }
+fi
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$OUT_DIR" "$FEED_DIR"

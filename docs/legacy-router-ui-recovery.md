@@ -1,9 +1,9 @@
 # Legacy Router UI recovery through 0.7.11
 
 This guide is prepared for publication after 0.7.11 assets are public and
-verified. The immutable implementation source is commit
-`0c792b60494c21907f042e70c00a6a9189f0516e`; the staged rescue script SHA-256
-is `037e9cec09e32f5b825ee7bd9c711044433761a6c3dbaad8d344eec358301938`.
+verified. Replace `PUBLIC_RESCUE_SHA256` below only with the SHA-256 calculated
+from a fresh download of the final public release asset. No development-key or
+pre-candidate hash is authoritative.
 
 Supported source versions are 0.5.1, 0.5.2, 0.6.0, 0.7.0–0.7.6, 0.7.8,
 0.7.9, and 0.7.10. Version 0.7.7 is tag-only without a published artifact.
@@ -19,7 +19,7 @@ cd /tmp
 curl -fL --proto '=https' \
   https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh \
   -o rescue-router-ui.sh
-echo '037e9cec09e32f5b825ee7bd9c711044433761a6c3dbaad8d344eec358301938  rescue-router-ui.sh' | sha256sum -c -
+echo 'PUBLIC_RESCUE_SHA256  rescue-router-ui.sh' | sha256sum -c -
 sh rescue-router-ui.sh
 ```
 
@@ -39,11 +39,8 @@ until then.
 
 ## Prepared issue #10 comment
 
-The generic recovery is available at immutable commit
-`0c792b60494c21907f042e70c00a6a9189f0516e` and as the exact 0.7.11 release
-asset. Its SHA-256 is
-`037e9cec09e32f5b825ee7bd9c711044433761a6c3dbaad8d344eec358301938`.
-It accepts only the versions
+The generic recovery is the exact 0.7.11 release asset. Its SHA-256 is
+`PUBLIC_RESCUE_SHA256`. It accepts only the versions
 listed above and installs 0.7.11 first. Follow the verified download, hash,
 execution, verification, and rollback commands in this guide. The old 0.7.1
 rescue is retained for history. Physical friend's-router validation is still

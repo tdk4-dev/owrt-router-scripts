@@ -145,6 +145,20 @@ run_update() {
       "$TMP_ROOT/release/router-release-manifest.json.sig" "$invocation" no
 }
 
+run_supervisor() {
+  env PREMIER_ROUTER_HOST_TEST=1 FAKE_ROOT="$FAKE_ROOT" \
+    PR_USIGN_BIN="$USIGN_BIN" \
+    PR_OPENWRT_RELEASE_FILE="$FAKE_ROOT/etc/openwrt_release" \
+    VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_UPDATE_LIB="$TMP_ROOT/release/router-update-lib.sh" \
+    VPN_UI_UPDATE_SELF="$TMP_ROOT/release/router-update-supervisor" \
+    VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" \
+    VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
+    VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
+    VPN_UI_UPDATE_RESTART_CRON=0 \
+    sh "$TMP_ROOT/release/router-update-supervisor" "$@"
+}
+
 reset_source 0.7.9
 run_update manual > "$TMP_ROOT/079-success.log"
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11 ]
@@ -152,7 +166,13 @@ run_update manual > "$TMP_ROOT/079-success.log"
 grep -q PREMIER_ROUTER_079_COMPAT_NOOP \
   "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js"
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
-[ "$(jq -r .state "$FAKE_ROOT/root/premier-router-updates/$transaction/state.json")" = committed ]
+journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+[ "$(jq -r .state "$journal")" = committed_pending_reboot_validation ]
+[ "$(run_supervisor status | jq -r '.job.status')" = pending_reboot ]
+printf 'boot-after-079\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
+run_supervisor recover
+[ "$(jq -r .state "$journal")" = committed ]
+[ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
 reset_source 0.7.10
 if ! run_update manual > "$TMP_ROOT/success.log" 2> "$TMP_ROOT/success.err"; then
@@ -165,7 +185,8 @@ grep -q 'Router UI 0.7.11 committed' "$TMP_ROOT/success.log"
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11 ]
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
 journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
-[ "$(jq -r .state "$journal")" = committed ]
+[ "$(jq -r .state "$journal")" = committed_pending_reboot_validation ]
+[ "$(jq -r .needs_reboot_validation "$journal")" = true ]
 [ "$(jq -r .mutation_started "$journal")" = true ]
 [ "$(jq -r .rollback_status "$journal")" = not_started ]
 [ -s "$FAKE_ROOT/root/premier-router-updates/$transaction/openwrt-configuration-recovery.tar.gz" ]

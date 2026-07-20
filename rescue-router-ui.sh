@@ -5,12 +5,12 @@ umask 077
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 TARGET_VERSION=0.7.11
 TARGET_TAG="vpn-panel-v$TARGET_VERSION"
-RELEASE_BASE="https://github.com/$REPO/releases/download/$TARGET_TAG"
+RELEASE_BASE="${ROUTER_UI_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TARGET_TAG}"
 VERSION_FILE="${ROUTER_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
 WORK_DIR="$(mktemp -d /tmp/router-ui-rescue.XXXXXX)"
-TRUSTED_KEY_ID='test-21ff375c021d4c72'
-TRUSTED_KEY_COMMENT='untrusted comment: DEVELOPMENT ONLY Router UI 0.7.11 test key'
-TRUSTED_KEY_DATA='RWQh/zdcAh1Mcj/PUhA2hZ1LsFkip+XD1Z/dNfSM0FiTFhGV4c1vRDml'
+TRUSTED_KEY_ID='UNRENDERED-PRODUCTION-KEY-ID'
+TRUSTED_KEY_COMMENT='UNRENDERED-PRODUCTION-PUBLIC-KEY'
+TRUSTED_KEY_DATA=''
 PUBLIC_KEY="$WORK_DIR/release.pub"
 OPENWRT_RELEASE_FILE="${ROUTER_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 
@@ -40,6 +40,9 @@ fetch() {
   return 1
 }
 jget() { jsonfilter -i "$1" -e "$2" | sed -n '1p'; }
+
+[ "${ROUTER_UI_TARGET_VERSION:-$TARGET_VERSION}" = "$TARGET_VERSION" ] ||
+  die "direct rescue is pinned to Router UI 0.7.11; another target is refused"
 
 if [ "$(id -u)" != 0 ] && [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
   die "run this rescue as root on OpenWrt"
@@ -76,6 +79,11 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
   printf 'Recognized rescue source: %s\n' "$SOURCE_VERSION"
   exit 0
 fi
+case "$TRUSTED_KEY_ID:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
+  *UNRENDERED*|*:|*test-*|*dev-*)
+    die "this source-tree rescue is unrendered and contains no trusted production key; use the signed release asset"
+    ;;
+esac
 for tool in jsonfilter usign sha256sum tar mktemp; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
@@ -121,6 +129,7 @@ chmod 700 "$WORK_DIR/$INSTALLER_NAME"
 printf 'Installing the exact Router UI 0.7.11 bridge from recognized source %s.\n' \
   "$SOURCE_VERSION"
 ROUTER_UI_VERSION="$TARGET_VERSION" ROUTER_UI_REPO="$REPO" \
+  ROUTER_UI_EXACT_RELEASE_BASE="$RELEASE_BASE" \
   sh "$WORK_DIR/$INSTALLER_NAME"
 
 [ "$(sed -n '1p' "$VERSION_FILE" | tr -d '\r\n')" = "$TARGET_VERSION" ] ||

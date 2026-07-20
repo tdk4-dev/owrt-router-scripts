@@ -12,8 +12,8 @@ RELEASE_DIR="${RELEASE_DIR:-$OUT_ROOT/release-v$APP_VERSION}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")}"
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/tests/fixtures/keys/router-ui-test.pub}"
-RELEASE_KEY_ID="${RELEASE_KEY_ID:-test-21ff375c021d4c72}"
+RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
+RELEASE_KEY_ID="${RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
 SIGNING_KEY="${SIGNING_KEY:-}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
@@ -42,6 +42,9 @@ if [ "$STRICT_RELEASE" = 1 ]; then
   case "$RELEASE_KEY_ID" in test-*|dev-*|development-*) fail "strict release refuses a development key ID" ;; esac
   grep -qi 'development\|test key' "$RELEASE_PUBLIC_KEY" &&
     fail "strict release refuses a development public key"
+  [ "$RELEASE_KEY_ID" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')" ] &&
+    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')" ] ||
+    fail "strict release requires the committed production public key and key ID"
 fi
 
 for package in $PROJECT_PACKAGES; do

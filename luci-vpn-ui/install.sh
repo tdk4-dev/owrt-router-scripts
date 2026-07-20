@@ -8,6 +8,9 @@ VERSION_FILE="${VPN_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
 OPENWRT_RELEASE_FILE="${VPN_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 SOURCE_VERSION="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
 TARGET_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '\r\n')"
+LEGACY_WORKER_PID="${PPID:-}"
+LEGACY_WORKER_START_ID=""
+LEGACY_WORKER_SHA256=""
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -40,6 +43,12 @@ do
 done
 [ -n "${VPN_UI_ROLLBACK_MARKER:-}" ] ||
   die "the legacy worker did not provide a rollback marker"
+[ -n "$LEGACY_WORKER_PID" ] && [ -r "/proc/$LEGACY_WORKER_PID/stat" ] ||
+  die "the legacy worker process is not observable"
+LEGACY_WORKER_START_ID="$(awk '{print $22}' "/proc/$LEGACY_WORKER_PID/stat")"
+LEGACY_WORKER_SHA256="$(sha256sum /usr/sbin/vpn-ui-update | awk '{print $1}')"
+tr '\000' ' ' < "/proc/$LEGACY_WORKER_PID/cmdline" | grep -q 'vpn-ui-update' ||
+  die "the parent process is not the exact legacy updater worker"
 
 EXISTING_RECOVERY="$(find /root/router-ui-backups -maxdepth 1 -type f \
   -name 'openwrt-before-router-ui-0.7.11-*.tar.gz' 2>/dev/null |
@@ -63,4 +72,11 @@ VPN_UI_EXISTING_CONFIG_RECOVERY="$EXISTING_RECOVERY" \
 
 [ "$(sed -n '1p' "$VERSION_FILE" | tr -d '\r\n')" = 0.7.11 ] ||
   die "bridge supervisor returned success without installing 0.7.11"
+[ "$(awk '{print $22}' "/proc/$LEGACY_WORKER_PID/stat" 2>/dev/null)" = "$LEGACY_WORKER_START_ID" ] ||
+  die "the original legacy updater worker exited before candidate validation completed"
+TRANSACTION="$(sed -n '1p' /root/premier-router-updates/active-transaction 2>/dev/null)"
+[ -n "$TRANSACTION" ] || die "bridge transaction evidence is missing"
+cat > "/root/premier-router-updates/$TRANSACTION/legacy-worker-handoff.json" <<EOF
+{"source_version":"$SOURCE_VERSION","legacy_worker_pid":$LEGACY_WORKER_PID,"legacy_worker_start_id":"$LEGACY_WORKER_START_ID","legacy_worker_script_sha256":"$LEGACY_WORKER_SHA256","alive_after_candidate_validation":true}
+EOF
 printf 'Router UI 0.7.11 bridge installed and validated from %s.\n' "$SOURCE_VERSION"

@@ -18,10 +18,18 @@ Record:
 
 ## VM Resource Limit
 
-- Allocate no more than 300 MB of RAM to an OpenWrt release-test VM.
-- Record the configured RAM amount with the test evidence.
-- If a test genuinely cannot run within 300 MB, treat that as a failed resource
-  check and investigate the workload instead of silently increasing VM memory.
+- Configure every mandatory OpenWrt release-test VM with exactly 256 MiB RAM.
+- Run one project VM at a time by default and never more than two at once. The
+  process/semaphore guard must refuse a third VM.
+- Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
+- Treat any request for 300 MiB or more, or any third simultaneous VM, as a
+  failed release gate.
+
+The mandatory stock profile uses an x86 squashfs image whose writable overlay
+is hard-capped at 61,440 KiB. Record and assert `df -Pk /`, `/overlay`, and
+`/tmp`; `/tmp` must remain RAM-backed. A larger disk with merely 60 MiB free is
+not storage-constrained. Repeat supplemental transition and rollback checks at
+75 MiB and 85 MiB, but never substitute those results for the 60 MiB gate.
 
 ## Clean Image Test
 
@@ -100,7 +108,8 @@ transaction ID, status-card count, LuCI route load, protected config hashes,
 package versions, installed manifest hash, recovery archive validation, and
 rollback bundle validation before and after reboot.
 
-Boot the x86 image with at most 300 MB RAM. Extract both RD23 variants and prove
+Boot the x86 image with exactly 256 MiB RAM and a writable overlay no larger
+than 61,440 KiB. Extract both RD23 variants and prove
 their embedded canonical IPK hashes. Do not label RD23 hardware verified until
 an explicitly authorized physical device test has occurred.
 

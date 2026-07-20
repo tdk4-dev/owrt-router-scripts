@@ -6,9 +6,9 @@ REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 REQUESTED_VERSION="${ROUTER_UI_VERSION:-}"
 DISCOVERY_BASE="${ROUTER_UI_DISCOVERY_BASE:-https://github.com/$REPO/releases/latest/download}"
 WORK_DIR="$(mktemp -d /tmp/router-ui-package-install.XXXXXX)"
-TRUSTED_KEY_ID='test-21ff375c021d4c72'
-TRUSTED_KEY_COMMENT='untrusted comment: DEVELOPMENT ONLY Router UI 0.7.11 test key'
-TRUSTED_KEY_DATA='RWQh/zdcAh1Mcj/PUhA2hZ1LsFkip+XD1Z/dNfSM0FiTFhGV4c1vRDml'
+TRUSTED_KEY_ID='UNRENDERED-PRODUCTION-KEY-ID'
+TRUSTED_KEY_COMMENT='UNRENDERED-PRODUCTION-PUBLIC-KEY'
+TRUSTED_KEY_DATA=''
 PUBLIC_KEY="$WORK_DIR/release.pub"
 OPENWRT_RELEASE_FILE="${ROUTER_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 
@@ -73,6 +73,11 @@ if [ "$(id -u)" != 0 ] && [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
   die "run this installer as root on OpenWrt"
 fi
 [ -f "$OPENWRT_RELEASE_FILE" ] || die "this does not appear to be OpenWrt"
+case "$TRUSTED_KEY_ID:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
+  *UNRENDERED*|*:|*test-*|*dev-*)
+    die "this source-tree installer is unrendered and contains no trusted production key; use the signed release asset"
+    ;;
+esac
 for tool in jsonfilter usign sha256sum tar mktemp; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
@@ -115,7 +120,7 @@ else
       die "stable-channel tag/version mismatch"
   fi
 
-  RELEASE_BASE="https://github.com/$REPO/releases/download/$TAG"
+  RELEASE_BASE="${ROUTER_UI_EXACT_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TAG}"
   MANIFEST="$WORK_DIR/router-release-manifest.json"
   SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
   fetch "$RELEASE_BASE/router-release-manifest.json" "$MANIFEST" ||

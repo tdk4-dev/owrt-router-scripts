@@ -6,9 +6,9 @@ metadata, target-owned validation, persistent recovery, exact rollback, and a
 generic fail-closed legacy rescue path. It intentionally contains no 0.8
 product features.
 
-The production signing key and physical-router gates remain publication
-prerequisites. Development builds are signed only with the explicitly marked
-test key and must not be published.
+The production public trust root is committed with the source; its private key
+remains confined to the protected signing environment. Physical RD23 testing
+is explicitly pending and is not represented by VM or image-extraction proof.
 
 Historical 0.7.10 notes
 

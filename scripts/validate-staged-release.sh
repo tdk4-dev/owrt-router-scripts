@@ -7,11 +7,12 @@ APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 PKG_VERSION="$APP_VERSION-${PKG_RELEASE:-1}"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 RELEASE_DIR="${RELEASE_DIR:-$ROOT_DIR/dist/release-v$APP_VERSION}"
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/tests/fixtures/keys/router-ui-test.pub}"
-EXPECTED_RELEASE_KEY_ID="${EXPECTED_RELEASE_KEY_ID:-test-21ff375c021d4c72}"
+RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
+EXPECTED_RELEASE_KEY_ID="${EXPECTED_RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
 REQUIRE_IMAGES="${REQUIRE_IMAGES:-0}"
+REQUIRE_MAIN_ANCESTRY="${REQUIRE_MAIN_ANCESTRY:-$STRICT_RELEASE}"
 EXPECTED_SOURCE_COMMIT="${EXPECTED_SOURCE_COMMIT:-}"
 PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-release-validate.XXXXXX")"
@@ -160,6 +161,23 @@ if [ "$REQUIRE_IMAGES" = 1 ] && [ "$image_count" -lt 3 ]; then
 fi
 find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-*.tar.gz" |
   while IFS= read -r archive; do
+    archive_root="$WORK/$(basename "$archive").root"
+    mkdir -p "$archive_root"
+    tar -xzf "$archive" -C "$archive_root"
+    artifact_root="$(find "$archive_root" -mindepth 1 -maxdepth 1 -type d | sed -n '1p')"
+    [ -n "$artifact_root" ] || fail "image archive has no artifact root"
+    (cd "$artifact_root" && sha256sum -c sha256sums >/dev/null) ||
+      fail "image internal checksum manifest failed: $(basename "$archive")"
+    [ -s "$artifact_root/project-payload-sha256sums" ] ||
+      fail "image lacks package payload proof: $(basename "$archive")"
+    [ -s "$artifact_root/overlay-files.txt" ] || fail "image overlay evidence is missing"
+    if grep -Ev '^(www/index\.html|etc/premier-router/installed-manifest\.json(\.sig)?|root/premier-router-updates/known-good/[0-9a-f]{64}/[^/]+)$' \
+      "$artifact_root/overlay-files.txt" | grep -q .; then
+      fail "image overlay contains files outside the redirect and exact package-recovery set"
+    fi
+    [ -s "$archive.sha256" ] &&
+      [ "$(awk '{print $1}' "$archive.sha256")" = "$(sha256sum "$archive" | awk '{print $1}')" ] ||
+      fail "image archive sidecar checksum mismatch: $(basename "$archive")"
     members="$WORK/$(basename "$archive").members"
     tar -tzf "$archive" > "$members"
     hashes_member="$(grep '/project-ipk-sha256sums$' "$members" | sed -n '1p')"
@@ -181,16 +199,44 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
       .source_commit == $commit and .source_dirty == false and
       .openwrt_version == $version and .updater_protocol == 2
     ' "$WORK/image.provenance" >/dev/null || fail "image provenance mismatch"
+    case "$(jq -r .profile "$WORK/image.provenance")" in
+      generic)
+        jq -e '.writable_budget_kib == 61440 and .x86_rootfs_partsize_mib == 60' \
+          "$WORK/image.provenance" >/dev/null || fail "x86 image does not declare the 60 MiB writable profile"
+        ;;
+      xiaomi_mi-router-ax3000t-stock)
+        jq -e '.writable_budget_kib == 61440' "$WORK/image.provenance" >/dev/null ||
+          fail "RD23 stock image writable-budget provenance mismatch"
+        ;;
+      xiaomi_mi-router-ax3000t-ubootmod)
+        jq -e '.writable_budget_kib == 87040' "$WORK/image.provenance" >/dev/null ||
+          fail "RD23 ubootmod image writable-budget provenance mismatch"
+        ;;
+      *) fail "unexpected image profile in provenance" ;;
+    esac
   done
 
 if [ "$STRICT_RELEASE" = 1 ]; then
   case "$EXPECTED_RELEASE_KEY_ID" in test-*|dev-*|development-*) fail "strict release refuses a development key ID" ;; esac
   grep -Eqi 'development|test key' "$RELEASE_PUBLIC_KEY" && fail "strict release refuses a development public key"
-  grep -Eqi 'development|test key|test-[0-9a-f]+' "$RELEASE_DIR/install-router-ui-release.sh" "$RELEASE_DIR/rescue-router-ui.sh" &&
-    fail "strict release found development trust material in public scripts"
+  [ "$EXPECTED_RELEASE_KEY_ID" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')" ] &&
+    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')" ] ||
+    fail "strict release requires the committed production public key and key ID"
+  expected_comment="$(sed -n '1p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  expected_data="$(sed -n '2p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  for script in "$RELEASE_DIR/install-router-ui-release.sh" "$RELEASE_DIR/rescue-router-ui.sh"; do
+    ! grep -q 'UNRENDERED-PRODUCTION' "$script" ||
+      fail "strict release found an unrendered public bootstrap script"
+    grep -Fqx "TRUSTED_KEY_ID='$EXPECTED_RELEASE_KEY_ID'" "$script" &&
+      grep -Fqx "TRUSTED_KEY_COMMENT='$expected_comment'" "$script" &&
+      grep -Fqx "TRUSTED_KEY_DATA='$expected_data'" "$script" ||
+      fail "strict release bootstrap trust root differs from the committed production key"
+  done
   [ -n "$EXPECTED_SOURCE_COMMIT" ] || fail "strict release requires EXPECTED_SOURCE_COMMIT"
-  git -C "$ROOT_DIR" merge-base --is-ancestor "$EXPECTED_SOURCE_COMMIT" origin/main ||
-    fail "release source commit is not contained in origin/main"
+  if [ "$REQUIRE_MAIN_ANCESTRY" = 1 ]; then
+    git -C "$ROOT_DIR" merge-base --is-ancestor "$EXPECTED_SOURCE_COMMIT" origin/main ||
+      fail "release source commit is not contained in origin/main"
+  fi
 fi
 
 printf 'staged release validation passed: %s (%s assets, %s images)\n' \

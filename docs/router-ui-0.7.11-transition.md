@@ -23,6 +23,10 @@ cat "/root/premier-router-updates/$transaction/state.json"
 tar -tzf "/root/premier-router-updates/$transaction/openwrt-configuration-recovery.tar.gz" >/dev/null
 ```
 
+Before reboot, protocol-v2 status must report
+`committed_pending_reboot_validation`. Final `committed` is valid only after a
+different boot ID, compatibility cleanup, and post-reboot validation.
+
 Manual exact rollback is:
 
 ```sh

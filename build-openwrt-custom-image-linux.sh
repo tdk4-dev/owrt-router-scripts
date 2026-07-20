@@ -7,6 +7,7 @@ OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 TARGET_DIR="${TARGET_DIR:-x86/64}"
 PROFILE="${PROFILE:-generic}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-512}"
+WRITABLE_BUDGET_KIB="${WRITABLE_BUDGET_KIB:-0}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.imagebuilder}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist}"
 if [ -n "${PACKAGE_FILE:-}" ]; then
@@ -18,6 +19,7 @@ else
 fi
 PROJECT_PACKAGE_DIR="${PROJECT_PACKAGE_DIR:-$ROOT_DIR/dist/ipk}"
 PROJECT_PACKAGE_MANIFEST="${PROJECT_PACKAGE_MANIFEST:-$PROJECT_PACKAGE_DIR/router-ui-packages.txt}"
+INSTALLED_PACKAGE_SET_DIR="${INSTALLED_PACKAGE_SET_DIR:?INSTALLED_PACKAGE_SET_DIR is required}"
 PROJECT_FEED_DIR="${PROJECT_FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 PROJECT_PACKAGES="${PROJECT_PACKAGES:-premier-router-core luci-app-premier-router premier-router-setup}"
 PKG_VERSION="$APP_VERSION-1"
@@ -156,6 +158,31 @@ if [ -f "$copy_root_redirect" ]; then
   chmod 644 "$OVERLAY/www/index.html"
 fi
 
+(cd "$INSTALLED_PACKAGE_SET_DIR" && sha256sum -c SHA256SUMS >/dev/null) || {
+  printf 'Signed installed package-set checksums failed\n' >&2
+  exit 1
+}
+cmp -s "$INSTALLED_PACKAGE_SET_DIR/release.pub" "$ROOT_DIR/release/keys/router-ui-production.pub" || {
+  printf 'Installed package set uses another public key\n' >&2
+  exit 1
+}
+PACKAGE_SET_HASH="$(sha256sum "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json" | awk '{print $1}')"
+mkdir -p "$OVERLAY/etc/premier-router" \
+  "$OVERLAY/root/premier-router-updates/known-good/$PACKAGE_SET_HASH"
+cp "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json" \
+  "$OVERLAY/etc/premier-router/installed-manifest.json"
+cp "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json.sig" \
+  "$OVERLAY/etc/premier-router/installed-manifest.json.sig"
+for file in "$INSTALLED_PACKAGE_SET_DIR"/*.ipk; do
+  cp "$file" "$OVERLAY/root/premier-router-updates/known-good/$PACKAGE_SET_HASH/"
+done
+cp "$INSTALLED_PACKAGE_SET_DIR/router-candidate-validator" \
+  "$OVERLAY/root/premier-router-updates/known-good/$PACKAGE_SET_HASH/router-candidate-validator"
+cp "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json" \
+  "$OVERLAY/root/premier-router-updates/known-good/$PACKAGE_SET_HASH/router-release-manifest.json"
+cp "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json.sig" \
+  "$OVERLAY/root/premier-router-updates/known-good/$PACKAGE_SET_HASH/router-release-manifest.json.sig"
+
 PACKAGES="$(awk 'NF && $1 !~ /^#/ { printf "%s ", $1 }' "$PACKAGE_FILE") $PROJECT_PACKAGES"
 TARGET_OUT="$IB_DIR/bin/targets/$TARGET_DIR"
 
@@ -196,6 +223,53 @@ for pkg in $PROJECT_PACKAGES; do
     exit 1
   }
 done
+
+BUILT_ROOT=""
+for candidate_root in "$IB_DIR"/build_dir/target-*/root-*; do
+  [ -d "$candidate_root" ] || continue
+  if [ -f "$candidate_root/usr/share/vpn-ui/version" ] &&
+    [ "$(sed -n '1p' "$candidate_root/usr/share/vpn-ui/version")" = "$APP_VERSION" ]; then
+    BUILT_ROOT="$candidate_root"
+    break
+  fi
+done
+[ -n "$BUILT_ROOT" ] || {
+  printf 'Could not locate the exact ImageBuilder root used for the image\n' >&2
+  exit 1
+}
+
+PAYLOAD_WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-image-payload.XXXXXX")"
+PAYLOAD_PROOF="$PAYLOAD_WORK/project-payload-sha256sums"
+: > "$PAYLOAD_PROOF"
+for pkg in $PROJECT_PACKAGES; do
+  pkg_root="$PAYLOAD_WORK/$pkg"
+  mkdir -p "$pkg_root"
+  tar -xzOf "$PROJECT_PACKAGE_DIR/${pkg}_${PKG_VERSION}_all.ipk" ./data.tar.gz |
+    tar -xzf - -C "$pkg_root"
+  find "$pkg_root" \( -type f -o -type l \) -print | LC_ALL=C sort |
+    while IFS= read -r source_file; do
+      rel="${source_file#$pkg_root/}"
+      built_file="$BUILT_ROOT/$rel"
+      [ -e "$built_file" ] || [ -L "$built_file" ] || {
+        printf 'Image root omitted package payload: %s %s\n' "$pkg" "$rel" >&2
+        exit 1
+      }
+      if [ -L "$source_file" ]; then
+        [ -L "$built_file" ] && [ "$(readlink "$source_file")" = "$(readlink "$built_file")" ] || exit 1
+        payload_sha="$(printf '%s' "$(readlink "$source_file")" | sha256sum | awk '{print $1}')"
+        payload_type=link
+      else
+        cmp -s "$source_file" "$built_file" || {
+          printf 'Image root package payload drift: %s %s\n' "$pkg" "$rel" >&2
+          exit 1
+        }
+        payload_sha="$(sha256sum "$source_file" | awk '{print $1}')"
+        payload_type=file
+      fi
+      printf '%s %s %s %s\n' "$pkg" "$payload_type" "$payload_sha" "/$rel" >> "$PAYLOAD_PROOF"
+    done
+done
+LC_ALL=C sort -u "$PAYLOAD_PROOF" -o "$PAYLOAD_PROOF"
 PROFILE_ARTIFACT_DIR="$OUT_DIR/$ARTIFACT_PREFIX"
 ARCHIVE="$OUT_DIR/$ARTIFACT_PREFIX.tar.gz"
 
@@ -207,11 +281,15 @@ find "$TARGET_OUT" -maxdepth 1 -type f \
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
 cp "$PROJECT_PACKAGE_MANIFEST" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
+cp "$PAYLOAD_PROOF" "$PROFILE_ARTIFACT_DIR/project-payload-sha256sums"
+find "$OVERLAY" \( -type f -o -type l \) -print | sed "s#^$OVERLAY/##" |
+  LC_ALL=C sort > "$PROFILE_ARTIFACT_DIR/overlay-files.txt"
 (
   cd "$PROJECT_PACKAGE_DIR"
   sha256sum ./*.ipk | sed 's#  \./#  #'
 ) > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
+rm -rf "$PAYLOAD_WORK"
 cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
 {
   "schema_version": 1,
@@ -223,7 +301,9 @@ cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
   "source_commit": "$SOURCE_COMMIT",
   "source_dirty": $SOURCE_DIRTY,
   "source_date_epoch": $SOURCE_DATE_EPOCH,
-  "updater_protocol": 2
+  "updater_protocol": 2,
+  "writable_budget_kib": $WRITABLE_BUDGET_KIB,
+  "x86_rootfs_partsize_mib": $ROOTFS_PARTSIZE
 }
 EOF
 (

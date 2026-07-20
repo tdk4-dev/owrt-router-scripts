@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 BUILDER="$ROOT_DIR/build-openwrt-custom-image-linux.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
+CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
 
 grep -q 'PROJECT_PACKAGE_DIR' "$BUILDER"
 grep -q 'PROJECT_PACKAGE_MANIFEST' "$BUILDER"
@@ -13,6 +14,9 @@ grep -q 'rm -rf "$TARGET_OUT"' "$BUILDER"
 grep -q 'project-ipk-sha256sums' "$BUILDER"
 grep -q 'router-ui-packages.txt' "$BUILDER"
 grep -q 'image-provenance.json' "$BUILDER"
+grep -q 'INSTALLED_PACKAGE_SET_DIR' "$BUILDER"
+grep -q 'project-payload-sha256sums' "$BUILDER"
+grep -q 'overlay-files.txt' "$BUILDER"
 grep -q 'UPDATER_PROTOCOL' "$ROOT_DIR/scripts/build-openwrt-ipks.sh"
 ! grep -q 'build-openwrt-ipks.sh' "$BUILDER"
 
@@ -23,11 +27,23 @@ grep -q 'REQUIRE_IMAGES: "1"' "$WORKFLOW"
 grep -q 'rd23-stock' "$WORKFLOW"
 grep -q 'rd23-ubootmod' "$WORKFLOW"
 grep -q 'x86-64' "$WORKFLOW"
+grep -q '^  vm-gate:' "$WORKFLOW"
+grep -q 'router-ui-vm-gate.sh' "$WORKFLOW"
+grep -q 'pretag-router-ui-candidate-' "$WORKFLOW"
 
-# Only the root redirect is an image-specific overlay. Project application
-# paths are owned by the canonical IPKs and may not be copied into the image.
-overlay_copy_lines="$(sed -n '/^rm -rf "$OVERLAY"/,/^PACKAGES=/p' "$BUILDER" | grep -E 'cp .*OVERLAY' || true)"
-printf '%s\n' "$overlay_copy_lines" | grep -q 'www/index.html'
-[ "$(printf '%s\n' "$overlay_copy_lines" | grep -c '^' | tr -d ' ')" = 1 ]
+grep -q 'source_sha:' "$CANDIDATE_WORKFLOW"
+grep -q 'environment: router-ui-production-signing' "$CANDIDATE_WORKFLOW"
+grep -q 'ROOTFS_PARTSIZE:' "$CANDIDATE_WORKFLOW"
+grep -q 'WRITABLE_BUDGET_KIB:' "$CANDIDATE_WORKFLOW"
+grep -q 'router-ui-vm-gate.sh' "$CANDIDATE_WORKFLOW"
+grep -q 'pretag-router-ui-candidate-' "$CANDIDATE_WORKFLOW"
+
+# The overlay may contain only the root redirect and the signed exact-package
+# recovery set. Project application paths remain owned by the canonical IPKs.
+overlay_section="$(sed -n '/^rm -rf "$OVERLAY"/,/^PACKAGES=/p' "$BUILDER")"
+printf '%s\n' "$overlay_section" | grep -q 'www/index.html'
+printf '%s\n' "$overlay_section" | grep -q 'installed-manifest.json'
+printf '%s\n' "$overlay_section" | grep -q 'known-good'
+! printf '%s\n' "$overlay_section" | grep -Eq 'luci-static|usr/sbin/vpn-ui|usr/share/vpn-ui'
 
 printf 'Image pipeline consumes canonical IPKs and records package identity\n'
