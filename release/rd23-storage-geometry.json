@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "openwrt": {
+    "version": "24.10.5",
+    "tag": "v24.10.5",
+    "commit": "4f7e6e554be2aef6a55be36f9f954d56705eb2ee",
+    "image_definition": "target/linux/mediatek/image/filogic.mk",
+    "stock_dts": "target/linux/mediatek/dts/mt7981b-xiaomi-mi-router-ax3000t.dts",
+    "ubootmod_dts": "target/linux/mediatek/dts/mt7981b-xiaomi-mi-router-ax3000t-ubootmod.dts",
+    "kernel_config": "target/linux/mediatek/filogic/config-6.6",
+    "upgrade_library": "package/base-files/files/lib/upgrade/nand.sh",
+    "fit_upgrade_library": "package/utils/fitblk/files/fit.sh"
+  },
+  "nand": {
+    "device_size_bytes": 134217728,
+    "physical_eraseblock_bytes": 131072,
+    "minimum_io_bytes": 2048,
+    "logical_eraseblock_bytes": 126976,
+    "bad_peb_reserve": 20,
+    "layout_volume_pebs": 2,
+    "wear_leveling_pebs": 1,
+    "fastmap_copies": 2,
+    "fastmap_fixed_bytes": 6544,
+    "fastmap_bytes_per_peb": 12
+  },
+  "ubifs": {
+    "minimum_journal_lebs": 5,
+    "journal_percent": 5,
+    "maximum_journal_bytes": 33554432,
+    "reference_node_aligned_bytes": 64,
+    "superblock_lebs": 1,
+    "master_lebs": 2,
+    "minimum_log_lebs": 2,
+    "minimum_bud_lebs": 3,
+    "minimum_orphan_lebs": 1,
+    "lpt_lebs": 2,
+    "minimum_index_lebs": 2,
+    "journal_heads": 3,
+    "maximum_data_node_bytes": 4144,
+    "block_bytes": 4096
+  },
+  "profiles": {
+    "rd23-stock": {
+      "openwrt_profile": "xiaomi_mi-router-ax3000t",
+      "ubi_offset_bytes": 41943040,
+      "ubi_partition_bytes": 81788928,
+      "payload_kind": "sysupgrade-root",
+      "fixed_volumes": []
+    },
+    "rd23-ubootmod": {
+      "openwrt_profile": "xiaomi_mi-router-ax3000t-ubootmod",
+      "ubi_offset_bytes": 6291456,
+      "ubi_partition_bytes": 117440512,
+      "payload_kind": "complete-fit",
+      "fixed_volumes": [
+        {
+          "name": "ubootenv",
+          "size_bytes": 1048576
+        },
+        {
+          "name": "ubootenv2",
+          "size_bytes": 1048576
+        }
+      ]
+    }
+  }
+}
