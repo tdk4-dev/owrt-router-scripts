@@ -12,6 +12,22 @@ on:
         required: true
         default: false
         type: boolean
+      candidate_artifact_id:
+        description: Exact successful pre-tag candidate artifact ID
+        required: true
+        type: string
+      candidate_artifact_zip_sha256:
+        description: Exact pre-tag candidate artifact ZIP SHA-256
+        required: true
+        type: string
+      baseline_pack_artifact_id:
+        description: Exact complete baseline-pack artifact ID
+        required: true
+        type: string
+      baseline_pack_artifact_zip_sha256:
+        description: Exact complete baseline-pack artifact ZIP SHA-256
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -277,18 +293,23 @@ jobs:
         with:
           name: verified-flat-release
           path: ${{ runner.temp }}/release-v0.7.11
+      - name: Install immutable artifact verification dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake jq unzip
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Download the successful pre-tag candidate and compare every release byte
         env:
           GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+          CANDIDATE_ARTIFACT_ZIP_SHA256: ${{ inputs.candidate_artifact_zip_sha256 }}
         run: |
           source_sha="$(git rev-parse HEAD)"
-          artifact_name="pretag-router-ui-candidate-$source_sha"
-          artifact_url="$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$artifact_name&per_page=100" \
-            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .archive_download_url')"
-          test -n "$artifact_url" && test "$artifact_url" != null
-          gh api "$artifact_url" > "$RUNNER_TEMP/pretag-candidate.zip"
-          mkdir -p "$RUNNER_TEMP/pretag-candidate"
-          unzip -q "$RUNNER_TEMP/pretag-candidate.zip" -d "$RUNNER_TEMP/pretag-candidate"
+          ./tests/vm/download-immutable-actions-artifact.sh candidate \
+            "$CANDIDATE_ARTIFACT_ID" "$CANDIDATE_ARTIFACT_ZIP_SHA256" \
+            "$RUNNER_TEMP/pretag-candidate" "$RUNNER_TEMP/pretag-candidate-descriptor.json"
+          test "$(jq -r .product_source_sha "$RUNNER_TEMP/pretag-candidate-descriptor.json")" = "$source_sha"
           pretag_release="$RUNNER_TEMP/pretag-candidate/release-v0.7.11"
           test -d "$pretag_release"
           (cd "$pretag_release" && find . -type f -print | sort) > "$RUNNER_TEMP/pretag-files"
@@ -303,6 +324,21 @@ jobs:
             cmp -s "$ipk" "$pretag_release/$(basename "$ipk")"
           done
           test -d "$RUNNER_TEMP/pretag-candidate/synthetic-next"
+      - name: Download and verify the exact complete legacy baseline pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}
+          BASELINE_ARTIFACT_ZIP_SHA256: ${{ inputs.baseline_pack_artifact_zip_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          ./tests/vm/download-immutable-actions-artifact.sh baseline \
+            "$BASELINE_ARTIFACT_ID" "$BASELINE_ARTIFACT_ZIP_SHA256" \
+            "$RUNNER_TEMP/baseline-input" "$RUNNER_TEMP/baseline-descriptor.json"
+          pack="$RUNNER_TEMP/baseline-input/legacy-baseline-pack"
+          jq -e '.verified == true and
+            all(.baselines[]; .self_validation.ok == true)' "$pack/baseline-pack-manifest.json" >/dev/null
+          printf 'BASELINE_PACK_DIR=%s\nROUTER_UI_HARNESS_SHA=%s\n' \
+            "$pack" "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: Install VM and browser dependencies
         run: |
           sudo apt-get update
@@ -315,11 +351,20 @@ jobs:
           SYNTHETIC_DIR: ${{ runner.temp }}/pretag-candidate/synthetic-next
           EVIDENCE_DIR: ${{ runner.temp }}/tagged-evidence
           NODE_PATH: ${{ runner.temp }}/playwright/node_modules
+          ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
+          ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
+          ROUTER_UI_VM_HARNESS_SHA: ${{ env.ROUTER_UI_HARNESS_SHA }}
+          ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
+          ROUTER_UI_VM_CASE: full
         run: |
           x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
           ./tests/vm/router-ui-vm-gate.sh
+          cp "$RUNNER_TEMP/pretag-candidate-descriptor.json" "$EVIDENCE_DIR/"
+          cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
+          ./tests/vm/write-candidate-content-descriptor.sh \
+            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/tagged-content-descriptor.json"
           (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/tagged-asset-sha256sums")
           (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
       - uses: actions/upload-artifact@v4

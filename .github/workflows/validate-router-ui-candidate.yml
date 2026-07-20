@@ -1,20 +1,23 @@
 name: Validate production-signed Router UI candidate
 
 on:
-  workflow_call:
-    inputs:
-      source_sha:
-        description: Exact 0.7.11 release source commit SHA
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       source_sha:
         description: Exact 0.7.11 release source commit SHA
         required: true
         type: string
+      baseline_pack_artifact_id:
+        description: Exact complete baseline-pack artifact ID
+        required: true
+        type: string
+      baseline_pack_artifact_zip_sha256:
+        description: Exact complete baseline-pack artifact ZIP SHA-256
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -287,6 +290,26 @@ jobs:
         with:
           name: candidate-synthetic-next
           path: ${{ runner.temp }}/synthetic-next
+      - name: Download and verify the exact complete legacy baseline pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}
+          BASELINE_ARTIFACT_ZIP_SHA256: ${{ inputs.baseline_pack_artifact_zip_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          ./tests/vm/download-immutable-actions-artifact.sh baseline \
+            "$BASELINE_ARTIFACT_ID" "$BASELINE_ARTIFACT_ZIP_SHA256" \
+            "$RUNNER_TEMP/baseline-input" "$RUNNER_TEMP/baseline-descriptor.json"
+          pack="$RUNNER_TEMP/baseline-input/legacy-baseline-pack"
+          jq -e '
+            .verified == true and
+            ([.baselines[] | select(.storage_profile == "rd23-stock") | .version] | sort) ==
+              (["0.5.1","0.5.2","0.6.0","0.7.0","0.7.1","0.7.2","0.7.3",
+                "0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"] | sort) and
+            any(.baselines[]; .storage_profile == "rd23-ubootmod" and .version == "0.7.10") and
+            all(.baselines[]; .self_validation.ok == true)
+          ' "$pack/baseline-pack-manifest.json" >/dev/null
+          printf 'BASELINE_PACK_DIR=%s\n' "$pack" >> "$GITHUB_ENV"
       - name: Install VM and browser dependencies
         run: |
           sudo apt-get update
@@ -299,11 +322,19 @@ jobs:
           SYNTHETIC_DIR: ${{ runner.temp }}/synthetic-next
           EVIDENCE_DIR: ${{ runner.temp }}/candidate-evidence
           NODE_PATH: ${{ runner.temp }}/playwright/node_modules
+          ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
+          ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
+          ROUTER_UI_VM_HARNESS_SHA: ${{ inputs.source_sha }}
+          ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
+          ROUTER_UI_VM_CASE: full
         run: |
           x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
           ./tests/vm/router-ui-vm-gate.sh
+          cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
+          ./tests/vm/write-candidate-content-descriptor.sh \
+            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/candidate-content-descriptor.json"
           (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/candidate-asset-sha256sums")
           cp "$RELEASE_DIR/router-release-manifest.json" "$EVIDENCE_DIR/"
           cp "$RELEASE_DIR/router-ui-packages.txt" "$EVIDENCE_DIR/"
