@@ -59,7 +59,7 @@ need() {
   }
 }
 
-for tool in curl tar zstd make sha256sum awk find sort tee; do
+for tool in curl tar zstd make sha256sum awk find sort tee jq stat; do
   need "$tool"
 done
 
@@ -112,6 +112,19 @@ if [ ! -d "$IB_DIR" ]; then
   tar --use-compress-program=unzstd -xf "$WORK_DIR/$IB_ARCHIVE" -C "$WORK_DIR"
 fi
 
+if [ "$TARGET_DIR" = "x86/64" ] && [ "$WRITABLE_BUDGET_KIB" -gt 0 ]; then
+  if ! grep -q 'ROOTFS_WRITABLE_KIB' "$IB_DIR/scripts/gen_image_generic.sh"; then
+    "$ROOT_DIR/scripts/patch-openwrt-x86-writable-extent.sh" \
+      "$IB_DIR/scripts/gen_image_generic.sh"
+  fi
+  grep -q 'ROOTFS_SIZE_SPEC' "$IB_DIR/scripts/gen_image_generic.sh" || {
+    printf 'Could not install exact writable-extent support in ImageBuilder\n' >&2
+    exit 1
+  }
+  ROOTFS_WRITABLE_KIB="$WRITABLE_BUDGET_KIB"
+  export ROOTFS_WRITABLE_KIB
+fi
+
 make -s -C "$IB_DIR" info > "$PROFILE_INFO"
 awk -v profile="$PROFILE" '$0 == profile ":" { found=1 } END { exit !found }' "$PROFILE_INFO" || {
   printf 'Profile %s is not present in the OpenWrt %s %s ImageBuilder\n' \
@@ -120,9 +133,7 @@ awk -v profile="$PROFILE" '$0 == profile ":" { found=1 } END { exit !found }' "$
 }
 if [ "$TARGET_DIR" = "x86/64" ]; then
   # The release and VM gate boot the combined squashfs image. Building the
-  # unused ext4 variant would require the uncompressed root plus the signed
-  # known-good set to fit inside the same 60 MiB partition and can mask the
-  # actual hard-capped squashfs/overlay contract.
+  # unused ext4 variant can mask the exact squashfs/overlay contract.
   sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$IB_DIR/.config"
   grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$IB_DIR/.config" || {
     printf 'Could not disable the unused x86 ext4 image variant\n' >&2
@@ -222,6 +233,41 @@ else
 fi
 cat "$BUILD_LOG"
 
+RD23_STORAGE_LAYOUT=null
+STORAGE_PROFILE=none
+EXPECTED_UBIFS_DF_TOTAL_KIB=0
+X86_ROOTFS_PARTSIZE_KIB=0
+case "$PROFILE" in
+  xiaomi_mi-router-ax3000t)
+    STORAGE_PROFILE=rd23-stock
+    STORAGE_IMAGE="$(find "$TARGET_OUT" -maxdepth 1 -type f \
+      -name '*xiaomi_mi-router-ax3000t-squashfs-sysupgrade.bin' | sed -n '1p')"
+    [ -n "$STORAGE_IMAGE" ] || { printf 'Missing RD23 stock sysupgrade image\n' >&2; exit 1; }
+    RD23_STORAGE_LAYOUT="$("$ROOT_DIR/scripts/derive-rd23-storage-layout.sh" \
+      "$STORAGE_PROFILE" "$STORAGE_IMAGE")"
+    WRITABLE_BUDGET_KIB="$(printf '%s\n' "$RD23_STORAGE_LAYOUT" | jq -r '.rootfs_data_volume_kib')"
+    EXPECTED_UBIFS_DF_TOTAL_KIB="$(printf '%s\n' "$RD23_STORAGE_LAYOUT" | jq -r '.expected_ubifs_df_total_kib')"
+    ;;
+  xiaomi_mi-router-ax3000t-ubootmod)
+    STORAGE_PROFILE=rd23-ubootmod
+    STORAGE_IMAGE="$(find "$TARGET_OUT" -maxdepth 1 -type f \
+      -name '*xiaomi_mi-router-ax3000t-ubootmod-squashfs-sysupgrade.itb' | sed -n '1p')"
+    [ -n "$STORAGE_IMAGE" ] || { printf 'Missing RD23 ubootmod sysupgrade image\n' >&2; exit 1; }
+    RD23_STORAGE_LAYOUT="$("$ROOT_DIR/scripts/derive-rd23-storage-layout.sh" \
+      "$STORAGE_PROFILE" "$STORAGE_IMAGE")"
+    WRITABLE_BUDGET_KIB="$(printf '%s\n' "$RD23_STORAGE_LAYOUT" | jq -r '.rootfs_data_volume_kib')"
+    EXPECTED_UBIFS_DF_TOTAL_KIB="$(printf '%s\n' "$RD23_STORAGE_LAYOUT" | jq -r '.expected_ubifs_df_total_kib')"
+    ;;
+  generic)
+    [ "$TARGET_DIR" = "x86/64" ] || { printf 'Unexpected generic target\n' >&2; exit 1; }
+    [ "$WRITABLE_BUDGET_KIB" -gt 0 ] || { printf 'x86 writable budget is required\n' >&2; exit 1; }
+    STORAGE_PROFILE=rd23-stock
+    SQUASHFS_BYTES="$(stat -c %s "$IB_DIR"/build_dir/target-*/linux-*/root.squashfs)"
+    OVERLAY_OFFSET_BYTES=$(((SQUASHFS_BYTES + 65535) / 65536 * 65536))
+    X86_ROOTFS_PARTSIZE_KIB=$((OVERLAY_OFFSET_BYTES / 1024 + WRITABLE_BUDGET_KIB))
+    ;;
+esac
+
 MANIFEST_SRC="$(find "$TARGET_OUT" -maxdepth 1 -type f -name '*.manifest' | sort | tail -n 1)"
 [ -n "$MANIFEST_SRC" ] || {
   printf 'ImageBuilder did not produce a package manifest\n' >&2
@@ -310,6 +356,8 @@ find "$OVERLAY" \( -type f -o -type l \) -print | sed "s#^$OVERLAY/##" |
   sha256sum ./*.ipk | sed 's#  \./#  #'
 ) > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
 cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
+cp "$ROOT_DIR/release/rd23-storage-geometry.json" \
+  "$PROFILE_ARTIFACT_DIR/rd23-storage-geometry.json"
 rm -rf "$PAYLOAD_WORK"
 cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
 {
@@ -323,8 +371,13 @@ cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
   "source_dirty": $SOURCE_DIRTY,
   "source_date_epoch": $SOURCE_DATE_EPOCH,
   "updater_protocol": 2,
+  "storage_profile": "$STORAGE_PROFILE",
   "writable_budget_kib": $WRITABLE_BUDGET_KIB,
-  "x86_rootfs_partsize_mib": $ROOTFS_PARTSIZE
+  "writable_backing_kib": $WRITABLE_BUDGET_KIB,
+  "expected_ubifs_df_total_kib": $EXPECTED_UBIFS_DF_TOTAL_KIB,
+  "x86_rootfs_partsize_mib": $ROOTFS_PARTSIZE,
+  "x86_rootfs_partsize_kib": $X86_ROOTFS_PARTSIZE_KIB,
+  "rd23_storage_layout": $RD23_STORAGE_LAYOUT
 }
 EOF
 (

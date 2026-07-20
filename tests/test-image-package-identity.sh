@@ -8,6 +8,9 @@ CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml
 VM_GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"
 VM_GUEST="$ROOT_DIR/tests/vm/router-ui-vm-guest.sh"
 QEMU_GUARD="$ROOT_DIR/tests/vm/qemu-guard.sh"
+STORAGE_DERIVER="$ROOT_DIR/scripts/derive-rd23-storage-layout.sh"
+STORAGE_GEOMETRY="$ROOT_DIR/release/rd23-storage-geometry.json"
+X86_EXTENT_PATCHER="$ROOT_DIR/scripts/patch-openwrt-x86-writable-extent.sh"
 
 grep -q 'PROJECT_PACKAGE_DIR' "$BUILDER"
 grep -q 'PROJECT_PACKAGE_MANIFEST' "$BUILDER"
@@ -23,6 +26,16 @@ grep -q 'overlay-files.txt' "$BUILDER"
 grep -q 'profile-info.txt' "$BUILDER"
 grep -q 'CONFIG_TARGET_ROOTFS_EXT4FS is not set' "$BUILDER"
 grep -q 'squashfs-combined.img.gz' "$BUILDER"
+grep -q 'ROOTFS_WRITABLE_KIB' "$BUILDER"
+grep -q 'derive-rd23-storage-layout.sh' "$BUILDER"
+grep -q 'rd23-storage-geometry.json' "$BUILDER"
+grep -q 'ROOTFS_SIZE_SPEC' "$X86_EXTENT_PATCHER"
+grep -q 'rootfs_data_volume_kib' "$STORAGE_DERIVER"
+jq -e '.openwrt.version == "24.10.5" and
+  .profiles["rd23-stock"].ubi_partition_bytes == 81788928 and
+  .profiles["rd23-ubootmod"].ubi_partition_bytes == 117440512 and
+  (.profiles["rd23-ubootmod"].fixed_volumes | length == 2)' \
+  "$STORAGE_GEOMETRY" >/dev/null
 grep -q 'rm -f "$pkg_dir/Packages" "$pkg_dir/Packages.gz" "$pkg_dir/Packages.sig"' "$BUILDER"
 ! grep -q 'ipkg-make-index.sh packages' "$BUILDER"
 grep -q 'UPDATER_PROTOCOL' "$ROOT_DIR/scripts/build-openwrt-ipks.sh"
@@ -42,6 +55,10 @@ grep -q 'x86-64' "$WORKFLOW"
 grep -q '^  vm-gate:' "$WORKFLOW"
 grep -q 'router-ui-vm-gate.sh' "$WORKFLOW"
 grep -q 'pretag-router-ui-candidate-' "$WORKFLOW"
+grep -q '^  x86-image:' "$WORKFLOW"
+grep -q 'name: router-image-rd23-stock' "$WORKFLOW"
+grep -q 'rd23_storage_layout.rootfs_data_volume_kib' "$WORKFLOW"
+! grep -Eq 'writable_budget_kib: (54436|61440|76800|87040)' "$WORKFLOW"
 
 grep -q 'source_sha:' "$CANDIDATE_WORKFLOW"
 grep -q 'environment: router-ui-production-signing' "$CANDIDATE_WORKFLOW"
@@ -49,6 +66,10 @@ grep -q 'ROOTFS_PARTSIZE:' "$CANDIDATE_WORKFLOW"
 grep -q 'WRITABLE_BUDGET_KIB:' "$CANDIDATE_WORKFLOW"
 grep -q 'router-ui-vm-gate.sh' "$CANDIDATE_WORKFLOW"
 grep -q 'pretag-router-ui-candidate-' "$CANDIDATE_WORKFLOW"
+grep -q '^  x86-image:' "$CANDIDATE_WORKFLOW"
+grep -q 'name: candidate-router-image-rd23-stock' "$CANDIDATE_WORKFLOW"
+grep -q 'rd23_storage_layout.rootfs_data_volume_kib' "$CANDIDATE_WORKFLOW"
+! grep -Eq 'writable_budget_kib: (54436|61440|76800|87040)' "$CANDIDATE_WORKFLOW"
 grep -q "network.lan.proto='dhcp'" "$VM_GATE"
 grep -q 'HOST_ORIGIN="https://127.0.0.1:' "$VM_GATE"
 grep -q 'host_bin/sha256' "$VM_GATE"
@@ -61,6 +82,9 @@ grep -q 'qemu-img info --output=json' "$VM_GATE"
 grep -q "pgrep -fc 'qemu-system-.*-name router-ui-vm-'" "$QEMU_GUARD"
 grep -q 'running="${running:-0}"' "$QEMU_GUARD"
 grep -q '/proc/mounts' "$VM_GUEST"
+grep -q '/sys/class/block/' "$VM_GUEST"
+grep -q 'overlay_backing_kib' "$VM_GUEST"
+! grep -Eq 'stock-60|uboot-75|uboot-85' "$VM_GATE" "$VM_GUEST"
 
 # The overlay may contain only the root redirect and the signed exact-package
 # recovery set. Project application paths remain owned by the canonical IPKs.

@@ -100,6 +100,8 @@ chmod 755 "$RELEASE_DIR/router-candidate-validator" \
 
 printf '%s\n' "$APP_VERSION" > "$RELEASE_DIR/vpn-ui-version.txt"
 cp "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md" "$RELEASE_DIR/vpn-ui-changelog.txt"
+cp "$ROOT_DIR/release/rd23-storage-geometry.json" \
+  "$RELEASE_DIR/rd23-storage-geometry.json"
 if date -u -r "$SOURCE_DATE_EPOCH" '+%B %d, %Y' >/dev/null 2>&1; then
   date -u -r "$SOURCE_DATE_EPOCH" '+%B %d, %Y' > "$RELEASE_DIR/vpn-ui-release-date.txt"
   GENERATED_AT="$(date -u -r "$SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')"
@@ -162,6 +164,7 @@ LIB_JSON="$(asset_object "$RELEASE_DIR/router-update-lib.sh" 1)"
 COMPAT_JSON="$(asset_object "$RELEASE_DIR/0.7.9-_35_vpn.js" 1)"
 INSTALLER_JSON="$(asset_object "$RELEASE_DIR/install-router-ui-release.sh" 2)"
 RESCUE_JSON="$(asset_object "$RELEASE_DIR/rescue-router-ui.sh" 1)"
+STORAGE_GEOMETRY_JSON="$(asset_object "$RELEASE_DIR/rd23-storage-geometry.json" 1)"
 
 IMAGES_FILE="$STAGE/images.jsonl"
 : > "$IMAGES_FILE"
@@ -175,10 +178,17 @@ find "$RELEASE_DIR" -maxdepth 1 -type f \
       *xiaomi-ax3000t-ubootmod*) target='mediatek/filogic'; profile=xiaomi_mi-router-ax3000t-ubootmod ;;
       *) target=unknown; profile=unknown ;;
     esac
+    provenance_member="$(tar -tzf "$image" | awk '/\/image-provenance\.json$/ {print; exit}')"
+    [ -n "$provenance_member" ] || fail "image archive lacks storage provenance: $name"
+    storage="$(tar -xOzf "$image" "$provenance_member" | jq '{storage_profile,
+      writable_backing_kib,expected_ubifs_df_total_kib,x86_rootfs_partsize_kib,
+      rd23_storage_layout}')"
     jq -n --arg filename "$name" --arg target "$target" --arg profile "$profile" \
       --arg sha256 "$(sha256sum "$image" | awk '{print $1}')" \
       --argjson size "$(wc -c < "$image" | tr -d ' ')" \
-      '{filename:$filename,target:$target,profile:$profile,size:$size,sha256:$sha256}' \
+      --argjson storage "$storage" \
+      '{filename:$filename,target:$target,profile:$profile,size:$size,sha256:$sha256,
+        storage:$storage}' \
       >> "$IMAGES_FILE"
   done
 if [ -s "$IMAGES_FILE" ]; then
@@ -222,6 +232,7 @@ jq -n \
   --argjson compat "$COMPAT_JSON" \
   --argjson standalone_installer "$INSTALLER_JSON" \
   --argjson rescue "$RESCUE_JSON" \
+  --argjson storage_geometry "$STORAGE_GEOMETRY_JSON" \
   --argjson transitions "$TRANSITIONS_JSON" \
   --argjson images "$IMAGES_JSON" \
   '{
@@ -247,6 +258,7 @@ jq -n \
     compatibility:{status_0_7_9:$compat},
     standalone_installer:$standalone_installer,
     rescue:$rescue,
+    rd23_storage_geometry:$storage_geometry,
     compatibility_transport:{
       filename:"luci-vpn-ui.tar.gz",
       hash_authority:"legacy sha256 sidecar",

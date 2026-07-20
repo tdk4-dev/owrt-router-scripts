@@ -108,24 +108,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: x86-64
-            target: x86/64
-            profile: generic
-            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-x86-64
-            rootfs_partsize: 60
-            writable_budget_kib: 61440
           - name: rd23-stock
             target: mediatek/filogic
             profile: xiaomi_mi-router-ax3000t
             artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-stock
             rootfs_partsize: 0
-            writable_budget_kib: 61440
+            writable_budget_kib: 0
           - name: rd23-ubootmod
             target: mediatek/filogic
             profile: xiaomi_mi-router-ax3000t-ubootmod
             artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-ubootmod
             rootfs_partsize: 0
-            writable_budget_kib: 87040
+            writable_budget_kib: 0
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -164,8 +158,58 @@ jobs:
           path: ${{ runner.temp }}/images/
           if-no-files-found: error
 
+  x86-image:
+    needs: [canonical-ipks, sign-installed-package-set, images]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonical-router-ui-ipks
+          path: ${{ runner.temp }}/canonical-ipks
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-installed-package-set
+          path: ${{ runner.temp }}/installed-package-set
+      - uses: actions/download-artifact@v4
+        with:
+          name: router-image-rd23-stock
+          path: ${{ runner.temp }}/rd23-stock
+      - name: Build x86 with the exact candidate RD23 stock writable extent
+        env:
+          TARGET_DIR: x86/64
+          PROFILE: generic
+          ARTIFACT_PREFIX: premier-router-0.7.11-openwrt-24.10.5-x86-64
+          PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
+          PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
+          INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set
+          OUT_DIR: ${{ runner.temp }}/images
+          WORK_DIR: ${{ runner.temp }}/imagebuilder
+          ROOTFS_PARTSIZE: 128
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd jq
+          stock_archive="$(find "$RUNNER_TEMP/rd23-stock" -maxdepth 1 -type f -name '*rd23-stock.tar.gz' | sed -n '1p')"
+          test -n "$stock_archive"
+          provenance_member="$(tar -tzf "$stock_archive" | awk '/\/image-provenance\.json$/ {print; exit}')"
+          test -n "$provenance_member"
+          export WRITABLE_BUDGET_KIB="$(tar -xOzf "$stock_archive" "$provenance_member" |
+            jq -er '.rd23_storage_layout.rootfs_data_volume_kib')"
+          test "$WRITABLE_BUDGET_KIB" -gt 0
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export SOURCE_DIRTY=false
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          ./build-openwrt-custom-image-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: router-image-x86-64
+          path: ${{ runner.temp }}/images/
+          if-no-files-found: error
+
   assemble-and-sign:
-    needs: images
+    needs: [images, x86-image]
     runs-on: ubuntu-24.04
     environment: router-ui-production-signing
     steps:

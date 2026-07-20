@@ -7,7 +7,7 @@
 - Dispatch `Validate production-signed Router UI candidate` with the exact
   release commit SHA. It creates no tag or release. Require byte-reproducible
   canonical IPKs, all three images, strict signatures, and the complete serial
-  256 MiB/60 MiB VM evidence artifact.
+  256 MiB/exact-RD23-storage VM evidence artifact.
 - Merge the tested release commits into the forward branch with a real merge,
   merge PR #12 with a merge commit, and verify the exact release commit is an
   ancestor of `origin/main` while main retains its intended 0.8 version.

@@ -20,6 +20,8 @@ wait_for() {
 
 measure() {
   profile="$1"
+  expected_backing_kib="$2"
+  expected_ubifs_df_total_kib="$3"
   mem_total="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
   root_total="$(df -Pk / | awk 'NR == 2 {print $2}')"
   root_free="$(df -Pk / | awk 'NR == 2 {print $4}')"
@@ -28,18 +30,27 @@ measure() {
   overlay_free="$(df -Pk /overlay | awk 'NR == 2 {print $4}')"
   tmp_total="$(df -Pk /tmp | awk 'NR == 2 {print $2}')"
   tmp_free="$(df -Pk /tmp | awk 'NR == 2 {print $4}')"
+  overlay_source="$(awk '$2 == "/overlay" {print $1; exit}' /proc/mounts)"
+  [ -n "$overlay_source" ] || die "could not identify /overlay backing device"
+  overlay_block="${overlay_source#/dev/}"
+  [ -r "/sys/class/block/$overlay_block/size" ] ||
+    die "could not measure /overlay backing device: $overlay_source"
+  overlay_backing_kib="$(($(cat "/sys/class/block/$overlay_block/size") / 2))"
   grep -Eq '^[^ ]+ /tmp tmpfs ' /proc/mounts || die "/tmp is not RAM-backed"
   [ "$mem_total" -le 262144 ] && [ "$mem_total" -ge 220000 ] ||
     die "MemTotal is inconsistent with a 256 MiB guest: $mem_total"
-  case "$profile" in
-    stock-60) [ "$overlay_total" -le 61440 ] || die "writable overlay exceeds 60 MiB: $overlay_total KiB" ;;
-    uboot-75) [ "$overlay_total" -le 76800 ] || die "writable overlay exceeds 75 MiB: $overlay_total KiB" ;;
-    uboot-85) [ "$overlay_total" -le 87040 ] || die "writable overlay exceeds 85 MiB: $overlay_total KiB" ;;
-    *) die "unknown storage profile: $profile" ;;
-  esac
+  case "$profile" in rd23-stock|rd23-ubootmod) ;; *) die "unknown storage profile: $profile" ;; esac
+  [ "$expected_backing_kib" -gt 0 ] && [ "$expected_ubifs_df_total_kib" -gt 0 ] ||
+    die "invalid target-derived storage limits"
+  [ "$overlay_backing_kib" -eq "$expected_backing_kib" ] ||
+    die "$profile writable backing is $overlay_backing_kib KiB, expected exact RD23 extent $expected_backing_kib KiB"
+  [ "$overlay_total" -le "$overlay_backing_kib" ] ||
+    die "$profile filesystem reports more space than its exact backing extent"
   printf '{"profile":"%s","configured_ram_mib":256,"mem_total_kib":%s,' "$profile" "$mem_total"
   printf '"root_total_kib":%s,"root_free_kib":%s,' "$root_total" "$root_free"
   printf '"overlay_total_kib":%s,"overlay_free_kib":%s,' "$overlay_total" "$overlay_free"
+  printf '"overlay_backing_device":"%s","overlay_backing_kib":%s,' "$overlay_source" "$overlay_backing_kib"
+  printf '"target_expected_ubifs_df_total_kib":%s,' "$expected_ubifs_df_total_kib"
   printf '"tmp_total_kib":%s,"tmp_free_kib":%s,"tmp_ram_backed":true}\n' "$tmp_total" "$tmp_free"
 }
 

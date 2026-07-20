@@ -33,7 +33,7 @@ for file in router-release-manifest.json router-release-manifest.json.sig \
   rescue-router-ui.sh rescue-router-ui.sh.sha256 luci-vpn-ui.tar.gz \
   luci-vpn-ui.tar.gz.sha256 vpn-ui-version.txt vpn-ui-changelog.txt \
   vpn-ui-release-date.txt router-candidate-validator router-update-supervisor \
-  router-update-lib.sh 0.7.9-_35_vpn.js
+  router-update-lib.sh 0.7.9-_35_vpn.js rd23-storage-geometry.json
 do
   [ -s "$RELEASE_DIR/$file" ] || fail "missing staged asset: $file"
 done
@@ -75,15 +75,22 @@ PREMIER_ROUTER_HOST_TEST=1 PR_USIGN_BIN="$USIGN_BIN" \
   "$MANIFEST" "$EXPECTED_RELEASE_KEY_ID" || fail "manifest semantic validation failed"
 
 jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
+  --argjson require_images "$REQUIRE_IMAGES" \
   --arg tag "vpn-panel-v$APP_VERSION" --arg key "$EXPECTED_RELEASE_KEY_ID" '
   .schema_version == 2 and .update_protocol == 2 and .channel == "stable" and
   .app_version == $version and .package_version == $package and
   .release_tag == $tag and .signing_key_id == $key and .source_dirty == false and
   (.source_commit | test("^[0-9a-f]{40}$")) and
+  .rd23_storage_geometry.filename == "rd23-storage-geometry.json" and
+  (($require_images == 0) or ((.images | length == 3) and
+    ([.images[].storage.storage_profile] | sort == ["rd23-stock","rd23-stock","rd23-ubootmod"]))) and
   (.transitions | map(.source_version) | index("0.7.7") | not) and
   ([.packages[].install_order] == [1,2,3]) and
   ([.packages[].name] == ["premier-router-core","luci-app-premier-router","premier-router-setup"])
 ' "$MANIFEST" >/dev/null || fail "manifest authority fields mismatch"
+[ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
+  "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||
+  fail "manifest RD23 storage geometry hash mismatch"
 MANIFEST_COMMIT="$(jq -r .source_commit "$MANIFEST")"
 [ -z "$EXPECTED_SOURCE_COMMIT" ] || [ "$MANIFEST_COMMIT" = "$EXPECTED_SOURCE_COMMIT" ] ||
   fail "manifest source commit differs from expected commit"
@@ -170,6 +177,9 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
       fail "image internal checksum manifest failed: $(basename "$archive")"
     [ -s "$artifact_root/project-payload-sha256sums" ] ||
       fail "image lacks package payload proof: $(basename "$archive")"
+    cmp -s "$artifact_root/rd23-storage-geometry.json" \
+      "$ROOT_DIR/release/rd23-storage-geometry.json" ||
+      fail "image RD23 storage geometry drift: $(basename "$archive")"
     [ -s "$artifact_root/overlay-files.txt" ] || fail "image overlay evidence is missing"
     if grep -Ev '^(www/index\.html|etc/premier-router/installed-manifest\.json(\.sig)?|root/premier-router-updates/known-good/[0-9a-f]{64}/[^/]+)$' \
       "$artifact_root/overlay-files.txt" | grep -q .; then
@@ -201,20 +211,57 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
     ' "$WORK/image.provenance" >/dev/null || fail "image provenance mismatch"
     case "$(jq -r .profile "$WORK/image.provenance")" in
       generic)
-        jq -e '.writable_budget_kib == 61440 and .x86_rootfs_partsize_mib == 60' \
-          "$WORK/image.provenance" >/dev/null || fail "x86 image does not declare the 60 MiB writable profile"
+        jq -e '.storage_profile == "rd23-stock" and
+          .writable_budget_kib > 0 and
+          .writable_backing_kib == .writable_budget_kib and
+          .x86_rootfs_partsize_kib > .writable_backing_kib and
+          .rd23_storage_layout == null' "$WORK/image.provenance" >/dev/null ||
+          fail "x86 image does not declare an exact RD23-stock writable extent"
+        cp "$WORK/image.provenance" "$WORK/provenance.x86.json"
         ;;
       xiaomi_mi-router-ax3000t)
-        jq -e '.writable_budget_kib == 61440' "$WORK/image.provenance" >/dev/null ||
-          fail "RD23 stock image writable-budget provenance mismatch"
+        storage_image="$(find "$artifact_root" -maxdepth 1 -type f \
+          -name '*xiaomi_mi-router-ax3000t-squashfs-sysupgrade.bin' | sed -n '1p')"
+        [ -n "$storage_image" ] || fail "RD23 stock storage payload is missing"
+        "$ROOT_DIR/scripts/derive-rd23-storage-layout.sh" rd23-stock "$storage_image" \
+          > "$WORK/storage.derived.json"
+        jq -S '.rd23_storage_layout' "$WORK/image.provenance" > "$WORK/storage.provenance.json"
+        cmp -s "$WORK/storage.derived.json" "$WORK/storage.provenance.json" ||
+          fail "RD23 stock storage derivation drift"
+        jq -e '.storage_profile == "rd23-stock" and
+          .writable_backing_kib == .rd23_storage_layout.rootfs_data_volume_kib and
+          .expected_ubifs_df_total_kib == .rd23_storage_layout.expected_ubifs_df_total_kib' \
+          "$WORK/image.provenance" >/dev/null || fail "RD23 stock storage provenance mismatch"
+        cp "$WORK/image.provenance" "$WORK/provenance.stock.json"
         ;;
       xiaomi_mi-router-ax3000t-ubootmod)
-        jq -e '.writable_budget_kib == 87040' "$WORK/image.provenance" >/dev/null ||
-          fail "RD23 ubootmod image writable-budget provenance mismatch"
+        storage_image="$(find "$artifact_root" -maxdepth 1 -type f \
+          -name '*xiaomi_mi-router-ax3000t-ubootmod-squashfs-sysupgrade.itb' | sed -n '1p')"
+        [ -n "$storage_image" ] || fail "RD23 ubootmod storage payload is missing"
+        "$ROOT_DIR/scripts/derive-rd23-storage-layout.sh" rd23-ubootmod "$storage_image" \
+          > "$WORK/storage.derived.json"
+        jq -S '.rd23_storage_layout' "$WORK/image.provenance" > "$WORK/storage.provenance.json"
+        cmp -s "$WORK/storage.derived.json" "$WORK/storage.provenance.json" ||
+          fail "RD23 ubootmod storage derivation drift"
+        jq -e '.storage_profile == "rd23-ubootmod" and
+          .writable_backing_kib == .rd23_storage_layout.rootfs_data_volume_kib and
+          .expected_ubifs_df_total_kib == .rd23_storage_layout.expected_ubifs_df_total_kib' \
+          "$WORK/image.provenance" >/dev/null || fail "RD23 ubootmod storage provenance mismatch"
+        cp "$WORK/image.provenance" "$WORK/provenance.ubootmod.json"
         ;;
       *) fail "unexpected image profile in provenance" ;;
     esac
   done
+
+if [ "$REQUIRE_IMAGES" = 1 ]; then
+  for provenance in x86 stock ubootmod; do
+    [ -s "$WORK/provenance.$provenance.json" ] || fail "missing $provenance image storage provenance"
+  done
+  x86_backing="$(jq -r '.writable_backing_kib' "$WORK/provenance.x86.json")"
+  stock_backing="$(jq -r '.writable_backing_kib' "$WORK/provenance.stock.json")"
+  [ "$x86_backing" = "$stock_backing" ] ||
+    fail "x86 writable extent is not the exact derived RD23-stock extent"
+fi
 
 if [ "$STRICT_RELEASE" = 1 ]; then
   case "$EXPECTED_RELEASE_KEY_ID" in test-*|dev-*|development-*) fail "strict release refuses a development key ID" ;; esac

@@ -21,6 +21,10 @@ FAULT_BOUNDARIES=(before-mutation snapshot_ready applying after-premier-router-c
 CURRENT_PID=""
 SERVER_PID=""
 MAX_RUNNING=0
+STOCK_WRITABLE_KIB=0
+STOCK_UBIFS_DF_KIB=0
+UBOOTMOD_WRITABLE_KIB=0
+UBOOTMOD_UBIFS_DF_KIB=0
 
 cleanup() {
   set +e
@@ -32,7 +36,7 @@ trap cleanup EXIT INT TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
-for tool in awk curl flock gzip jq make node openssl pgrep python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen tar zstd; do need "$tool"; done
+for tool in awk curl flock gzip jq make node openssl pgrep python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
 mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
   "$WORK/server/releases/download/vpn-panel-v0.7.11" "$WORK/server/baselines" "$WORK/server/vm"
 : > "$EVIDENCE_DIR/vm-measurements.jsonl"
@@ -46,6 +50,36 @@ record_result() {
   if [[ $# -ge 5 ]]; then details="$5"; else details='{}'; fi
   jq -cn --arg kind "$kind" --arg name "$name" --arg status "$status" \
     --argjson details "$details" '{kind:$kind,name:$name,status:$status,details:$details}' >> "$file"
+}
+
+load_storage_profiles() {
+  local profile pattern archive member provenance
+  for profile in rd23-stock rd23-ubootmod; do
+    case "$profile" in
+      rd23-stock) pattern='*xiaomi-ax3000t-stock.tar.gz' ;;
+      rd23-ubootmod) pattern='*xiaomi-ax3000t-ubootmod.tar.gz' ;;
+    esac
+    archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$pattern" | sed -n '1p')"
+    [[ -n "$archive" ]] || fail "release set lacks $profile image archive"
+    member="$(tar -tzf "$archive" | awk '/\/image-provenance\.json$/ {print; exit}')"
+    [[ -n "$member" ]] || fail "$profile archive lacks image provenance"
+    provenance="$WORK/$profile.provenance.json"
+    tar -xOzf "$archive" "$member" > "$provenance"
+    jq -e --arg profile "$profile" '.storage_profile == $profile and
+      .writable_backing_kib > 0 and .expected_ubifs_df_total_kib > 0 and
+      .writable_backing_kib == .rd23_storage_layout.rootfs_data_volume_kib' \
+      "$provenance" >/dev/null || fail "$profile storage provenance is incomplete"
+    case "$profile" in
+      rd23-stock)
+        STOCK_WRITABLE_KIB="$(jq -r '.writable_backing_kib' "$provenance")"
+        STOCK_UBIFS_DF_KIB="$(jq -r '.expected_ubifs_df_total_kib' "$provenance")"
+        ;;
+      rd23-ubootmod)
+        UBOOTMOD_WRITABLE_KIB="$(jq -r '.writable_backing_kib' "$provenance")"
+        UBOOTMOD_UBIFS_DF_KIB="$(jq -r '.expected_ubifs_df_total_kib' "$provenance")"
+        ;;
+    esac
+  done
 }
 
 extract_openwrt_gzip_image() {
@@ -129,6 +163,10 @@ EOF
   export PATH
   curl -fL --retry 3 "https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/$ib_name.tar.zst" -o "$archive"
   tar --use-compress-program=unzstd -xf "$archive" -C "$WORK"
+  "$ROOT_DIR/scripts/patch-openwrt-x86-writable-extent.sh" \
+    "$ib/scripts/gen_image_generic.sh"
+  grep -q ROOTFS_SIZE_SPEC "$ib/scripts/gen_image_generic.sh" ||
+    fail "VM ImageBuilder lacks exact writable-extent support"
   sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$ib/.config"
   grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$ib/.config" ||
     fail "could not disable the unused VM ext4 image variant"
@@ -147,19 +185,25 @@ config interface 'lan'
   option proto 'dhcp'
 EOF
   packages="$(awk 'NF && $1 !~ /^#/ {printf "%s ",$1}' "$ROOT_DIR/image/openwrt-fin0-packages.txt") dropbear ca-bundle usign"
-  for size in 60 75 85; do
+  local profile budget
+  for profile in rd23-stock rd23-ubootmod; do
+    case "$profile" in
+      rd23-stock) budget="$STOCK_WRITABLE_KIB" ;;
+      rd23-ubootmod) budget="$UBOOTMOD_WRITABLE_KIB" ;;
+    esac
     rm -rf "$ib/bin/targets/x86/64"
-    if ! (umask 022 && make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size") \
-      > "$EVIDENCE_DIR/vm-base-${size}mib-build.log" 2>&1; then
-      cat "$EVIDENCE_DIR/vm-base-${size}mib-build.log" >&2
-      fail "VM base build failed for the $size MiB profile"
+    if ! (umask 022 && ROOTFS_WRITABLE_KIB="$budget" make -C "$ib" image \
+      PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE=128) \
+      > "$EVIDENCE_DIR/vm-base-$profile-build.log" 2>&1; then
+      cat "$EVIDENCE_DIR/vm-base-$profile-build.log" >&2
+      fail "VM base build failed for the $profile exact writable extent"
     fi
     base_gz="$(find "$ib/bin/targets/x86/64" -maxdepth 1 -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
-    [[ -n "$base_gz" ]] || fail "VM base build did not produce ${size} MiB combined squashfs image"
-    extract_openwrt_gzip_image "$base_gz" "$WORK/vm-base-$size.img" \
-      "$EVIDENCE_DIR/vm-base-${size}mib-gzip.log"
+    [[ -n "$base_gz" ]] || fail "VM base build did not produce the $profile combined squashfs image"
+    extract_openwrt_gzip_image "$base_gz" "$WORK/vm-base-$profile.img" \
+      "$EVIDENCE_DIR/vm-base-$profile-gzip.log"
   done
-  ln -s "$WORK/vm-base-60.img" "$WORK/vm-base.img"
+  ln -s "$WORK/vm-base-rd23-stock.img" "$WORK/vm-base.img"
 }
 
 extract_candidate_image() {
@@ -234,10 +278,16 @@ guest() {
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/vm/router-ui-vm-guest.sh' -o /tmp/router-ui-vm-guest.sh && chmod 700 /tmp/router-ui-vm-guest.sh && /tmp/router-ui-vm-guest.sh$command"
 }
 record_measurement() {
-  name="$1" profile="${2:-stock-60}"
-  measurement="$(guest measure "$profile")"
+  name="$1" profile="${2:-rd23-stock}"
+  case "$profile" in
+    rd23-stock) measurement="$(guest measure "$profile" "$STOCK_WRITABLE_KIB" "$STOCK_UBIFS_DF_KIB")" ;;
+    rd23-ubootmod) measurement="$(guest measure "$profile" "$UBOOTMOD_WRITABLE_KIB" "$UBOOTMOD_UBIFS_DF_KIB")" ;;
+    *) fail "unknown measurement profile: $profile" ;;
+  esac
   jq -cn --arg name "$name" --argjson measurement "$measurement" '$measurement + {case:$name}' >> "$EVIDENCE_DIR/vm-measurements.jsonl"
 }
+measure_stock() { guest measure rd23-stock "$STOCK_WRITABLE_KIB" "$STOCK_UBIFS_DF_KIB"; }
+measure_ubootmod() { guest measure rd23-ubootmod "$UBOOTMOD_WRITABLE_KIB" "$UBOOTMOD_UBIFS_DF_KIB"; }
 shutdown_vm() {
   set +e
   "${ssh_base[@]}" 'sync; poweroff' >/dev/null 2>&1
@@ -288,19 +338,19 @@ run_old_worker_matrix() {
     disk="$WORK/old-worker-$version.qcow2"
     clone_disk "$WORK/baseline-$version.qcow2" "$disk" qcow2
     start_vm "$disk" "old-worker-$version"; wait_ssh; record_measurement "old-worker-$version"
-    before="$(guest protected-hash)"; usage_before="$(guest measure stock-60)"
+    before="$(guest protected-hash)"; usage_before="$(measure_stock)"
     transaction="$(guest old-worker "$ORIGIN" "$version" | tail -n 1)"
-    usage_candidate="$(guest measure stock-60)"
+    usage_candidate="$(measure_stock)"
     guest verify-target 0.7.11 "$version" pending
     node "$ROOT_DIR/tests/vm/check-status-card.cjs" \
       "http://127.0.0.1:$HTTP_PORT/cgi-bin/luci/admin/status/overview" \
       > "$EVIDENCE_DIR/old-worker-$version-visible-card.json"
     normal_reboot; guest verify-target 0.7.11 "$version" post-reboot
-    usage_committed="$(guest measure stock-60)"
+    usage_committed="$(measure_stock)"
     [[ "$(guest protected-hash)" = "$before" ]] || fail "protected hash drift after old-worker reboot"
-    guest rollback "$transaction" "$version"; usage_rolled_back="$(guest measure stock-60)"; normal_reboot
+    guest rollback "$transaction" "$version"; usage_rolled_back="$(measure_stock)"; normal_reboot
     [[ "$(sed -n '1p' < <("${ssh_base[@]}" cat /usr/share/vpn-ui/version))" = "$version" ]] || fail "old-worker rollback did not persist"
-    usage_after="$(guest measure stock-60)"
+    usage_after="$(measure_stock)"
     details="$(jq -cn --arg transaction "$transaction" --argjson before "$usage_before" \
       --argjson candidate "$usage_candidate" --argjson committed "$usage_committed" \
       --argjson rolled_back "$usage_rolled_back" --argjson after "$usage_after" \
@@ -316,13 +366,13 @@ run_rescue_matrix() {
     disk="$WORK/rescue-$version.qcow2"
     clone_disk "$WORK/baseline-$version.qcow2" "$disk" qcow2
     start_vm "$disk" "rescue-$version"; wait_ssh; record_measurement "rescue-$version"
-    before="$(guest protected-hash)"; usage_before="$(guest measure stock-60)"
+    before="$(guest protected-hash)"; usage_before="$(measure_stock)"
     transaction="$(guest rescue "$ORIGIN" "$version" | tail -n 1)"
-    usage_candidate="$(guest measure stock-60)"
+    usage_candidate="$(measure_stock)"
     guest verify-target 0.7.11 "$version" pending; normal_reboot
-    guest verify-target 0.7.11 "$version" post-reboot; usage_committed="$(guest measure stock-60)"
-    guest rollback "$transaction" "$version"; usage_rolled_back="$(guest measure stock-60)"; normal_reboot
-    usage_final="$(guest measure stock-60)"
+    guest verify-target 0.7.11 "$version" post-reboot; usage_committed="$(measure_stock)"
+    guest rollback "$transaction" "$version"; usage_rolled_back="$(measure_stock)"; normal_reboot
+    usage_final="$(measure_stock)"
     [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ]] || fail "rescue rollback did not persist: $version"
     [[ "$(guest protected-hash)" = "$before" ]] || fail "rescue protected hash drift: $version"
     details="$(jq -cn --arg transaction "$transaction" --argjson before "$usage_before" \
@@ -365,24 +415,24 @@ run_protocol_v2() {
   disk="$WORK/protocol-v2.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_vm "$disk" protocol-v2; wait_ssh; record_measurement protocol-v2
   discovery="$ORIGIN/releases/download/vpn-panel-v0.7.12"
-  protected_before="$(guest protected-hash)"; usage_before="$(guest measure stock-60)"
+  protected_before="$(guest protected-hash)"; usage_before="$(measure_stock)"
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/tmp/protocol-v2.log
   transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
-  guest verify-target 0.7.12 0.7.11 pending; usage_candidate_one="$(guest measure stock-60)"
+  guest verify-target 0.7.12 0.7.11 pending; usage_candidate_one="$(measure_stock)"
   normal_reboot; guest verify-target 0.7.12 0.7.11 post-reboot
-  usage_committed_one="$(guest measure stock-60)"
-  guest rollback "$transaction" 0.7.11; usage_rollback_one="$(guest measure stock-60)"; normal_reboot
+  usage_committed_one="$(measure_stock)"
+  guest rollback "$transaction" 0.7.11; usage_rollback_one="$(measure_stock)"; normal_reboot
   [[ "$(guest protected-hash)" = "$protected_before" ]] || fail "package rollback changed protected configuration"
   "${ssh_base[@]}" "mkdir -p /root/premier-router-updates/recovery-required-must-survive; printf '%s\\n' '{\"state\":\"recovery_required\"}' > /root/premier-router-updates/recovery-required-must-survive/state.json; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/dev/null
   second_transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
   normal_reboot; guest verify-target 0.7.12 0.7.11 post-reboot
-  usage_committed_two="$(guest measure stock-60)"
+  usage_committed_two="$(measure_stock)"
   "${ssh_base[@]}" test -f /root/premier-router-updates/recovery-required-must-survive/state.json || fail "cleanup pruned recovery-required evidence"
   tx_count="$("${ssh_base[@]}" "find /root/premier-router-updates -mindepth 1 -maxdepth 1 -type d | wc -l")"
   [[ "$tx_count" -le 6 ]] || fail "successful transactions accumulated without bound"
   guest rollback "$second_transaction" 0.7.11; normal_reboot
   [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.11 ]] || fail "retained exact rollback failed after cleanup"
-  usage_final="$(guest measure stock-60)"
+  usage_final="$(measure_stock)"
   [[ "$(guest protected-hash)" = "$protected_before" ]] || fail "repeated package cycle changed protected configuration"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" protocol-v2 \
     '0.7.11->0.7.12->0.7.11->0.7.12->0.7.11' pass \
@@ -401,9 +451,9 @@ run_storage_pressure() {
 
   disk="$WORK/storage-normal.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
   start_vm "$disk" storage-normal; wait_ssh; record_measurement storage-normal
-  before="$(guest measure stock-60)"; transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
-  candidate="$(guest measure stock-60)"; normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
-  after="$(guest measure stock-60)"
+  before="$(measure_stock)"; transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
+  candidate="$(measure_stock)"; normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
+  after="$(measure_stock)"
   record_result "$EVIDENCE_DIR/storage-results.jsonl" pressure normal-success pass \
     "$(jq -cn --argjson before "$before" --argjson candidate "$candidate" --argjson after "$after" \
       '{before:$before,candidate:$candidate,committed_after_reboot:$after}')"
@@ -523,23 +573,22 @@ run_fault_matrix() {
 }
 
 run_storage_profiles() {
-  for profile in uboot-75 uboot-85; do
-    size="${profile#uboot-}"
-    disk="$WORK/storage-$profile.qcow2"; clone_disk "$WORK/vm-base-$size.img" "$disk" raw
-    start_vm "$disk" "storage-$profile"; wait_ssh
-    record_measurement "storage-$profile" "$profile"
-    guest install-baseline 0.7.10 "$ORIGIN/baselines"
-    before="$(guest measure "$profile")"
-    transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
-    normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
-    committed="$(guest measure "$profile")"
-    guest rollback "$transaction" 0.7.10; normal_reboot
-    restored="$(guest measure "$profile")"
-    record_result "$EVIDENCE_DIR/storage-results.jsonl" supplemental-layout "$profile" pass \
-      "$(jq -cn --argjson before "$before" --argjson committed "$committed" --argjson restored "$restored" \
-        '{before:$before,committed:$committed,restored:$restored,transition_and_rollback:true}')"
-    shutdown_vm; rm -f "$disk"
-  done
+  profile=rd23-ubootmod
+  disk="$WORK/storage-$profile.qcow2"
+  clone_disk "$WORK/vm-base-rd23-ubootmod.img" "$disk" raw
+  start_vm "$disk" "storage-$profile"; wait_ssh
+  record_measurement "storage-$profile" "$profile"
+  guest install-baseline 0.7.10 "$ORIGIN/baselines"
+  before="$(measure_ubootmod)"
+  transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
+  normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
+  committed="$(measure_ubootmod)"
+  guest rollback "$transaction" 0.7.10; normal_reboot
+  restored="$(measure_ubootmod)"
+  record_result "$EVIDENCE_DIR/storage-results.jsonl" target-layout "$profile" pass \
+    "$(jq -cn --argjson before "$before" --argjson committed "$committed" --argjson restored "$restored" \
+      '{before:$before,committed:$committed,restored:$restored,transition_and_rollback:true}')"
+  shutdown_vm; rm -f "$disk"
 }
 
 finalize_evidence() {
@@ -549,11 +598,20 @@ finalize_evidence() {
   jq -s '.' "$EVIDENCE_DIR/storage-results.jsonl" > "$EVIDENCE_DIR/storage-results.json"
   jq -s '.' "$EVIDENCE_DIR/published-baselines.jsonl" > "$EVIDENCE_DIR/published-baselines.json"
   jq -n --argjson maximum "$MAX_RUNNING" --argjson configured 256 \
+    --argjson stock_backing "$STOCK_WRITABLE_KIB" \
+    --argjson stock_ubifs_df "$STOCK_UBIFS_DF_KIB" \
+    --argjson ubootmod_backing "$UBOOTMOD_WRITABLE_KIB" \
+    --argjson ubootmod_ubifs_df "$UBOOTMOD_UBIFS_DF_KIB" \
     --arg source_commit "$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.json")" \
     --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
       configured_ram_mib:$configured,maximum_simultaneous_vms_observed:$maximum,vm_limit:2,
-      mandatory_writable_overlay_kib:61440,physical_rd23_test:"pending-not-authorized"}' \
+      storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
+        expected_ubifs_df_total_kib:$stock_ubifs_df},
+        "rd23-ubootmod":{writable_backing_kib:$ubootmod_backing,
+        expected_ubifs_df_total_kib:$ubootmod_ubifs_df}},
+      storage_basis:"OpenWrt-v24.10.5-DTS-plus-exact-candidate-payload",
+      physical_rd23_test:"pending-not-authorized"}' \
     > "$EVIDENCE_DIR/summary.json"
   (cd "$EVIDENCE_DIR" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print | sort | sed 's#^./##' |
     while read -r file; do sha256sum "$file"; done > SHA256SUMS)
@@ -561,6 +619,7 @@ finalize_evidence() {
 
 setup_tls
 prepare_server
+load_storage_profiles
 build_vm_base
 extract_candidate_image
 test_guard

@@ -43,6 +43,8 @@ jobs:
             install-friend-vpn-panel.sh \
             make-vpn-ui-release-bundle.sh \
             scripts/build-openwrt-ipks.sh \
+            scripts/derive-rd23-storage-layout.sh \
+            scripts/patch-openwrt-x86-writable-extent.sh \
             scripts/stage-installed-package-set.sh \
             scripts/stage-router-release.sh \
             scripts/validate-staged-release.sh \

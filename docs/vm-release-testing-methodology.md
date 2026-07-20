@@ -25,11 +25,22 @@ Record:
 - Treat any request for 300 MiB or more, or any third simultaneous VM, as a
   failed release gate.
 
-The mandatory stock profile uses an x86 squashfs image whose writable overlay
-is hard-capped at 61,440 KiB. Record and assert `df -Pk /`, `/overlay`, and
-`/tmp`; `/tmp` must remain RAM-backed. A larger disk with merely 60 MiB free is
-not storage-constrained. Repeat supplemental transition and rollback checks at
-75 MiB and 85 MiB, but never substitute those results for the 60 MiB gate.
+Storage profiles are derived from the official OpenWrt 24.10.5 RD23 DTS,
+kernel UBI configuration, and the exact candidate payload. The stock DTS has a
+78 MiB raw UBI partition and the ubootmod DTS has a 112 MiB raw UBI partition.
+After UBI reserves and the exact 0.7.11 rootfs/FIT payload, the current derived
+`rootfs_data` extents are 54,436 KiB (stock) and 80,352 KiB (ubootmod). The
+ubootmod derivation retains its two 1 MiB U-Boot environment volumes. Their
+expected UBIFS `df -Pk` totals are 51,352 KiB and 76,728 KiB respectively.
+
+The x86 VM filesystem differs from UBIFS, so the harness does not confuse an
+ext4 `df` total with NAND capacity. It patches the disposable ImageBuilder to
+make the rootfs-data backing extent exactly equal to the derived RD23
+`rootfs_data` bytes, asserts that backing-device size in the guest, and records
+`df -Pk /`, `/overlay`, and `/tmp`. `/tmp` must remain RAM-backed. A larger
+filesystem with only its free space filled down is not storage-constrained.
+The signed image provenance retains the source geometry, exact candidate
+payload size, derived UBI accounting, and expected target UBIFS total.
 
 ## Clean Image Test
 
@@ -108,10 +119,11 @@ transaction ID, status-card count, LuCI route load, protected config hashes,
 package versions, installed manifest hash, recovery archive validation, and
 rollback bundle validation before and after reboot.
 
-Boot the x86 image with exactly 256 MiB RAM and a writable overlay no larger
-than 61,440 KiB. Extract both RD23 variants and prove
-their embedded canonical IPK hashes. Do not label RD23 hardware verified until
-an explicitly authorized physical device test has occurred.
+Boot the x86 image with exactly 256 MiB RAM and a writable backing extent equal
+to the value derived from the exact RD23 stock candidate. Extract both RD23
+variants and prove their embedded canonical IPK hashes and storage provenance.
+Do not label RD23 hardware verified until an explicitly authorized physical
+device test has occurred.
 
 ## Tailscale / Headscale GUI Coverage
 

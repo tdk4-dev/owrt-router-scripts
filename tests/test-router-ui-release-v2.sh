@@ -41,6 +41,24 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
 RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" >/dev/null
+cmp -s "$TMP_ROOT/release/rd23-storage-geometry.json" \
+  "$ROOT_DIR/release/rd23-storage-geometry.json"
+jq -e --arg sha "$(sha256sum "$TMP_ROOT/release/rd23-storage-geometry.json" | awk '{print $1}')" \
+  '.rd23_storage_geometry.filename == "rd23-storage-geometry.json" and
+    .rd23_storage_geometry.sha256 == $sha' \
+  "$TMP_ROOT/release/router-release-manifest.json" >/dev/null
+cp "$TMP_ROOT/release/rd23-storage-geometry.json" "$TMP_ROOT/storage-geometry.good"
+printf 'corruption\n' >> "$TMP_ROOT/release/rd23-storage-geometry.json"
+if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+  EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
+  USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" \
+  >"$TMP_ROOT/storage-geometry.log" 2>&1; then
+  printf 'release validation accepted corrupted RD23 storage geometry\n' >&2
+  exit 1
+fi
+grep -Eq 'SHA256SUMS validation failed|manifest RD23 storage geometry hash mismatch' \
+  "$TMP_ROOT/storage-geometry.log"
+mv "$TMP_ROOT/storage-geometry.good" "$TMP_ROOT/release/rd23-storage-geometry.json"
 
 if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
