@@ -14,6 +14,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
+stage() { printf 'transaction-test stage: %s\n' "$1"; }
 
 SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" show -s --format=%ct HEAD)"
@@ -160,7 +161,13 @@ run_supervisor() {
 }
 
 reset_source 0.7.9
-run_update manual > "$TMP_ROOT/079-success.log"
+if ! run_update manual > "$TMP_ROOT/079-success.log" 2> "$TMP_ROOT/079-success.err"; then
+  cat "$TMP_ROOT/079-success.err" >&2
+  cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
+  find "$FAKE_ROOT/root/premier-router-updates" -name state.json -exec cat {} \; >&2 2>/dev/null || true
+  exit 1
+fi
+stage 079-applied
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11 ]
 [ -s "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
 grep -q PREMIER_ROUTER_079_COMPAT_NOOP \
@@ -171,6 +178,7 @@ journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(run_supervisor status | jq -r '.job.status')" = pending_reboot ]
 printf 'boot-after-079\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 run_supervisor recover
+stage 079-recovered
 [ "$(jq -r .state "$journal")" = committed ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
@@ -181,6 +189,7 @@ if ! run_update manual > "$TMP_ROOT/success.log" 2> "$TMP_ROOT/success.err"; the
   find "$FAKE_ROOT/root/premier-router-updates" -name state.json -exec cat {} \; >&2 2>/dev/null || true
   exit 1
 fi
+stage 0710-applied
 grep -q 'Router UI 0.7.11 committed' "$TMP_ROOT/success.log"
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11 ]
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
@@ -198,6 +207,7 @@ FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
   VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
   VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
   sh "$TMP_ROOT/release/router-update-supervisor" rollback "$transaction"
+stage 0710-rolled-back
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(jq -r .rollback_status "$journal")" = succeeded ]
@@ -210,6 +220,7 @@ FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
   VPN_UI_UPDATE_SELF="$TMP_ROOT/release/router-update-supervisor" \
   VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
   VPN_UI_OPKG_BIN="$FAKE_OPKG" sh "$TMP_ROOT/release/router-update-supervisor" rollback "$transaction"
+stage idempotent-rollback
 
 reset_source
 if run_update auto VPN_UI_TEST_FAIL_AFTER=validating VPN_UI_TEST_FAIL_MODE=return; then
@@ -222,6 +233,7 @@ journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .rollback_status "$journal")" = succeeded ]
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(find "$FAKE_ROOT/root/premier-router-updates/quarantine" -type f -name '*.json' | wc -l | tr -d ' ')" = 1 ]
+stage validator-failure-rollback
 
 reset_source
 if run_update auto FAKE_OPKG_FAIL_PACKAGE=luci-app-premier-router; then
@@ -232,6 +244,7 @@ transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
 journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
+stage package-failure-rollback
 
 # Lock ownership, race refusal, token checks, and stale recovery.
 LOCK_ROOT="$TMP_ROOT/lock-root"
@@ -251,5 +264,6 @@ VPN_UI_UPDATE_SOURCE_ONLY=1 PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$LOCK
     lock_acquire token-after-stale
     lock_release token-after-stale
   ' sh "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
+stage lock-ownership
 
 printf 'Updater v2 commit, rollback, failure injection, quarantine, journal, and lock tests passed\n'
