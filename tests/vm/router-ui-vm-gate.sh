@@ -130,7 +130,7 @@ EOF
   packages="$(awk 'NF && $1 !~ /^#/ {printf "%s ",$1}' "$ROOT_DIR/image/openwrt-fin0-packages.txt") dropbear ca-bundle usign"
   for size in 60 75 85; do
     rm -rf "$ib/bin/targets/x86/64"
-    if ! make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size" \
+    if ! (umask 022 && make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size") \
       > "$EVIDENCE_DIR/vm-base-${size}mib-build.log" 2>&1; then
       cat "$EVIDENCE_DIR/vm-base-${size}mib-build.log" >&2
       fail "VM base build failed for the $size MiB profile"
