@@ -1,0 +1,164 @@
+name: Diagnostic Router UI VM gate using immutable artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_artifact_id:
+        description: Immutable candidate artifact ID
+        required: true
+        type: string
+      candidate_artifact_zip_sha256:
+        description: Exact Actions artifact ZIP SHA-256
+        required: true
+        type: string
+      baseline_pack_artifact_id:
+        description: Verified legacy baseline-pack artifact ID
+        required: true
+        type: string
+      baseline_pack_artifact_zip_sha256:
+        description: Exact baseline-pack artifact ZIP SHA-256
+        required: true
+        type: string
+      case:
+        description: One VM case family or the complete matrix
+        required: true
+        default: rescue
+        type: choice
+        options:
+          - old-worker
+          - rescue
+          - protocol-v2
+          - clean-image
+          - concurrency
+          - storage
+          - fault
+          - full
+      source_version:
+        description: One legacy source version; blank selects the case matrix
+        required: false
+        default: ""
+        type: string
+      phase:
+        description: Case phase (all, refusals, normal, near-reservation, below-reservation, rd23-ubootmod)
+        required: false
+        default: all
+        type: string
+      fault_boundary:
+        description: One fault boundary; blank selects every boundary
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: router-ui-vm-diagnostic-${{ github.sha }}-${{ inputs.case }}-${{ inputs.source_version }}-${{ inputs.phase }}-${{ inputs.fault_boundary }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostic-vm:
+    name: Diagnostic only - not release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.case == 'full' && 360 || 90 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact clean harness identity
+        run: |
+          printf '%s' '${{ github.sha }}' | grep -Eq '^[0-9a-f]{40}$'
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/diagnostic-evidence"
+
+      - name: Install verification, VM, and browser prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake jq openssl qemu-system-x86 qemu-utils unzip zstd nodejs npm
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Download and fail-closed verify immutable candidate and baseline pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+          CANDIDATE_ARTIFACT_ZIP_SHA256: ${{ inputs.candidate_artifact_zip_sha256 }}
+          BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}
+          BASELINE_ARTIFACT_ZIP_SHA256: ${{ inputs.baseline_pack_artifact_zip_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          evidence="$RUNNER_TEMP/diagnostic-evidence"
+          candidate_input="$RUNNER_TEMP/candidate-input"
+          baseline_input="$RUNNER_TEMP/baseline-input"
+          ./tests/vm/download-immutable-actions-artifact.sh candidate \
+            "$CANDIDATE_ARTIFACT_ID" "$CANDIDATE_ARTIFACT_ZIP_SHA256" \
+            "$candidate_input" "$evidence/candidate-descriptor.json"
+          ./tests/vm/download-immutable-actions-artifact.sh baseline \
+            "$BASELINE_ARTIFACT_ID" "$BASELINE_ARTIFACT_ZIP_SHA256" \
+            "$baseline_input" "$evidence/baseline-descriptor.json"
+          release="$candidate_input/release-v0.7.11"
+          synthetic="$candidate_input/synthetic-next"
+          baseline_pack="$baseline_input/legacy-baseline-pack"
+          candidate_source_sha="$(jq -r .product_source_sha "$evidence/candidate-descriptor.json")"
+          jq -n --slurpfile candidate "$evidence/candidate-descriptor.json" \
+            --slurpfile baseline "$evidence/baseline-descriptor.json" \
+            --arg harness_sha '${{ github.sha }}' \
+            '{schema_version:1,diagnostic:true,release_evidence:false,
+              harness_source_sha:$harness_sha,candidate:$candidate[0],baseline:$baseline[0]}' \
+            > "$evidence/diagnostic-identity.json"
+          printf 'RELEASE_DIR=%s\nSYNTHETIC_DIR=%s\nBASELINE_PACK_DIR=%s\nCANDIDATE_SOURCE_SHA=%s\n' \
+            "$release" "$synthetic" "$baseline_pack" "$candidate_source_sha" >> "$GITHUB_ENV"
+
+      - name: Install browser only when the selected case renders LuCI
+        if: inputs.case == 'full' || inputs.case == 'old-worker'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright" playwright@1.55.1
+          npx --prefix "$RUNNER_TEMP/playwright" playwright install --with-deps chromium
+
+      - name: Run exactly the selected serial diagnostic case
+        env:
+          RELEASE_DIR: ${{ env.RELEASE_DIR }}
+          SYNTHETIC_DIR: ${{ env.SYNTHETIC_DIR }}
+          EVIDENCE_DIR: ${{ runner.temp }}/diagnostic-evidence
+          NODE_PATH: ${{ runner.temp }}/playwright/node_modules
+          ROUTER_UI_VM_DIAGNOSTIC: "1"
+          ROUTER_UI_VM_HARNESS_SHA: ${{ github.sha }}
+          ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
+          ROUTER_UI_VM_CASE: ${{ inputs.case }}
+          ROUTER_UI_VM_SOURCE_VERSION: ${{ inputs.source_version }}
+          ROUTER_UI_VM_PHASE: ${{ inputs.phase }}
+          ROUTER_UI_VM_FAULT_BOUNDARY: ${{ inputs.fault_boundary }}
+          ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
+          ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
+          CANDIDATE_SOURCE_SHA: ${{ env.CANDIDATE_SOURCE_SHA }}
+        run: |
+          set -Eeuo pipefail
+          x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
+          test -n "$x86_archive"
+          export X86_IMAGE_ARCHIVE="$x86_archive"
+          ./tests/vm/router-ui-vm-gate.sh
+
+      - name: Finalize diagnostic evidence checksums
+        if: always()
+        run: |
+          evidence="$RUNNER_TEMP/diagnostic-evidence"
+          mkdir -p "$evidence"
+          if test -d "${RELEASE_DIR:-}"; then
+            cp "$RELEASE_DIR/router-release-manifest.json" "$evidence/" 2>/dev/null || true
+            cp "$RELEASE_DIR/router-ui-packages.txt" "$evidence/" 2>/dev/null || true
+          fi
+          (cd "$evidence" && find . -maxdepth 1 -type f ! -name evidence-files-sha256sums -print |
+            LC_ALL=C sort | sed 's#^./##' |
+            while IFS= read -r file; do sha256sum "$file"; done > evidence-files-sha256sums)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-router-ui-vm-${{ github.sha }}-${{ inputs.case }}-${{ inputs.source_version }}-${{ inputs.phase }}
+          path: ${{ runner.temp }}/diagnostic-evidence/
+          if-no-files-found: error
+          retention-days: 30

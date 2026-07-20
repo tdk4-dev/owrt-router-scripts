@@ -1,23 +1,10 @@
-name: Prepare verified Router UI release
+name: Validate production-signed Router UI candidate
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing annotated release tag
-        required: true
-        type: string
-      publish:
-        description: Publish only after the draft round-trip verifies
-        required: true
-        default: false
-        type: boolean
-      candidate_artifact_id:
-        description: Exact successful pre-tag candidate artifact ID
-        required: true
-        type: string
-      candidate_artifact_zip_sha256:
-        description: Exact pre-tag candidate artifact ZIP SHA-256
+      source_sha:
+        description: Exact 0.7.11 release source commit SHA
         required: true
         type: string
       baseline_pack_artifact_id:
@@ -34,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: router-ui-release-${{ inputs.tag }}
+  group: router-ui-candidate-${{ inputs.source_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -43,26 +30,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-      - name: Verify immutable source identity
+      - name: Verify exact clean 0.7.11 source
         run: |
-          test "$(git cat-file -t "refs/tags/${{ inputs.tag }}")" = tag
-          version="$(sed -n '1p' luci-vpn-ui/VERSION)"
-          test "${{ inputs.tag }}" = "vpn-panel-v${version}"
+          printf '%s' '${{ inputs.source_sha }}' | grep -Eq '^[0-9a-f]{40}$'
+          test "$(git rev-parse HEAD)" = '${{ inputs.source_sha }}'
+          test "$(sed -n '1p' luci-vpn-ui/VERSION)" = 0.7.11
+          test "$(sed -n '1p' luci-vpn-ui/files/usr/share/vpn-ui/version)" = 0.7.11
           test -z "$(git status --porcelain)"
-          git fetch origin main --no-tags
-          git merge-base --is-ancestor "${{ inputs.tag }}^{commit}" origin/main
-      - name: Install package tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq cmake
-          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Reproduce canonical IPKs and retain the first build
+      - name: Build canonical IPKs twice and retain the first bytes
         env:
           RELEASE_PUBLIC_KEY: ${{ github.workspace }}/release/keys/router-ui-production.pub
           STRICT_RELEASE: "1"
         run: |
+          sudo apt-get update && sudo apt-get install -y jq cmake
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          export USIGN_BIN="$RUNNER_TEMP/bin/usign"
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
           export SOURCE_DIRTY=false
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
@@ -76,9 +60,10 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: canonical-router-ui-ipks
+          name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/ipk-a/
           if-no-files-found: error
+          retention-days: 30
 
   sign-installed-package-set:
     needs: canonical-ipks
@@ -87,16 +72,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: canonical-router-ui-ipks
+          name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/canonical-ipks
-      - name: Sign exact installed package rollback set
+      - name: Sign the exact initial package rollback set
         env:
-          SIGNING_KEY: ${{ runner.temp }}/release.sec
           RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
+          SIGNING_KEY: ${{ runner.temp }}/release.sec
           IPK_DIR: ${{ runner.temp }}/canonical-ipks
           OUT_DIR: ${{ runner.temp }}/installed-package-set
         run: |
@@ -114,9 +99,10 @@ jobs:
           trap - EXIT INT TERM
       - uses: actions/upload-artifact@v4
         with:
-          name: signed-installed-package-set
+          name: candidate-signed-installed-package-set
           path: ${{ runner.temp }}/installed-package-set/
           if-no-files-found: error
+          retention-days: 30
 
   images:
     needs: [canonical-ipks, sign-installed-package-set]
@@ -141,28 +127,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: canonical-router-ui-ipks
+          name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/canonical-ipks
       - uses: actions/download-artifact@v4
         with:
-          name: signed-installed-package-set
+          name: candidate-signed-installed-package-set
           path: ${{ runner.temp }}/installed-package-set
-      - name: Build image only from canonical IPKs
+      - name: Build image only from the canonical IPKs
         env:
           TARGET_DIR: ${{ matrix.target }}
           PROFILE: ${{ matrix.profile }}
           ARTIFACT_PREFIX: ${{ matrix.artifact_prefix }}
           PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
           PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
+          INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set
           OUT_DIR: ${{ runner.temp }}/images
           WORK_DIR: ${{ runner.temp }}/imagebuilder
           ROOTFS_PARTSIZE: ${{ matrix.rootfs_partsize }}
           WRITABLE_BUDGET_KIB: ${{ matrix.writable_budget_kib }}
-          INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set
         run: |
           sudo apt-get update && sudo apt-get install -y zstd jq
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
@@ -171,9 +157,10 @@ jobs:
           ./build-openwrt-custom-image-linux.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: router-image-${{ matrix.name }}
+          name: candidate-router-image-${{ matrix.name }}
           path: ${{ runner.temp }}/images/
           if-no-files-found: error
+          retention-days: 30
 
   x86-image:
     needs: [canonical-ipks, sign-installed-package-set, images]
@@ -181,19 +168,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: canonical-router-ui-ipks
+          name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/canonical-ipks
       - uses: actions/download-artifact@v4
         with:
-          name: signed-installed-package-set
+          name: candidate-signed-installed-package-set
           path: ${{ runner.temp }}/installed-package-set
       - uses: actions/download-artifact@v4
         with:
-          name: router-image-rd23-stock
+          name: candidate-router-image-rd23-stock
           path: ${{ runner.temp }}/rd23-stock
       - name: Build x86 with the exact candidate RD23 stock writable extent
         env:
@@ -221,9 +208,10 @@ jobs:
           ./build-openwrt-custom-image-linux.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: router-image-x86-64
+          name: candidate-router-image-x86-64
           path: ${{ runner.temp }}/images/
           if-no-files-found: error
+          retention-days: 30
 
   assemble-and-sign:
     needs: [images, x86-image]
@@ -232,98 +220,76 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: canonical-router-ui-ipks
+          name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/canonical-ipks
       - uses: actions/download-artifact@v4
         with:
-          pattern: router-image-*
+          pattern: candidate-router-image-*
           path: ${{ runner.temp }}/stage-root
           merge-multiple: true
-      - name: Install pinned release signing tool
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq cmake
-          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Assemble, sign, and strictly validate flat assets
+      - name: Assemble, sign, validate, and build a distinct synthetic next target
         env:
+          RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
           SIGNING_KEY: ${{ runner.temp }}/release.sec
           IPK_DIR: ${{ runner.temp }}/canonical-ipks
           OUT_ROOT: ${{ runner.temp }}/stage-root
           RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
+          OUTPUT_DIR: ${{ runner.temp }}/synthetic-next
           STRICT_RELEASE: "1"
           REQUIRE_IMAGES: "1"
-          RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
-          RELEASE_PUBLIC_KEY: ${{ github.workspace }}/release/keys/router-ui-production.pub
+          REQUIRE_MAIN_ANCESTRY: "0"
         run: |
+          sudo apt-get update && sudo apt-get install -y jq cmake
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
           cleanup_secret() { rm -f "$SIGNING_KEY"; }
           trap cleanup_secret EXIT INT TERM
           printf '%s\n' "$RELEASE_SECRET_KEY_DATA" > "$SIGNING_KEY"
           chmod 600 "$SIGNING_KEY"
+          export USIGN_BIN="$RUNNER_TEMP/bin/usign"
+          export RELEASE_PUBLIC_KEY="$GITHUB_WORKSPACE/release/keys/router-ui-production.pub"
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
           export EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT"
           export SOURCE_DIRTY=false
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           ./scripts/stage-router-release.sh
           ./scripts/validate-staged-release.sh
+          ./tests/vm/build-synthetic-next.sh
           cleanup_secret
           trap - EXIT INT TERM
       - uses: actions/upload-artifact@v4
         with:
-          name: verified-flat-release
+          name: candidate-verified-flat-release
           path: ${{ runner.temp }}/release-v0.7.11/
           if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-synthetic-next
+          path: ${{ runner.temp }}/synthetic-next/
+          if-no-files-found: error
+          retention-days: 30
 
-  vm-gate:
+  constrained-vm-gate:
     needs: assemble-and-sign
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    permissions:
-      actions: read
-      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: verified-flat-release
+          name: candidate-verified-flat-release
           path: ${{ runner.temp }}/release-v0.7.11
-      - name: Install immutable artifact verification dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake jq unzip
-          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Download the successful pre-tag candidate and compare every release byte
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
-          CANDIDATE_ARTIFACT_ZIP_SHA256: ${{ inputs.candidate_artifact_zip_sha256 }}
-        run: |
-          source_sha="$(git rev-parse HEAD)"
-          ./tests/vm/download-immutable-actions-artifact.sh candidate \
-            "$CANDIDATE_ARTIFACT_ID" "$CANDIDATE_ARTIFACT_ZIP_SHA256" \
-            "$RUNNER_TEMP/pretag-candidate" "$RUNNER_TEMP/pretag-candidate-descriptor.json"
-          test "$(jq -r .product_source_sha "$RUNNER_TEMP/pretag-candidate-descriptor.json")" = "$source_sha"
-          pretag_release="$RUNNER_TEMP/pretag-candidate/release-v0.7.11"
-          test -d "$pretag_release"
-          (cd "$pretag_release" && find . -type f -print | sort) > "$RUNNER_TEMP/pretag-files"
-          (cd "$RUNNER_TEMP/release-v0.7.11" && find . -type f -print | sort) > "$RUNNER_TEMP/tagged-files"
-          cmp -s "$RUNNER_TEMP/pretag-files" "$RUNNER_TEMP/tagged-files"
-          while IFS= read -r file; do
-            cmp -s "$pretag_release/$file" "$RUNNER_TEMP/release-v0.7.11/$file"
-          done < "$RUNNER_TEMP/pretag-files"
-          diff -u "$pretag_release/router-ui-packages.txt" \
-            "$RUNNER_TEMP/release-v0.7.11/router-ui-packages.txt"
-          for ipk in "$RUNNER_TEMP/release-v0.7.11"/*.ipk; do
-            cmp -s "$ipk" "$pretag_release/$(basename "$ipk")"
-          done
-          test -d "$RUNNER_TEMP/pretag-candidate/synthetic-next"
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-synthetic-next
+          path: ${{ runner.temp }}/synthetic-next
       - name: Download and verify the exact complete legacy baseline pack
         env:
           GH_TOKEN: ${{ github.token }}
@@ -335,25 +301,30 @@ jobs:
             "$BASELINE_ARTIFACT_ID" "$BASELINE_ARTIFACT_ZIP_SHA256" \
             "$RUNNER_TEMP/baseline-input" "$RUNNER_TEMP/baseline-descriptor.json"
           pack="$RUNNER_TEMP/baseline-input/legacy-baseline-pack"
-          jq -e '.verified == true and
-            all(.baselines[]; .self_validation.ok == true)' "$pack/baseline-pack-manifest.json" >/dev/null
-          printf 'BASELINE_PACK_DIR=%s\nROUTER_UI_HARNESS_SHA=%s\n' \
-            "$pack" "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          jq -e '
+            .verified == true and
+            ([.baselines[] | select(.storage_profile == "rd23-stock") | .version] | sort) ==
+              (["0.5.1","0.5.2","0.6.0","0.7.0","0.7.1","0.7.2","0.7.3",
+                "0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"] | sort) and
+            any(.baselines[]; .storage_profile == "rd23-ubootmod" and .version == "0.7.10") and
+            all(.baselines[]; .self_validation.ok == true)
+          ' "$pack/baseline-pack-manifest.json" >/dev/null
+          printf 'BASELINE_PACK_DIR=%s\n' "$pack" >> "$GITHUB_ENV"
       - name: Install VM and browser dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 qemu-utils jq openssl zstd cmake nodejs npm
           npm install --prefix "$RUNNER_TEMP/playwright" playwright@1.55.1
           npx --prefix "$RUNNER_TEMP/playwright" playwright install --with-deps chromium
-      - name: Run the complete VM gate against the exact tagged bytes
+      - name: Run the serial 256 MiB exact-RD23-storage VM matrix
         env:
           RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
-          SYNTHETIC_DIR: ${{ runner.temp }}/pretag-candidate/synthetic-next
-          EVIDENCE_DIR: ${{ runner.temp }}/tagged-evidence
+          SYNTHETIC_DIR: ${{ runner.temp }}/synthetic-next
+          EVIDENCE_DIR: ${{ runner.temp }}/candidate-evidence
           NODE_PATH: ${{ runner.temp }}/playwright/node_modules
           ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
           ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
-          ROUTER_UI_VM_HARNESS_SHA: ${{ env.ROUTER_UI_HARNESS_SHA }}
+          ROUTER_UI_VM_HARNESS_SHA: ${{ inputs.source_sha }}
           ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
           ROUTER_UI_VM_CASE: full
         run: |
@@ -361,47 +332,20 @@ jobs:
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
           ./tests/vm/router-ui-vm-gate.sh
-          cp "$RUNNER_TEMP/pretag-candidate-descriptor.json" "$EVIDENCE_DIR/"
           cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
           ./tests/vm/write-candidate-content-descriptor.sh \
-            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/tagged-content-descriptor.json"
-          (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/tagged-asset-sha256sums")
+            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/candidate-content-descriptor.json"
+          (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/candidate-asset-sha256sums")
+          cp "$RELEASE_DIR/router-release-manifest.json" "$EVIDENCE_DIR/"
+          cp "$RELEASE_DIR/router-ui-packages.txt" "$EVIDENCE_DIR/"
           (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tagged-router-ui-vm-evidence-${{ inputs.tag }}
-          path: ${{ runner.temp }}/tagged-evidence/
+          name: pretag-router-ui-candidate-${{ inputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/release-v0.7.11/
+            ${{ runner.temp }}/synthetic-next/
+            ${{ runner.temp }}/candidate-evidence/
           if-no-files-found: error
           retention-days: 30
-
-  draft-round-trip:
-    needs: vm-gate
-    runs-on: ubuntu-24.04
-    environment: router-ui-production-release
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@v4
-        with:
-          name: verified-flat-release
-          path: ${{ runner.temp }}/release-v0.7.11
-      - name: Install pinned release verification tool
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq cmake
-          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Create draft, download, verify, and optionally publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REF_NAME: ${{ inputs.tag }}
-          RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
-          RELEASE_PUBLIC_KEY: ${{ github.workspace }}/release/keys/router-ui-production.pub
-          PUBLISH_VERIFIED_RELEASE: ${{ inputs.publish && '1' || '0' }}
-        run: |
-          git fetch origin main --no-tags
-          ./publish-vpn-panel-release.sh
