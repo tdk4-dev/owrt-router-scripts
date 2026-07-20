@@ -191,7 +191,7 @@ jobs:
           ROOTFS_PARTSIZE: 128
         run: |
           sudo apt-get update && sudo apt-get install -y zstd jq
-          stock_archive="$(find "$RUNNER_TEMP/rd23-stock" -maxdepth 1 -type f -name '*rd23-stock.tar.gz' | sed -n '1p')"
+          stock_archive="$(find "$RUNNER_TEMP/rd23-stock" -maxdepth 1 -type f -name '*xiaomi-ax3000t-stock.tar.gz' | sed -n '1p')"
           test -n "$stock_archive"
           provenance_member="$(tar -tzf "$stock_archive" | awk '/\/image-provenance\.json$/ {print; exit}')"
           test -n "$provenance_member"
