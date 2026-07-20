@@ -227,6 +227,8 @@ stage 0710-rolled-back
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(jq -r .rollback_status "$journal")" = succeeded ]
+[ "$(stat -c '%a' "$FAKE_ROOT/usr/sbin/vpn-ui" 2>/dev/null ||
+  stat -f '%Lp' "$FAKE_ROOT/usr/sbin/vpn-ui")" = 755 ]
 ! find "$FAKE_ROOT/root/premier-router-updates" -name '*.new.*' -print | grep -q .
 
 # Idempotent exact-source rollback must validate without mutating into a false success.

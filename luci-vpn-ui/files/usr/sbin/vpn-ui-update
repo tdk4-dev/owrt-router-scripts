@@ -559,7 +559,7 @@ restore_protected_state() {
     [ -n "$path" ] || continue
     rm -rf "${ROOT_PREFIX}${path}"
   done < "$rollback/protected.paths.list"
-  tar -xzf "$rollback/protected-state.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
+  tar -xzpf "$rollback/protected-state.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
   current="$rollback/protected-restored.fingerprint"
   fingerprint_paths "$rollback/protected.paths.list" "$current"
   cmp -s "$rollback/protected-source.fingerprint" "$current"
@@ -951,7 +951,7 @@ remove_candidate_paths() {
 restore_legacy() {
   local list="$TXN_DIR/rollback/paths.list" current="$TXN_DIR/rollback/restored.fingerprint"
   remove_candidate_paths || return 1
-  tar -xzf "$TXN_DIR/rollback/legacy-files.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
+  tar -xzpf "$TXN_DIR/rollback/legacy-files.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
   fingerprint_paths "$list" "$current"
   cmp -s "$TXN_DIR/rollback/source.fingerprint" "$current"
 }
