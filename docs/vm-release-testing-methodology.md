@@ -19,11 +19,14 @@ Record:
 ## VM Resource Limit
 
 - Configure every mandatory OpenWrt release-test VM with exactly 256 MiB RAM.
-- Run one project VM at a time by default and never more than two at once. The
-  process/semaphore guard must refuse a third VM.
+- Run every project VM case strictly serially, with exactly one project VM at
+  a time and workflow/matrix parallelism fixed at 1.
+- Track only the exact QEMU PID started by the current case. Terminate and wait
+  for that PID before starting the next case, including on failure or
+  cancellation. Never scan or kill unrelated host QEMU processes.
 - Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
-- Treat any request for 300 MiB or more, or any third simultaneous VM, as a
-  failed release gate.
+- Treat any request for 300 MiB or more, or any overlapping project VM case,
+  as a failed release gate.
 
 Storage profiles are derived from the official OpenWrt 24.10.5 RD23 DTS,
 kernel UBI configuration, and the exact candidate payload. The stock DTS has a

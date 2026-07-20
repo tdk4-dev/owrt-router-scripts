@@ -54,7 +54,6 @@ jobs:
             build-openwrt-x86-fin0-image-linux.sh
           bash -n \
             publish-vpn-panel-release.sh \
-            tests/vm/qemu-guard.sh \
             tests/vm/router-ui-vm-gate.sh
 
       - name: Validate JavaScript

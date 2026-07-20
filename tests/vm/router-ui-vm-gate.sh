@@ -13,30 +13,41 @@ SSH_PORT="${ROUTER_UI_VM_SSH_PORT:-22220}"
 HTTP_PORT="${ROUTER_UI_VM_HTTP_PORT:-18080}"
 SERIAL_PORT="${ROUTER_UI_VM_SERIAL_PORT:-22330}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-vm-gate.XXXXXX")"
-LOCK_ROOT="$WORK/semaphore"
 ORIGIN="https://10.0.2.2:$SERVER_PORT"
 HOST_ORIGIN="https://127.0.0.1:$SERVER_PORT"
 BASELINE_VERSIONS=(0.5.1 0.5.2 0.6.0 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10)
 FAULT_BOUNDARIES=(before-mutation snapshot_ready applying after-premier-router-core after-luci-app-premier-router after-premier-router-setup validating committing rollback_pending rolling_back rollback-after-premier-router-core rollback-after-luci-app-premier-router rollback-after-premier-router-setup compatibility-cleanup post-reboot-validation)
 CURRENT_PID=""
 SERVER_PID=""
-MAX_RUNNING=0
 STOCK_WRITABLE_KIB=0
 STOCK_UBIFS_DF_KIB=0
 UBOOTMOD_WRITABLE_KIB=0
 UBOOTMOD_UBIFS_DF_KIB=0
 
 cleanup() {
+  status=$?
+  trap - EXIT INT TERM
   set +e
-  if [[ -n "$CURRENT_PID" ]]; then kill -9 "$CURRENT_PID" 2>/dev/null; wait "$CURRENT_PID" 2>/dev/null; fi
-  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; fi
+  if [[ -n "$CURRENT_PID" ]]; then
+    kill -9 "$CURRENT_PID" 2>/dev/null
+    wait "$CURRENT_PID" 2>/dev/null
+    CURRENT_PID=""
+  fi
+  if [[ -n "$SERVER_PID" ]]; then
+    kill "$SERVER_PID" 2>/dev/null
+    wait "$SERVER_PID" 2>/dev/null
+    SERVER_PID=""
+  fi
   rm -rf "$WORK"
+  exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
-for tool in awk curl flock gzip jq make node openssl ps python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
+for tool in awk curl gzip jq make node openssl python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
 mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
   "$WORK/server/releases/download/vpn-panel-v0.7.11" "$WORK/server/baselines" "$WORK/server/vm"
 : > "$EVIDENCE_DIR/vm-measurements.jsonl"
@@ -223,20 +234,19 @@ clone_disk() {
 start_vm() {
   disk="$1" name="$2"
   [[ -z "$CURRENT_PID" ]] || fail "serial harness attempted to overlap project VMs"
-  ROUTER_UI_VM_LOCK_ROOT="$LOCK_ROOT" "$ROOT_DIR/tests/vm/qemu-guard.sh" \
-    qemu-system-x86_64 -name "router-ui-vm-$name" -machine pc,accel=tcg -cpu qemu64 \
+  qemu-system-x86_64 -name "router-ui-vm-$name" -machine pc,accel=tcg -cpu qemu64 \
     -m 256 -smp 1 -drive "file=$disk,if=virtio,format=qcow2" \
     -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80" \
     -serial "telnet:127.0.0.1:$SERIAL_PORT,server=on,wait=off" -display none \
     >"$EVIDENCE_DIR/$name.qemu.log" 2>&1 &
   CURRENT_PID=$!
-  count="$(ps -eo args= | awk '
-    $1 ~ /(^|\/)qemu-system-x86_64$/ &&
-    $0 ~ /(^|[[:space:]])-name[[:space:]]router-ui-vm-/ { count++ }
-    END { print count + 0 }
-  ')"
-  (( count <= 2 )) || fail "more than two project VMs observed"
-  (( count > MAX_RUNNING )) && MAX_RUNNING="$count"
+  sleep 1
+  kill -0 "$CURRENT_PID" 2>/dev/null || {
+    cat "$EVIDENCE_DIR/$name.qemu.log" >&2
+    wait "$CURRENT_PID" 2>/dev/null || true
+    CURRENT_PID=""
+    fail "QEMU process exited before readiness: $name"
+  }
 }
 
 ssh_base=(ssh -i "$WORK/ssh-key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 root@127.0.0.1)
@@ -293,16 +303,18 @@ record_measurement() {
 measure_stock() { guest measure rd23-stock "$STOCK_WRITABLE_KIB" "$STOCK_UBIFS_DF_KIB"; }
 measure_ubootmod() { guest measure rd23-ubootmod "$UBOOTMOD_WRITABLE_KIB" "$UBOOTMOD_UBIFS_DF_KIB"; }
 shutdown_vm() {
+  [[ -n "$CURRENT_PID" ]] || fail "shutdown requested without an owned VM PID"
   set +e
   "${ssh_base[@]}" 'sync; poweroff' >/dev/null 2>&1
   for _ in {1..30}; do kill -0 "$CURRENT_PID" 2>/dev/null || break; sleep 1; done
-  kill "$CURRENT_PID" 2>/dev/null
+  kill "$CURRENT_PID" 2>/dev/null || true
   wait "$CURRENT_PID" 2>/dev/null
   set -e
   CURRENT_PID=""
 }
 hard_poweroff_vm() {
-  kill -9 "$CURRENT_PID"
+  [[ -n "$CURRENT_PID" ]] || fail "power-off requested without an owned VM PID"
+  kill -9 "$CURRENT_PID" 2>/dev/null || true
   wait "$CURRENT_PID" 2>/dev/null || true
   CURRENT_PID=""
 }
@@ -313,18 +325,6 @@ normal_reboot() {
   wait_ssh
   after="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
   [[ "$before" != "$after" ]] || fail "VM reboot did not change boot ID"
-}
-
-test_guard() {
-  mkdir -p "$LOCK_ROOT"
-  (exec 8>"$LOCK_ROOT/slot-1.lock"; flock 8; sleep 4) & g1=$!
-  (exec 9>"$LOCK_ROOT/slot-2.lock"; flock 9; sleep 4) & g2=$!
-  sleep 1
-  if ROUTER_UI_VM_LOCK_ROOT="$LOCK_ROOT" "$ROOT_DIR/tests/vm/qemu-guard.sh" /bin/true 2>"$EVIDENCE_DIR/third-vm-refusal.log"; then
-    fail "VM semaphore accepted a third project VM"
-  fi
-  wait "$g1"; wait "$g2"
-  grep -q 'Refusing to start a third' "$EVIDENCE_DIR/third-vm-refusal.log"
 }
 
 prepare_baselines() {
@@ -601,7 +601,7 @@ finalize_evidence() {
   jq -s '.' "$EVIDENCE_DIR/fault-results.jsonl" > "$EVIDENCE_DIR/fault-results.json"
   jq -s '.' "$EVIDENCE_DIR/storage-results.jsonl" > "$EVIDENCE_DIR/storage-results.json"
   jq -s '.' "$EVIDENCE_DIR/published-baselines.jsonl" > "$EVIDENCE_DIR/published-baselines.json"
-  jq -n --argjson maximum "$MAX_RUNNING" --argjson configured 256 \
+  jq -n --argjson configured 256 \
     --argjson stock_backing "$STOCK_WRITABLE_KIB" \
     --argjson stock_ubifs_df "$STOCK_UBIFS_DF_KIB" \
     --argjson ubootmod_backing "$UBOOTMOD_WRITABLE_KIB" \
@@ -609,7 +609,7 @@ finalize_evidence() {
     --arg source_commit "$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.json")" \
     --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
-      configured_ram_mib:$configured,maximum_simultaneous_vms_observed:$maximum,vm_limit:2,
+      configured_ram_mib:$configured,vm_execution_mode:"strictly-serial-exact-child-pid",
       storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
         expected_ubifs_df_total_kib:$stock_ubifs_df},
         "rd23-ubootmod":{writable_backing_kib:$ubootmod_backing,
@@ -626,7 +626,6 @@ prepare_server
 load_storage_profiles
 build_vm_base
 extract_candidate_image
-test_guard
 prepare_baselines
 run_old_worker_matrix
 run_rescue_matrix

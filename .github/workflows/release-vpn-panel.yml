@@ -106,6 +106,7 @@ jobs:
     needs: [canonical-ipks, sign-installed-package-set]
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - name: rd23-stock
