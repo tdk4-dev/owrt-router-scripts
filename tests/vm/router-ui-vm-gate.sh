@@ -36,7 +36,7 @@ trap cleanup EXIT INT TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
-for tool in awk curl flock gzip jq make node openssl pgrep python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
+for tool in awk curl flock gzip jq make node openssl ps python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar zstd; do need "$tool"; done
 mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
   "$WORK/server/releases/download/vpn-panel-v0.7.11" "$WORK/server/baselines" "$WORK/server/vm"
 : > "$EVIDENCE_DIR/vm-measurements.jsonl"
@@ -230,7 +230,11 @@ start_vm() {
     -serial "telnet:127.0.0.1:$SERIAL_PORT,server=on,wait=off" -display none \
     >"$EVIDENCE_DIR/$name.qemu.log" 2>&1 &
   CURRENT_PID=$!
-  count="$(pgrep -f '^(/[^ ]*/)?qemu-system-x86_64[[:space:]].*-name[[:space:]]router-ui-vm-' | wc -l | tr -d ' ')"
+  count="$(ps -eo args= | awk '
+    $1 ~ /(^|\/)qemu-system-x86_64$/ &&
+    $0 ~ /(^|[[:space:]])-name[[:space:]]router-ui-vm-/ { count++ }
+    END { print count + 0 }
+  ')"
   (( count <= 2 )) || fail "more than two project VMs observed"
   (( count > MAX_RUNNING )) && MAX_RUNNING="$count"
 }
