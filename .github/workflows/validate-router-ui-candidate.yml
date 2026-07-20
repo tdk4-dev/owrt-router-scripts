@@ -110,16 +110,19 @@ jobs:
           - name: x86-64
             target: x86/64
             profile: generic
+            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-x86-64
             rootfs_partsize: 60
             writable_budget_kib: 61440
           - name: rd23-stock
             target: mediatek/filogic
-            profile: xiaomi_mi-router-ax3000t-stock
+            profile: xiaomi_mi-router-ax3000t
+            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-stock
             rootfs_partsize: 0
             writable_budget_kib: 61440
           - name: rd23-ubootmod
             target: mediatek/filogic
             profile: xiaomi_mi-router-ax3000t-ubootmod
+            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-ubootmod
             rootfs_partsize: 0
             writable_budget_kib: 87040
     runs-on: ubuntu-24.04
@@ -140,6 +143,7 @@ jobs:
         env:
           TARGET_DIR: ${{ matrix.target }}
           PROFILE: ${{ matrix.profile }}
+          ARTIFACT_PREFIX: ${{ matrix.artifact_prefix }}
           PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
           PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
           INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set

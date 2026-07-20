@@ -204,7 +204,7 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
         jq -e '.writable_budget_kib == 61440 and .x86_rootfs_partsize_mib == 60' \
           "$WORK/image.provenance" >/dev/null || fail "x86 image does not declare the 60 MiB writable profile"
         ;;
-      xiaomi_mi-router-ax3000t-stock)
+      xiaomi_mi-router-ax3000t)
         jq -e '.writable_budget_kib == 61440' "$WORK/image.provenance" >/dev/null ||
           fail "RD23 stock image writable-budget provenance mismatch"
         ;;

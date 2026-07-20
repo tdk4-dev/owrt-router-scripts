@@ -38,6 +38,7 @@ IB_ARCHIVE="$IB_NAME.tar.zst"
 IB_URL="https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/$TARGET_DIR/$IB_ARCHIVE"
 IB_DIR="$WORK_DIR/$IB_NAME"
 OVERLAY="$WORK_DIR/overlay-$IB_TARGET_NAME-$PROFILE"
+PROFILE_INFO="$WORK_DIR/profile-info-$IB_TARGET_NAME-$PROFILE.txt"
 BUILD_LOG="$OUT_DIR/$ARTIFACT_PREFIX.build.log"
 HOST_TOOLS_ROOT="${HOST_TOOLS_ROOT:-$ROOT_DIR/.host-tools/root}"
 
@@ -111,6 +112,13 @@ if [ ! -d "$IB_DIR" ]; then
   tar --use-compress-program=unzstd -xf "$WORK_DIR/$IB_ARCHIVE" -C "$WORK_DIR"
 fi
 
+make -s -C "$IB_DIR" info > "$PROFILE_INFO"
+awk -v profile="$PROFILE" '$0 == profile ":" { found=1 } END { exit !found }' "$PROFILE_INFO" || {
+  printf 'Profile %s is not present in the OpenWrt %s %s ImageBuilder\n' \
+    "$PROFILE" "$OPENWRT_VERSION" "$TARGET_DIR" >&2
+  exit 1
+}
+
 install_project_feed() {
   local pkg_dir="$IB_DIR/packages"
   local pkg
@@ -133,19 +141,10 @@ install_project_feed() {
     printf 'ImageBuilder contains stale project IPKs\n' >&2
     exit 1
   }
-  if [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
-    (
-      cd "$IB_DIR"
-      ./scripts/ipkg-make-index.sh packages > packages/Packages
-      gzip -n -c packages/Packages > packages/Packages.gz
-    )
-  fi
-  if [ -x "$IB_DIR/staging_dir/host/bin/usign" ] && [ -f "$IB_DIR/key-build" ]; then
-    (
-      cd "$IB_DIR"
-      staging_dir/host/bin/usign -S -m packages/Packages -s key-build -x packages/Packages.sig >/dev/null 2>&1 || true
-    )
-  fi
+  # Let `make image` generate its ephemeral local build key and sign this exact
+  # feed. Pre-generating Packages here races _check_keys and leaves an unsigned
+  # index that opkg correctly refuses.
+  rm -f "$pkg_dir/Packages" "$pkg_dir/Packages.gz" "$pkg_dir/Packages.sig"
 }
 
 install_project_feed
@@ -280,6 +279,7 @@ find "$TARGET_OUT" -maxdepth 1 -type f \
   -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
+cp "$PROFILE_INFO" "$PROFILE_ARTIFACT_DIR/profile-info.txt"
 cp "$PROJECT_PACKAGE_MANIFEST" "$PROFILE_ARTIFACT_DIR/router-ui-packages.txt"
 cp "$PAYLOAD_PROOF" "$PROFILE_ARTIFACT_DIR/project-payload-sha256sums"
 find "$OVERLAY" \( -type f -o -type l \) -print | sed "s#^$OVERLAY/##" |

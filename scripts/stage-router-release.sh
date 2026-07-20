@@ -171,7 +171,7 @@ find "$RELEASE_DIR" -maxdepth 1 -type f \
     name="$(basename "$image")"
     case "$name" in
       *x86-64*) target='x86/64'; profile=generic ;;
-      *xiaomi-ax3000t-stock*) target='mediatek/filogic'; profile=xiaomi_mi-router-ax3000t-stock ;;
+      *xiaomi-ax3000t-stock*) target='mediatek/filogic'; profile=xiaomi_mi-router-ax3000t ;;
       *xiaomi-ax3000t-ubootmod*) target='mediatek/filogic'; profile=xiaomi_mi-router-ax3000t-ubootmod ;;
       *) target=unknown; profile=unknown ;;
     esac
