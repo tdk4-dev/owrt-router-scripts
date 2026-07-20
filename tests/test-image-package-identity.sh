@@ -55,6 +55,7 @@ grep -q 'VM base build failed' "$VM_GATE"
 grep -q 'umask 022.*make -C.*image' "$VM_GATE"
 grep -q 'extract_openwrt_gzip_image' "$VM_GATE"
 grep -q 'decompression OK, trailing garbage ignored' "$VM_GATE"
+grep -q "awk 'NF { count++ } END { print count + 0 }'" "$VM_GATE"
 grep -q 'qemu-img info --output=json' "$VM_GATE"
 grep -q '/proc/mounts' "$VM_GUEST"
 

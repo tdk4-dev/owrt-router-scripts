@@ -54,7 +54,7 @@ extract_openwrt_gzip_image() {
     :
   else
     status=$?
-    lines="$(wc -l < "$log" | tr -d ' ')"
+    lines="$(awk 'NF { count++ } END { print count + 0 }' "$log")"
     if [[ "$status" -ne 2 ]] || [[ "$lines" -ne 1 ]] ||
       ! grep -Eq '^gzip: .*: decompression OK, trailing garbage ignored$' "$log"; then
       cat "$log" >&2
