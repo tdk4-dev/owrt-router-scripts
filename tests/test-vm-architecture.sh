@@ -105,6 +105,18 @@ grep -q 'run_vm_phase "baseline-validation-\$version"' "$GATE" ||
   fail 'legacy baselines do not have independent phase deadlines'
 grep -q 'run_vm_phase "fault-\$boundary"' "$GATE" ||
   fail 'fault boundaries do not have independent phase deadlines'
+grep -A3 '^setup_tls()' "$GATE" | grep -q "ssh-keygen -q -t ed25519 -N '' -f \"\$WORK/ssh-key\"" ||
+  fail 'candidate consumers do not generate disposable runtime SSH credentials'
+[ "$(grep -c "ssh-keygen -q -t ed25519 -N '' -f \"\$WORK/ssh-key\"" "$GATE")" -eq 1 ] ||
+  fail 'runtime SSH credentials are generated outside the shared setup phase'
+grep -q 'sock.setblocking(False)' "$GATE" ||
+  fail 'serial bootstrap does not drain the QEMU console while transmitting credentials'
+grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$GATE" ||
+  fail 'serial bootstrap has no explicit completion marker'
+grep -q 'guest SSH bootstrap key does not match the runtime key' "$GATE" ||
+  fail 'guest runtime SSH key is not verified before candidate operations'
+grep -q 'guest test CA does not match the runtime artifact server CA' "$GATE" ||
+  fail 'guest runtime test CA is not verified before candidate operations'
 
 for input in tests/vm/legacy-baseline-lock.json tests/vm/router-ui-vm-gate.sh \
   tests/vm/router-ui-vm-guest.sh tests/vm/fail-closed-runner.sh \

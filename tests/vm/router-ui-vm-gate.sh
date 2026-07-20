@@ -191,6 +191,7 @@ extract_openwrt_gzip_image() {
 }
 
 setup_tls() {
+  ssh-keygen -q -t ed25519 -N '' -f "$WORK/ssh-key"
   openssl genrsa -out "$WORK/ca.key" 2048 >/dev/null 2>&1
   openssl req -x509 -new -key "$WORK/ca.key" -sha256 -days 2 \
     -subj '/CN=Router UI disposable VM test CA' -out "$WORK/ca.crt" >/dev/null 2>&1
@@ -298,7 +299,6 @@ EOF
   sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$ib/.config"
   grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$ib/.config" ||
     fail "could not disable the unused VM ext4 image variant"
-  ssh-keygen -q -t ed25519 -N '' -f "$WORK/ssh-key"
   mkdir -p "$overlay/etc/config" "$overlay/etc/dropbear" "$overlay/etc/ssl/certs"
   cp "$WORK/ssh-key.pub" "$overlay/etc/dropbear/authorized_keys"
   cp "$WORK/ca.crt" "$overlay/etc/ssl/certs/router-ui-vm-ca.pem"
@@ -448,35 +448,71 @@ start_vm() {
 
 ssh_base=(ssh -i "$WORK/ssh-key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 root@127.0.0.1)
 console_bootstrap_key() {
+  local serial_log="$1"
+  [[ -s "$WORK/ssh-key" && -s "$WORK/ssh-key.pub" && -s "$WORK/ca.crt" ]] ||
+    fail "runtime VM bootstrap credentials are missing"
   ROUTER_UI_VM_PUBLIC_KEY="$(cat "$WORK/ssh-key.pub")" \
   ROUTER_UI_VM_CA_B64="$(base64 < "$WORK/ca.crt" | tr -d '\n')" \
     python3 - "$SERIAL_PORT" <<'PY'
 import os, socket, sys, time
-try:
-    sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
-    sock.settimeout(0.2)
-    sock.sendall(b"\n")
-    time.sleep(1)
-    key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
-    ca = os.environ["ROUTER_UI_VM_CA_B64"]
-    command = (
-        "uci -q set network.lan.proto='dhcp'; "
-        "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
-        "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
-        "uci commit network; /etc/init.d/network restart; "
-        "mkdir -p /etc/dropbear /etc/ssl/certs; "
-        "printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys; "
-        "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
-        "chmod 600 /etc/dropbear/authorized_keys; /etc/init.d/dropbear restart\n"
-    )
-    for byte in command.encode():
-        sock.sendall(bytes((byte,)))
+sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2)
+sock.setblocking(False)
+
+def drain():
+    while True:
+        try:
+            if not sock.recv(65536):
+                raise RuntimeError("serial console closed during bootstrap")
+        except BlockingIOError:
+            return
+
+def send(payload):
+    pending = memoryview(payload)
+    deadline = time.monotonic() + 20
+    while pending:
+        drain()
+        try:
+            sent = sock.send(pending[:32])
+            pending = pending[sent:]
+        except BlockingIOError:
+            pass
+        if time.monotonic() >= deadline:
+            raise TimeoutError("serial console bootstrap write timed out")
         time.sleep(0.003)
-    time.sleep(1)
-    sock.close()
-except OSError:
-    pass
+
+def drain_for(seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        drain()
+        time.sleep(0.01)
+
+key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
+ca = os.environ["ROUTER_UI_VM_CA_B64"]
+command = (
+    "mkdir -p /etc/dropbear /etc/ssl/certs; "
+    "printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys; "
+    "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
+    "chmod 600 /etc/dropbear/authorized_keys; "
+    "uci -q set network.lan.proto='dhcp'; "
+    "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
+    "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
+    "uci commit network; /etc/init.d/network restart; /etc/init.d/dropbear restart; "
+    "stty echo; echo ROUTER_UI_CONSOLE_BOOTSTRAP_OK\n"
+)
+send(b"\n")
+drain_for(0.5)
+send(b"stty -echo\n")
+drain_for(0.25)
+send(command.encode())
+drain_for(8)
+sock.close()
 PY
+  for _ in {1..30}; do
+    grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$serial_log" && return
+    kill -0 "$CURRENT_PID" 2>/dev/null || fail "VM exited during serial credential bootstrap"
+    sleep 1
+  done
+  fail "serial credential bootstrap did not complete"
 }
 wait_serial_console() {
   local serial_log="$1"
@@ -496,10 +532,17 @@ wait_ssh() {
 }
 start_candidate_vm() {
   local disk="$1" name="$2"
+  local expected_key actual_key expected_ca actual_ca
   start_vm "$disk" "$name"
   wait_serial_console "$EVIDENCE_DIR/$name.serial.log"
-  console_bootstrap_key
+  console_bootstrap_key "$EVIDENCE_DIR/$name.serial.log"
   wait_ssh
+  expected_key="$(sed -n '1p' "$WORK/ssh-key.pub")"
+  actual_key="$("${ssh_base[@]}" sed -n '1p' /etc/dropbear/authorized_keys)"
+  [[ "$actual_key" = "$expected_key" ]] || fail "guest SSH bootstrap key does not match the runtime key"
+  expected_ca="$(sha256sum "$WORK/ca.crt" | awk '{print $1}')"
+  actual_ca="$("${ssh_base[@]}" sha256sum /etc/ssl/certs/router-ui-vm-ca.pem | awk '{print $1}')"
+  [[ "$actual_ca" = "$expected_ca" ]] || fail "guest test CA does not match the runtime artifact server CA"
 }
 start_baseline_vm() {
   start_candidate_vm "$@"
