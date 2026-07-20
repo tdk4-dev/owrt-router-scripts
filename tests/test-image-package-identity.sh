@@ -7,6 +7,7 @@ WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
 CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
 VM_GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"
 VM_GUEST="$ROOT_DIR/tests/vm/router-ui-vm-guest.sh"
+QEMU_GUARD="$ROOT_DIR/tests/vm/qemu-guard.sh"
 
 grep -q 'PROJECT_PACKAGE_DIR' "$BUILDER"
 grep -q 'PROJECT_PACKAGE_MANIFEST' "$BUILDER"
@@ -57,6 +58,8 @@ grep -q 'extract_openwrt_gzip_image' "$VM_GATE"
 grep -q 'decompression OK, trailing garbage ignored' "$VM_GATE"
 grep -q "awk 'NF { count++ } END { print count + 0 }'" "$VM_GATE"
 grep -q 'qemu-img info --output=json' "$VM_GATE"
+grep -q "pgrep -fc 'qemu-system-.*-name router-ui-vm-'" "$QEMU_GUARD"
+grep -q 'running="${running:-0}"' "$QEMU_GUARD"
 grep -q '/proc/mounts' "$VM_GUEST"
 
 # The overlay may contain only the root redirect and the signed exact-package

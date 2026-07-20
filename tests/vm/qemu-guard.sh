@@ -3,7 +3,8 @@ set -euo pipefail
 
 LOCK_ROOT="${ROUTER_UI_VM_LOCK_ROOT:-/tmp/router-ui-vm-semaphore}"
 mkdir -p "$LOCK_ROOT"
-running="$(pgrep -f 'qemu-system-.*-name router-ui-vm-' 2>/dev/null | wc -l | tr -d ' ')"
+running="$(pgrep -fc 'qemu-system-.*-name router-ui-vm-' 2>/dev/null || true)"
+running="${running:-0}"
 if (( running >= 2 )); then
   printf 'Refusing to start a third Router UI project VM (%s already running)\n' "$running" >&2
   exit 73
