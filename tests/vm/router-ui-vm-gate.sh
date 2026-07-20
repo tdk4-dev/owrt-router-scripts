@@ -195,6 +195,25 @@ config interface 'lan'
   option device 'eth0'
   option proto 'dhcp'
 EOF
+  # The harness itself is deliberately umask 077, but ImageBuilder preserves
+  # FILES directory modes.  An unreadable /etc tree prevents ubusd from
+  # starting and leaves the guest stuck at "procd: - ubus -".
+  chmod 755 "$overlay" "$overlay/etc" "$overlay/etc/config" \
+    "$overlay/etc/dropbear" "$overlay/etc/ssl" "$overlay/etc/ssl/certs"
+  chmod 600 "$overlay/etc/dropbear/authorized_keys"
+  chmod 644 "$overlay/etc/config/network" \
+    "$overlay/etc/ssl/certs/router-ui-vm-ca.pem"
+  for path in "$overlay" "$overlay/etc" "$overlay/etc/config" \
+    "$overlay/etc/dropbear" "$overlay/etc/ssl" "$overlay/etc/ssl/certs"; do
+    [[ "$(stat -c '%a' "$path")" = 755 ]] ||
+      fail "unsafe ImageBuilder overlay directory mode: $path"
+  done
+  [[ "$(stat -c '%a' "$overlay/etc/dropbear/authorized_keys")" = 600 ]] ||
+    fail "unsafe VM authorized-keys mode"
+  [[ "$(stat -c '%a' "$overlay/etc/config/network")" = 644 ]] ||
+    fail "unsafe VM network-config mode"
+  [[ "$(stat -c '%a' "$overlay/etc/ssl/certs/router-ui-vm-ca.pem")" = 644 ]] ||
+    fail "unsafe VM test-CA mode"
   packages="$(awk 'NF && $1 !~ /^#/ {printf "%s ",$1}' "$ROOT_DIR/image/openwrt-fin0-packages.txt") dropbear ca-bundle usign"
   local profile budget
   for profile in rd23-stock rd23-ubootmod; do
