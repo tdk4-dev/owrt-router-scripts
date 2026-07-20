@@ -200,13 +200,29 @@ journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .rollback_status "$journal")" = not_started ]
 [ -s "$FAKE_ROOT/root/premier-router-updates/$transaction/openwrt-configuration-recovery.tar.gz" ]
 [ -x "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback.sh" ]
-FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
+if ! FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
   PR_USIGN_BIN="$USIGN_BIN" \
   VPN_UI_ROOT_PREFIX="$FAKE_ROOT" VPN_UI_UPDATE_LIB="$TMP_ROOT/release/router-update-lib.sh" \
   VPN_UI_UPDATE_SELF="$TMP_ROOT/release/router-update-supervisor" \
   VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
   VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
-  sh "$TMP_ROOT/release/router-update-supervisor" rollback "$transaction"
+  sh "$TMP_ROOT/release/router-update-supervisor" rollback "$transaction"; then
+  cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
+  cat "$journal" >&2
+  rollback_dir="$FAKE_ROOT/root/premier-router-updates/$transaction/rollback"
+  for pair in \
+    'source.fingerprint restored.fingerprint' \
+    'protected-source.fingerprint protected-restored.fingerprint' \
+    'source.fingerprint validated-source.fingerprint' \
+    'protected-source.fingerprint validated-protected.fingerprint'
+  do
+    set -- $pair
+    if [ -f "$rollback_dir/$1" ] && [ -f "$rollback_dir/$2" ]; then
+      diff -u "$rollback_dir/$1" "$rollback_dir/$2" >&2 || true
+    fi
+  done
+  exit 1
+fi
 stage 0710-rolled-back
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(jq -r .state "$journal")" = rolled_back ]
