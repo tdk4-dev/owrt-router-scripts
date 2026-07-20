@@ -66,6 +66,14 @@ for workflow in "$CANDIDATE" "$RELEASE"; do
 done
 [ -s "$CONTENT_DESCRIPTOR" ] || fail 'candidate content descriptor generator is missing'
 [ -x "$CONTENT_DESCRIPTOR" ] || fail 'candidate content descriptor generator is not executable'
+grep -A4 -F 'path: ${{ runner.temp }}/baseline-artifact/' "$BASELINES" |
+  grep -q 'include-hidden-files: true' || fail 'baseline evidence upload omits hidden checksummed evidence'
+grep -A4 -F 'path: ${{ runner.temp }}/diagnostic-evidence/' "$DIAGNOSTIC" |
+  grep -q 'include-hidden-files: true' || fail 'diagnostic upload omits hidden checksummed evidence'
+grep -A4 -F '${{ runner.temp }}/candidate-evidence/' "$CANDIDATE" |
+  grep -q 'include-hidden-files: true' || fail 'candidate upload omits hidden checksummed evidence'
+grep -A4 -F 'path: ${{ runner.temp }}/tagged-evidence/' "$RELEASE" |
+  grep -q 'include-hidden-files: true' || fail 'tagged release upload omits hidden checksummed evidence'
 
 for selector in old-worker rescue protocol-v2 clean-image concurrency storage fault full; do
   grep -q "$selector" "$GATE" || fail "harness selector missing: $selector"
