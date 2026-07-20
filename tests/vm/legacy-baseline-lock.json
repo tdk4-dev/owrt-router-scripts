@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "openwrt": {
+    "version": "24.10.5",
+    "target": "x86/64",
+    "profile": "generic",
+    "published_base_image_url": "https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-24.10.5-x86-64-generic-squashfs-combined.img.gz",
+    "published_base_image_sha256": "a1d5feaf8aeb3656625581bc190bbc811b1732fa1d0b062abbd0a036f99a9264",
+    "imagebuilder_url": "https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-imagebuilder-24.10.5-x86-64.Linux-x86_64.tar.zst",
+    "imagebuilder_sha256": "78ce7cda0409e4afad9226c3018c8827264790ae198118dfc735339d8211fc61"
+  },
+  "xray": {
+    "version": "25.1.30-r1",
+    "package_url": "https://downloads.openwrt.org/releases/packages-24.10/x86_64/packages/xray-core_25.1.30-r1_x86_64.ipk",
+    "package_sha256": "fb7a8aef5e4d61f2ef6bb37e5506e3bde4a2f342ad1ba707bd68203bf6317d2d"
+  },
+  "storage_profiles": {
+    "geometry_source": "release/rd23-storage-geometry.json",
+    "geometry_sha256": "2cdf2d6816c55f76b05f54b51a798460868c7f6931e54fcee87308d0732e1325",
+    "rd23-stock": {
+      "writable_backing_kib": 54436,
+      "expected_ubifs_df_total_kib": 51352
+    },
+    "rd23-ubootmod": {
+      "writable_backing_kib": 80352,
+      "expected_ubifs_df_total_kib": 76728
+    }
+  },
+  "fixture": {
+    "directory": "tests/vm/fixtures/legacy-nonsecret",
+    "tree_sha256": "0c9ec61c4dd0e02412a2811c66f66a0f4c58a7ba63acf3e8035227d8ccc9ec15"
+  },
+  "installed_contract": {
+    "required_paths": [
+      "/usr/share/vpn-ui/version",
+      "/usr/sbin/vpn-ui",
+      "/usr/sbin/vpn-ui-update",
+      "/etc/xray/vless-profiles.d/disposable-vm-fixture.conf",
+      "/etc/xray/vless-selected",
+      "/etc/xray/direct-domains.txt"
+    ],
+    "self_validation_command": "/usr/sbin/vpn-ui check"
+  },
+  "baselines": [
+    {
+      "version": "0.5.1",
+      "tag_commit": "407247ba666a02d039125b9fd84c068955a029f4",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.5.1/luci-vpn-ui.tar.gz",
+      "release_sha256": "0f66b02a9ee567ddc5fd3e0bf5f21575ebe179054f102186463796306b254232",
+      "worker_sha256": "7445aa5abfb7a6a111b3597d687a99485c5611b7d4b610dbe20a95e51fdb2b19",
+      "validator_sha256": "8132519d60b0c23aa918f04a2b2e9758e37ac9c64acd6242e5b4483166c9beca"
+    },
+    {
+      "version": "0.5.2",
+      "tag_commit": "a4f86faf22d3424dda1fc3aff219ead6b23f1bf7",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.5.2/luci-vpn-ui.tar.gz",
+      "release_sha256": "8b37c1b826f7e26161ba3f0561782524578c434fbee926e3e33d220c6dc7687e",
+      "worker_sha256": "a9cead06a2165d850dc5ca281693c3d97385f4fec81acb3c87cfdf2df91e5844",
+      "validator_sha256": "8132519d60b0c23aa918f04a2b2e9758e37ac9c64acd6242e5b4483166c9beca"
+    },
+    {
+      "version": "0.6.0",
+      "tag_commit": "9d11b6a10a505fce545d4778e528e05adf77b740",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.6.0/luci-vpn-ui.tar.gz",
+      "release_sha256": "d557f39e143d711bbc930a0d3d7c495bc8fe471a1dbd036e186b8a63a3c4a34c",
+      "worker_sha256": "ce831d57dbb7d6dc26467f2f08fa1640f76f1daf6b3d52c0e9180d43d6f9450c",
+      "validator_sha256": "99c8ad646e23225185e3d649d45a7e7da3a5dd2dec21338edc5ea1ecea7b3d4f"
+    },
+    {
+      "version": "0.7.0",
+      "tag_commit": "067b4eb8a399e96a8bd071f802cdbcd066a4ba61",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.0/luci-vpn-ui.tar.gz",
+      "release_sha256": "d34569747c7b18a376a4c1875bf8a69023bf82dce7099ecd63e33218e94aa73c",
+      "worker_sha256": "ab9eb184ef02c8aaa80b2e3c3869838d9f180d0fbd7caf77976790e4a9561189",
+      "validator_sha256": "421394aa7ed9f180f299bbfa6932e1fe049cbd4d004885073c0389a2446ce422"
+    },
+    {
+      "version": "0.7.1",
+      "tag_commit": "fc839b3288f91414b183f66e9d5d0761dae3b15d",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.1/luci-vpn-ui.tar.gz",
+      "release_sha256": "73cdf240dd58ab86a51b938350f200caa14b1144dbbeb5df1763f4f7c1c74c2c",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "421394aa7ed9f180f299bbfa6932e1fe049cbd4d004885073c0389a2446ce422"
+    },
+    {
+      "version": "0.7.2",
+      "tag_commit": "9c8e41e1262850617d363f8f25dbb9908b8a55c8",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.2/luci-vpn-ui.tar.gz",
+      "release_sha256": "b9d797d8545f95d8e622b50e232f794aecc18f2b7b2219df02113219874dace0",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "421394aa7ed9f180f299bbfa6932e1fe049cbd4d004885073c0389a2446ce422"
+    },
+    {
+      "version": "0.7.3",
+      "tag_commit": "3559ab565228277d92c1ef82da438b4fed143d8d",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.3/luci-vpn-ui.tar.gz",
+      "release_sha256": "d38d0948c47bf84ba5374912c5a8f48be22de9b72714df0cf4c86f70d7af9fda",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "8c29b07257f2be38d8144180abf1604a3ef53b4dad3b3f01c6c738fdbea144a0"
+    },
+    {
+      "version": "0.7.4",
+      "tag_commit": "2467951df54ada347c0ac2ae7d3723ee117f8f42",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.4/luci-vpn-ui.tar.gz",
+      "release_sha256": "15ce7e4c373ec9d56c815bbbc0c1a039c6564f585aa3548f27d2ca480e412dc8",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "8c29b07257f2be38d8144180abf1604a3ef53b4dad3b3f01c6c738fdbea144a0"
+    },
+    {
+      "version": "0.7.5",
+      "tag_commit": "bd690d3ae1c8f607d9fd6cc9131c25a2f0dabafe",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.5/luci-vpn-ui.tar.gz",
+      "release_sha256": "69095cd262a9ad4b8ca79a880d848bdfd3a3855253c3c803bb5bde4ec7e85f1f",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "8c29b07257f2be38d8144180abf1604a3ef53b4dad3b3f01c6c738fdbea144a0"
+    },
+    {
+      "version": "0.7.6",
+      "tag_commit": "ddc7feeb146b72be8343df0c74174653029f7967",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.6/luci-vpn-ui.tar.gz",
+      "release_sha256": "925d192b0775a7c42974b3a6ec1f317ddffd05216acd14e759408003f86e4fab",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "d924d17425095be0540c5c7557bd020606db4764802b175d3e77d1f82d96a21c"
+    },
+    {
+      "version": "0.7.8",
+      "tag_commit": "bd3ee5fb562fa9dafcbad0c490cc2c0213f6a585",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.8/luci-vpn-ui.tar.gz",
+      "release_sha256": "fd3fc10bcb1d64540e2c4f4beefd0088c5cdc9fb3da0bf28472fda1032f41bca",
+      "worker_sha256": "e0f0c41b98087f5a0be3f8c1102f0c864e6e7b634d04831279024e94c34a9a92",
+      "validator_sha256": "4109a1a5c46548bd0f8973dba53e20311aca1294fc411f192655036a9c0609f8"
+    },
+    {
+      "version": "0.7.9",
+      "tag_commit": "aec4591dc0ae6bfcc2fb295e3235d060327d32a4",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.9/luci-vpn-ui.tar.gz",
+      "release_sha256": "030cab983e87f21d1581d92beacb24928a50dee3fd7b58b5b8e98a4a5365a1dd",
+      "worker_sha256": "99966f0cfe24b37bff4b8619c9c58d8b9021e628e74dfa237451c6cb06a67124",
+      "validator_sha256": "4109a1a5c46548bd0f8973dba53e20311aca1294fc411f192655036a9c0609f8"
+    },
+    {
+      "version": "0.7.10",
+      "tag_commit": "ce758c54ca37daa64bb1a738ae5dee20dcf8bddd",
+      "release_url": "https://github.com/tdk4-dev/owrt-router-scripts/releases/download/vpn-panel-v0.7.10/luci-vpn-ui.tar.gz",
+      "release_sha256": "33a6c63229f29ddc7e28cbfbc810da77002863f83e02cf687deb29221fea9eb1",
+      "worker_sha256": "9dae07b9b3d241eb57e90b959cf950af945a76c1b2d9180d811b630a2389a864",
+      "validator_sha256": "840c39614eaba79f6288baac722f29e7c598e82414e5b7d4f7429beb4360422d"
+    }
+  ]
+}
