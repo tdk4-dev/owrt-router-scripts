@@ -55,6 +55,7 @@ tar -xzOf "$IPK_DIR/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
 chmod 755 "$OUT_DIR/router-candidate-validator"
 (
   cd "$OUT_DIR"
-  find . -maxdepth 1 -type f -print | LC_ALL=C sort | sed 's#^\./##' |
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print | LC_ALL=C sort | sed 's#^\./##' |
     while IFS= read -r file; do sha256sum "$file"; done > SHA256SUMS
+  sha256sum -c SHA256SUMS >/dev/null
 )

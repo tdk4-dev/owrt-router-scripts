@@ -19,6 +19,8 @@ grep -q 'project-payload-sha256sums' "$BUILDER"
 grep -q 'overlay-files.txt' "$BUILDER"
 grep -q 'UPDATER_PROTOCOL' "$ROOT_DIR/scripts/build-openwrt-ipks.sh"
 ! grep -q 'build-openwrt-ipks.sh' "$BUILDER"
+grep -q '! -name SHA256SUMS' "$ROOT_DIR/scripts/stage-installed-package-set.sh"
+grep -q 'sha256sum -c SHA256SUMS' "$ROOT_DIR/scripts/stage-installed-package-set.sh"
 
 grep -q 'uses: actions/download-artifact@v4' "$WORKFLOW"
 grep -q 'name: canonical-router-ui-ipks' "$WORKFLOW"
