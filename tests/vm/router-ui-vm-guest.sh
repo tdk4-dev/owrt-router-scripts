@@ -96,9 +96,10 @@ P_SPIDERX='/'
 P_SOURCE_ID=''
 EOF
   printf '%s\n' disposable-vm-fixture > /etc/xray/vless-selected
+  printf '%s\n' domain:router-ui-vm.invalid > /etc/xray/direct-domains.txt
   chmod 700 /etc/xray/vless-profiles.d
   chmod 600 /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
-    /etc/xray/vless-selected
+    /etc/xray/vless-selected /etc/xray/direct-domains.txt
 }
 
 install_baseline() {

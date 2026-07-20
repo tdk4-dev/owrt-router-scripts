@@ -189,6 +189,7 @@ build_vm_base() {
   jq -n '{kind:"deterministic-non-secret-test-profile",
     applies_to:["0.7.0","0.7.1","0.7.2","0.7.3","0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"],
     endpoint:"192.0.2.1",endpoint_class:"IANA-TEST-NET-1",reachable_endpoint:false,
+    direct_domain_rule:"domain:router-ui-vm.invalid",direct_domain_class:"RFC-6761-invalid",
     subscription_url_present:false,private_key_present:false,
     protected_by_hash_contract:true}' > "$EVIDENCE_DIR/vm-test-profile.json"
   mkdir -p "$host_bin"
