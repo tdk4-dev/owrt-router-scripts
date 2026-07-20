@@ -27,6 +27,9 @@ Record:
 - Boot the disposable x86 baseline with an IDE disk and e1000 NIC, matching
   drivers present in the exact generated image, and retain its serial console
   log with the case evidence.
+- Never inject commands into a guest during its preinit/failsafe window. The
+  clean release image may receive its disposable test key and CA only after
+  the serial console-ready marker, using paced UART input.
 - Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
 - Treat any request for 300 MiB or more, or any overlapping project VM case,
   as a failed release gate.

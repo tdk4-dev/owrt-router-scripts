@@ -261,7 +261,7 @@ try:
     sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
     sock.settimeout(0.2)
     sock.sendall(b"\n")
-    time.sleep(0.1)
+    time.sleep(1)
     key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
     ca = os.environ["ROUTER_UI_VM_CA_B64"]
     command = (
@@ -274,19 +274,37 @@ try:
         "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
         "chmod 600 /etc/dropbear/authorized_keys; /etc/init.d/dropbear restart\n"
     )
-    sock.sendall(command.encode())
+    for byte in command.encode():
+        sock.sendall(bytes((byte,)))
+        time.sleep(0.003)
+    time.sleep(1)
     sock.close()
 except OSError:
     pass
 PY
 }
+wait_serial_console() {
+  local serial_log="$1"
+  for _ in {1..120}; do
+    grep -q 'Please press Enter to activate this console' "$serial_log" && return
+    kill -0 "$CURRENT_PID" 2>/dev/null || fail "VM exited before its serial console became ready"
+    sleep 1
+  done
+  fail "VM serial console did not become ready"
+}
 wait_ssh() {
-  for attempt in {1..120}; do
+  for _ in {1..120}; do
     "${ssh_base[@]}" true >/dev/null 2>&1 && return
-    (( attempt % 5 == 0 )) && console_bootstrap_key
     sleep 1
   done
   fail "VM SSH did not become ready"
+}
+start_candidate_vm() {
+  local disk="$1" name="$2"
+  start_vm "$disk" "$name"
+  wait_serial_console "$EVIDENCE_DIR/$name.serial.log"
+  console_bootstrap_key
+  wait_ssh
 }
 guest() {
   local command="" arg
@@ -410,7 +428,7 @@ run_refusals() {
 
 run_clean_image() {
   disk="$WORK/clean-image.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
-  start_vm "$disk" clean-image; wait_ssh; record_measurement clean-image
+  start_candidate_vm "$disk" clean-image; record_measurement clean-image
   fingerprint="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")"
   guest verify-clean-image "$fingerprint"; normal_reboot; guest verify-clean-image "$fingerprint"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" image clean-x86-boot pass '{}'
@@ -419,7 +437,7 @@ run_clean_image() {
 
 run_protocol_v2() {
   disk="$WORK/protocol-v2.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
-  start_vm "$disk" protocol-v2; wait_ssh; record_measurement protocol-v2
+  start_candidate_vm "$disk" protocol-v2; record_measurement protocol-v2
   discovery="$ORIGIN/releases/download/vpn-panel-v0.7.12"
   protected_before="$(guest protected-hash)"; usage_before="$(measure_stock)"
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/tmp/protocol-v2.log
@@ -498,7 +516,7 @@ run_storage_pressure() {
 
 run_concurrency() {
   disk="$WORK/concurrency.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
-  start_vm "$disk" concurrency; wait_ssh; record_measurement concurrency
+  start_candidate_vm "$disk" concurrency; record_measurement concurrency
   details="$(guest concurrency-race "$ORIGIN" "$ORIGIN/releases/download/vpn-panel-v0.7.12")"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" concurrency cli-rpc-cron pass "$details"
   shutdown_vm; rm -f "$disk"
@@ -519,7 +537,7 @@ run_fault_matrix() {
       rollback-after-*)
         shutdown_vm
         rm -f "$disk"; clone_disk "$WORK/candidate.img" "$disk" raw
-        start_vm "$disk" "fault-$boundary"; wait_ssh; record_measurement "fault-$boundary-ipk"
+        start_candidate_vm "$disk" "fault-$boundary"; record_measurement "fault-$boundary-ipk"
         source_version=0.7.11
         target_version=0.7.12
         before="$(guest protected-hash)"
