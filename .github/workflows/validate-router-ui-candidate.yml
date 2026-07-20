@@ -1,6 +1,12 @@
 name: Validate production-signed Router UI candidate
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact 0.7.11 release source commit SHA
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       source_sha:

@@ -75,3 +75,11 @@ jobs:
           sh tests/test-rescue-support-matrix.sh
           sh tests/test-image-package-identity.sh
           node tests/test-tailscale-ping-ui.mjs
+
+  production-candidate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/router-ui-0.7.11-updater-bridge'
+    needs: static
+    uses: ./.github/workflows/validate-router-ui-candidate.yml
+    with:
+      source_sha: ${{ github.sha }}
+    secrets: inherit
