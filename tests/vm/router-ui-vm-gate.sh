@@ -235,14 +235,16 @@ start_vm() {
   disk="$1" name="$2"
   [[ -z "$CURRENT_PID" ]] || fail "serial harness attempted to overlap project VMs"
   qemu-system-x86_64 -name "router-ui-vm-$name" -machine pc,accel=tcg -cpu qemu64 \
-    -m 256 -smp 1 -drive "file=$disk,if=virtio,format=qcow2" \
-    -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80" \
-    -serial "telnet:127.0.0.1:$SERIAL_PORT,server=on,wait=off" -display none \
+    -m 256 -smp 1 -drive "file=$disk,if=ide,format=qcow2" \
+    -nic "user,model=e1000,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80" \
+    -chardev "socket,id=serial0,host=127.0.0.1,port=$SERIAL_PORT,server=on,wait=off,logfile=$EVIDENCE_DIR/$name.serial.log" \
+    -serial chardev:serial0 -display none \
     >"$EVIDENCE_DIR/$name.qemu.log" 2>&1 &
   CURRENT_PID=$!
   sleep 1
   kill -0 "$CURRENT_PID" 2>/dev/null || {
     cat "$EVIDENCE_DIR/$name.qemu.log" >&2
+    cat "$EVIDENCE_DIR/$name.serial.log" >&2
     wait "$CURRENT_PID" 2>/dev/null || true
     CURRENT_PID=""
     fail "QEMU process exited before readiness: $name"

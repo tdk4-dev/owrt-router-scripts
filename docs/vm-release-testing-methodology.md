@@ -24,6 +24,9 @@ Record:
 - Track only the exact QEMU PID started by the current case. Terminate and wait
   for that PID before starting the next case, including on failure or
   cancellation. Never scan or kill unrelated host QEMU processes.
+- Boot the disposable x86 baseline with an IDE disk and e1000 NIC, matching
+  drivers present in the exact generated image, and retain its serial console
+  log with the case evidence.
 - Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
 - Treat any request for 300 MiB or more, or any overlapping project VM case,
   as a failed release gate.
