@@ -28,7 +28,7 @@ measure() {
   overlay_free="$(df -Pk /overlay | awk 'NR == 2 {print $4}')"
   tmp_total="$(df -Pk /tmp | awk 'NR == 2 {print $2}')"
   tmp_free="$(df -Pk /tmp | awk 'NR == 2 {print $4}')"
-  mount | grep -Eq ' on /tmp .*\(.*tmpfs' || die "/tmp is not RAM-backed"
+  grep -Eq '^[^ ]+ /tmp tmpfs ' /proc/mounts || die "/tmp is not RAM-backed"
   [ "$mem_total" -le 262144 ] && [ "$mem_total" -ge 220000 ] ||
     die "MemTotal is inconsistent with a 256 MiB guest: $mem_total"
   case "$profile" in

@@ -5,6 +5,8 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 BUILDER="$ROOT_DIR/build-openwrt-custom-image-linux.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
 CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
+VM_GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"
+VM_GUEST="$ROOT_DIR/tests/vm/router-ui-vm-guest.sh"
 
 grep -q 'PROJECT_PACKAGE_DIR' "$BUILDER"
 grep -q 'PROJECT_PACKAGE_MANIFEST' "$BUILDER"
@@ -46,6 +48,8 @@ grep -q 'ROOTFS_PARTSIZE:' "$CANDIDATE_WORKFLOW"
 grep -q 'WRITABLE_BUDGET_KIB:' "$CANDIDATE_WORKFLOW"
 grep -q 'router-ui-vm-gate.sh' "$CANDIDATE_WORKFLOW"
 grep -q 'pretag-router-ui-candidate-' "$CANDIDATE_WORKFLOW"
+grep -q "network.lan.proto='dhcp'" "$VM_GATE"
+grep -q '/proc/mounts' "$VM_GUEST"
 
 # The overlay may contain only the root redirect and the signed exact-package
 # recovery set. Project application paths remain owned by the canonical IPKs.

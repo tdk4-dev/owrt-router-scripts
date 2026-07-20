@@ -167,6 +167,10 @@ try:
     key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
     ca = os.environ["ROUTER_UI_VM_CA_B64"]
     command = (
+        "uci -q set network.lan.proto='dhcp'; "
+        "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
+        "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
+        "uci commit network; /etc/init.d/network restart; "
         "mkdir -p /etc/dropbear /etc/ssl/certs; "
         "printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys; "
         "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
