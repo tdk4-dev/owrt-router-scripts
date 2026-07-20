@@ -178,7 +178,7 @@ find "$RELEASE_DIR" -maxdepth 1 -type f \
       *xiaomi-ax3000t-ubootmod*) target='mediatek/filogic'; profile=xiaomi_mi-router-ax3000t-ubootmod ;;
       *) target=unknown; profile=unknown ;;
     esac
-    provenance_member="$(tar -tzf "$image" | awk '/\/image-provenance\.json$/ {print; exit}')"
+    provenance_member="$(tar -tzf "$image" | awk '/\/image-provenance\.json$/ && !found {print; found=1}')"
     [ -n "$provenance_member" ] || fail "image archive lacks storage provenance: $name"
     storage="$(tar -xOzf "$image" "$provenance_member" | jq '{storage_profile,
       writable_backing_kib,expected_ubifs_df_total_kib,x86_rootfs_partsize_kib,

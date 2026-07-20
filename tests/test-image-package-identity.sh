@@ -11,6 +11,7 @@ QEMU_GUARD="$ROOT_DIR/tests/vm/qemu-guard.sh"
 STORAGE_DERIVER="$ROOT_DIR/scripts/derive-rd23-storage-layout.sh"
 STORAGE_GEOMETRY="$ROOT_DIR/release/rd23-storage-geometry.json"
 X86_EXTENT_PATCHER="$ROOT_DIR/scripts/patch-openwrt-x86-writable-extent.sh"
+RELEASE_STAGER="$ROOT_DIR/scripts/stage-router-release.sh"
 
 grep -q 'PROJECT_PACKAGE_DIR' "$BUILDER"
 grep -q 'PROJECT_PACKAGE_MANIFEST' "$BUILDER"
@@ -87,6 +88,11 @@ grep -q '/proc/mounts' "$VM_GUEST"
 grep -q '/sys/class/block/' "$VM_GUEST"
 grep -q 'overlay_backing_kib' "$VM_GUEST"
 ! grep -Eq 'stock-60|uboot-75|uboot-85' "$VM_GATE" "$VM_GUEST"
+for archive_reader in "$WORKFLOW" "$CANDIDATE_WORKFLOW" "$VM_GATE" \
+  "$STORAGE_DERIVER" "$RELEASE_STAGER"; do
+  ! grep -E 'tar .*\| awk .*exit' "$archive_reader"
+  grep -Eq 'tar .*\| awk .*![[:alnum:]_]*found.*found=1' "$archive_reader"
+done
 
 # The overlay may contain only the root redirect and the signed exact-package
 # recovery set. Project application paths remain owned by the canonical IPKs.

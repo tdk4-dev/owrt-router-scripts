@@ -37,7 +37,7 @@ fastmap_lebs=$(((fastmap_bytes + leb_bytes - 1) / leb_bytes))
 
 case "$PROFILE" in
   rd23-stock)
-    member="$(tar -tf "$IMAGE" | awk '/\/root$/ { print; exit }')"
+    member="$(tar -tf "$IMAGE" | awk '/\/root$/ && !found { print; found=1 }')"
     [ -n "$member" ] || fail "stock sysupgrade image has no root payload"
     tar -xOf "$IMAGE" "$member" > "$TMP/payload"
     payload_bytes="$(wc -c < "$TMP/payload" | tr -d ' ')"

@@ -61,7 +61,7 @@ load_storage_profiles() {
     esac
     archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$pattern" | sed -n '1p')"
     [[ -n "$archive" ]] || fail "release set lacks $profile image archive"
-    member="$(tar -tzf "$archive" | awk '/\/image-provenance\.json$/ {print; exit}')"
+    member="$(tar -tzf "$archive" | awk '/\/image-provenance\.json$/ && !found {print; found=1}')"
     [[ -n "$member" ]] || fail "$profile archive lacks image provenance"
     provenance="$WORK/$profile.provenance.json"
     tar -xOzf "$archive" "$member" > "$provenance"
