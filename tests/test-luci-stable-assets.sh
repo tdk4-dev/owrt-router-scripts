@@ -30,10 +30,9 @@ grep -q '"path":[[:space:]]*"network/adguard"' "$MENU"
 grep -q '"path":[[:space:]]*"system/update"' "$MENU"
 ! grep -Eq '"path":[[:space:]]*"[^"]*[0-9]+-[0-9]+' "$MENU"
 
-grep -q 'resources/view/network/vpn.js' "$WORKFLOW"
-grep -q 'resources/view/network/tailscale.js' "$WORKFLOW"
-grep -q 'resources/view/system/update.js' "$WORKFLOW"
-grep -q 'resources/view/status/include/35_vpn.js' "$WORKFLOW"
+grep -q 'canonical-router-ui-ipks' "$WORKFLOW"
+grep -q 'build-openwrt-custom-image-linux.sh' "$WORKFLOW"
+grep -q 'validate-staged-release.sh' "$WORKFLOW"
 ! grep -q 'resources/view/status/include/_35_vpn.js' "$WORKFLOW"
 
 grep -q 'network/vpn.js' "$INSTALLER"
