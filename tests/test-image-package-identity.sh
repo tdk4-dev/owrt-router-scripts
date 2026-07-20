@@ -81,6 +81,8 @@ grep -q 'CANDIDATE_SOURCE_SHA: 373d88c3636340d1610187992ec256ecdf65e123' "$DIAGN
 grep -q 'CANDIDATE_ARTIFACT_ZIP_SHA256: 1fea2b2e49d95ee544c70ff95db5698c51d7cc0cf3b8362e8c03281c0d64c6bb' "$DIAGNOSTIC_WORKFLOW"
 grep -q 'ROUTER_UI_VM_DIAGNOSTIC: "1"' "$DIAGNOSTIC_WORKFLOW"
 grep -q 'release_evidence:false' "$DIAGNOSTIC_WORKFLOW"
+grep -q 'set -o pipefail' "$DIAGNOSTIC_WORKFLOW"
+grep -q "sed 's#\^./##'" "$DIAGNOSTIC_WORKFLOW"
 ! grep -q '^    environment:' "$DIAGNOSTIC_WORKFLOW"
 ! grep -Eq 'ROUTER_UI_USIGN_SECRET_KEY|SIGNING_KEY|build-openwrt-ipks|build-openwrt-custom-image' "$DIAGNOSTIC_WORKFLOW"
 ! grep -Eq 'gh (release|pr)|git (tag|push)' "$DIAGNOSTIC_WORKFLOW"

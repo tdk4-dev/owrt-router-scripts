@@ -177,6 +177,7 @@ jobs:
           ROUTER_UI_VM_DIAGNOSTIC_CASE: ${{ env.VM_CASE }}
           ROUTER_UI_VM_HARNESS_SHA: ${{ env.HARNESS_SOURCE_SHA }}
         run: |
+          set -o pipefail
           x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
@@ -192,9 +193,11 @@ jobs:
             cp "$RELEASE_DIR/router-release-manifest.json" "$evidence/" 2>/dev/null || true
             cp "$RELEASE_DIR/router-ui-packages.txt" "$evidence/" 2>/dev/null || true
           fi
-          find "$evidence" -maxdepth 1 -type f ! -name evidence-files-sha256sums -print |
-            LC_ALL=C sort | while IFS= read -r file; do sha256sum "$file"; done \
-            > "$evidence/evidence-files-sha256sums"
+          (cd "$evidence" &&
+            find . -maxdepth 1 -type f ! -name evidence-files-sha256sums -print |
+            LC_ALL=C sort | sed 's#^./##' |
+            while IFS= read -r file; do sha256sum "$file"; done \
+              > evidence-files-sha256sums)
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -203,4 +206,3 @@ jobs:
           path: ${{ runner.temp }}/diagnostic-evidence/
           if-no-files-found: error
           retention-days: 30
-

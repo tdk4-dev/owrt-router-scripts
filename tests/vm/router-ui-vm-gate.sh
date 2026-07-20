@@ -398,6 +398,14 @@ capture_guest_state() {
     done
   ' > "$out.transaction-evidence.txt" 2>&1 || true
   timeout 20 "${ssh_base[@]}" logread > "$out.logread.txt" 2>&1 || true
+  timeout 20 "${ssh_base[@]}" '
+    find /tmp -maxdepth 1 -type f \
+      \( -name "vpn-ui*.log" -o -name "vpn-ui*.json" \) -print 2>/dev/null | sort |
+    while IFS= read -r file; do
+      echo "===== $file ====="
+      sed -n "1,800p" "$file"
+    done
+  ' > "$out.guest-bootstrap-and-validator.txt" 2>&1 || true
 }
 record_measurement() {
   name="$1" profile="${2:-rd23-stock}"
