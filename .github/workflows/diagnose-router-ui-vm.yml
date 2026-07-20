@@ -85,6 +85,7 @@ jobs:
       - name: Download and fail-closed verify immutable candidate and baseline pack
         env:
           GH_TOKEN: ${{ github.token }}
+          ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE: "1"
           CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
           CANDIDATE_ARTIFACT_ZIP_SHA256: ${{ inputs.candidate_artifact_zip_sha256 }}
           BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}

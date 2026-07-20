@@ -10,6 +10,7 @@ DESTINATION="${4:?destination is required}"
 DESCRIPTOR="${5:?descriptor output is required}"
 GH_TOKEN="${GH_TOKEN:?GH_TOKEN is required}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+LEGACY_DIAGNOSTIC_CANDIDATES="$ROOT_DIR/tests/vm/legacy-diagnostic-candidates.json"
 
 fail() { printf 'IMMUTABLE-ARTIFACT-ERROR: %s\n' "$*" >&2; exit 1; }
 for tool in cmp find gh jq sha256sum sort unzip; do
@@ -24,8 +25,9 @@ mkdir -p "$DESTINATION" "$(dirname "$DESCRIPTOR")"
 
 artifact_json="$(mktemp "${RUNNER_TEMP:-/tmp}/router-ui-artifact.XXXXXX.json")"
 run_json="$(mktemp "${RUNNER_TEMP:-/tmp}/router-ui-run.XXXXXX.json")"
+jobs_json="$(mktemp "${RUNNER_TEMP:-/tmp}/router-ui-jobs.XXXXXX.json")"
 archive="$(mktemp "${RUNNER_TEMP:-/tmp}/router-ui-artifact.XXXXXX.zip")"
-cleanup() { rm -f "$artifact_json" "$run_json" "$archive"; }
+cleanup() { rm -f "$artifact_json" "$run_json" "$jobs_json" "$archive"; }
 trap cleanup EXIT INT TERM
 
 verify_inventory() {
@@ -48,14 +50,67 @@ jq -e --argjson id "$ARTIFACT_ID" --arg digest "sha256:$ZIP_SHA256" '
 
 gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "$run_json"
 jq -e --argjson id "$run_id" '
-  .id == $id and .status == "completed" and .conclusion == "success" and
+  .id == $id and .status == "completed" and
   (.head_sha | test("^[0-9a-f]{40}$"))
-' "$run_json" >/dev/null || fail "artifact-producing workflow run is not a successful immutable source"
+' "$run_json" >/dev/null || fail "artifact-producing workflow run is not a completed immutable source"
 run_number="$(jq -er '.run_number' "$run_json")"
 run_head_sha="$(jq -er '.head_sha' "$run_json")"
 workflow_path="$(jq -er '.path' "$run_json")"
+workflow_conclusion="$(jq -er '.conclusion' "$run_json")"
+provenance_mode=""
+release_evidence_eligible=false
+producer_jobs_api_sha256=""
+
+case "$KIND" in
+  candidate)
+    if [[ "$workflow_path" = .github/workflows/validate-router-ui-candidate.yml &&
+          "$workflow_conclusion" = success ]]; then
+      provenance_mode=successful-manual-candidate
+      release_evidence_eligible=true
+    elif [[ "${ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE:-0}" = 1 ]]; then
+      [[ -s "$LEGACY_DIAGNOSTIC_CANDIDATES" ]] || fail "legacy diagnostic candidate lock is missing"
+      jq -e --argjson artifact_id "$ARTIFACT_ID" --arg artifact_name "$artifact_name" \
+        --arg zip "$ZIP_SHA256" --argjson run_id "$run_id" --argjson run_number "$run_number" \
+        --arg path "$workflow_path" --arg conclusion "$workflow_conclusion" \
+        --arg source "$run_head_sha" '
+          .schema_version == 1 and any(.candidates[];
+            .artifact_id == $artifact_id and .artifact_name == $artifact_name and
+            .artifact_zip_sha256 == $zip and .workflow_run_id == $run_id and
+            .workflow_run_number == $run_number and .workflow_path == $path and
+            .workflow_conclusion == $conclusion and .product_source_sha == $source and
+            .diagnostic_only == true and .release_evidence_eligible == false)
+        ' "$LEGACY_DIAGNOSTIC_CANDIDATES" >/dev/null ||
+        fail "candidate does not match the exact diagnostic-only legacy provenance lock"
+      gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+        --jq '.jobs[]' | jq -s '{jobs:.}' > "$jobs_json"
+      jq -e --argjson artifact_id "$ARTIFACT_ID" --slurpfile actual "$jobs_json" '
+        (.candidates[] | select(.artifact_id == $artifact_id)) as $lock |
+        ($actual[0].jobs) as $jobs |
+        all($lock.required_success_job_names[]; . as $name |
+          any($jobs[]; .name == $name and .status == "completed" and .conclusion == "success")) and
+        all($lock.required_success_job_prefixes[]; . as $prefix |
+          any($jobs[]; (.name | startswith($prefix)) and .status == "completed" and .conclusion == "success")) and
+        all($lock.required_failure_job_names[]; . as $name |
+          any($jobs[]; .name == $name and .status == "completed" and .conclusion == "failure"))
+      ' "$LEGACY_DIAGNOSTIC_CANDIDATES" >/dev/null ||
+        fail "legacy diagnostic candidate producer job conclusions do not match the provenance lock"
+      provenance_mode=locked-legacy-diagnostic-candidate
+      release_evidence_eligible=false
+      producer_jobs_api_sha256="$(sha256sum "$jobs_json" | awk '{print $1}')"
+    else
+      fail "candidate artifact is not from a successful manual candidate workflow"
+    fi
+    ;;
+  baseline)
+    [[ "$workflow_path" = .github/workflows/build-router-ui-legacy-baselines.yml &&
+        "$workflow_conclusion" = success ]] ||
+      fail "baseline artifact is not from a successful baseline workflow"
+    provenance_mode=successful-manual-baseline
+    ;;
+esac
 cp "$artifact_json" "${DESCRIPTOR%.json}.artifact-api.json"
 cp "$run_json" "${DESCRIPTOR%.json}.workflow-run-api.json"
+[[ ! -s "$jobs_json" ]] || cp "$jobs_json" "${DESCRIPTOR%.json}.producer-jobs-api.json"
 
 gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive"
 printf '%s  %s\n' "$ZIP_SHA256" "$archive" | sha256sum -c -
@@ -63,8 +118,6 @@ unzip -q "$archive" -d "$DESTINATION"
 
 case "$KIND" in
   candidate)
-    [[ "$workflow_path" = .github/workflows/validate-router-ui-candidate.yml ]] ||
-      fail "candidate artifact came from an unexpected workflow: $workflow_path"
     release="$DESTINATION/release-v0.7.11"
     synthetic="$DESTINATION/synthetic-next"
     [[ -d "$release" && -d "$synthetic" ]] || fail "candidate payload directories are incomplete"
@@ -99,6 +152,9 @@ case "$KIND" in
     jq -n --argjson artifact_id "$ARTIFACT_ID" --arg artifact_name "$artifact_name" \
       --arg artifact_digest "sha256:$ZIP_SHA256" --argjson workflow_run_id "$run_id" \
       --argjson workflow_run_number "$run_number" --arg workflow_path "$workflow_path" \
+      --arg workflow_conclusion "$workflow_conclusion" --arg provenance_mode "$provenance_mode" \
+      --argjson release_evidence_eligible "$release_evidence_eligible" \
+      --arg producer_jobs_api_sha256 "$producer_jobs_api_sha256" \
       --arg product_source_sha "$source_sha" --arg production_key_id "$key_id" \
       --arg production_key_fingerprint "$key_fingerprint" \
       --arg release_manifest_sha256 "$(sha256sum "$release/router-release-manifest.json" | awk '{print $1}')" \
@@ -108,7 +164,11 @@ case "$KIND" in
         {schema_version:1,kind:"router-ui-production-candidate",immutable:true,
          artifact_id:$artifact_id,artifact_name:$artifact_name,artifact_digest:$artifact_digest,
          workflow_run_id:$workflow_run_id,workflow_run_number:$workflow_run_number,
-         workflow_path:$workflow_path,product_source_sha:$product_source_sha,
+         workflow_path:$workflow_path,workflow_conclusion:$workflow_conclusion,
+         provenance_mode:$provenance_mode,release_evidence_eligible:$release_evidence_eligible,
+         producer_jobs_api_sha256:(if ($producer_jobs_api_sha256 | length) > 0
+           then $producer_jobs_api_sha256 else null end),
+         product_source_sha:$product_source_sha,
          production_key_id:$production_key_id,
          production_key_fingerprint:$production_key_fingerprint,
          release_manifest_sha256:$release_manifest_sha256,
@@ -119,8 +179,6 @@ case "$KIND" in
       ' > "$DESCRIPTOR"
     ;;
   baseline)
-    [[ "$workflow_path" = .github/workflows/build-router-ui-legacy-baselines.yml ]] ||
-      fail "baseline artifact came from an unexpected workflow: $workflow_path"
     pack="$DESTINATION/legacy-baseline-pack"
     [[ -d "$pack" ]] || fail "baseline artifact lacks legacy-baseline-pack"
     (cd "$pack" && sha256sum -c SHA256SUMS)

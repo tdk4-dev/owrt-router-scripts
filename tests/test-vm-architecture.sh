@@ -14,6 +14,7 @@ ARTIFACT_HELPER="$ROOT_DIR/tests/vm/download-immutable-actions-artifact.sh"
 DIGEST="$ROOT_DIR/tests/vm/baseline-contract-digest.sh"
 CONTENT_DESCRIPTOR="$ROOT_DIR/tests/vm/write-candidate-content-descriptor.sh"
 LOCK="$ROOT_DIR/tests/vm/legacy-baseline-lock.json"
+LEGACY_CANDIDATES="$ROOT_DIR/tests/vm/legacy-diagnostic-candidates.json"
 FIXTURE="$ROOT_DIR/tests/vm/fixtures/legacy-nonsecret"
 
 fail() { printf 'VM-ARCHITECTURE-TEST: %s\n' "$*" >&2; exit 1; }
@@ -60,6 +61,16 @@ for workflow in "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
 done
 [ -s "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is missing'
 [ -x "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is not executable'
+grep -q 'ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE: "1"' "$DIAGNOSTIC" ||
+  fail 'diagnostic workflow cannot consume the exact locked legacy candidate'
+for workflow in "$CANDIDATE" "$RELEASE"; do
+  ! grep -q 'ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE' "$workflow" ||
+    fail "release-authorizing workflow enables legacy diagnostic provenance: $workflow"
+done
+grep -q 'locked-legacy-diagnostic-candidate' "$ARTIFACT_HELPER" ||
+  fail 'immutable artifact helper does not label legacy candidate provenance'
+grep -q 'release_evidence_eligible=false' "$ARTIFACT_HELPER" ||
+  fail 'legacy candidate is not explicitly ineligible as release evidence'
 for workflow in "$CANDIDATE" "$RELEASE"; do
   grep -q 'write-candidate-content-descriptor.sh' "$workflow" ||
     fail "workflow does not persist a candidate content descriptor: $workflow"
@@ -117,6 +128,22 @@ jq -e '.schema_version == 1 and (.baselines | length) == 13 and
     (.worker_sha256 | test("^[0-9a-f]{64}$")) and
     (.validator_sha256 | test("^[0-9a-f]{64}$")))' "$LOCK" >/dev/null ||
   fail 'legacy baseline input lock is incomplete'
+
+jq -e '.schema_version == 1 and (.candidates | length) == 1 and
+  .candidates[0].artifact_id == 8473240890 and
+  .candidates[0].artifact_name == "pretag-router-ui-candidate-373d88c3636340d1610187992ec256ecdf65e123" and
+  .candidates[0].artifact_zip_sha256 == "1fea2b2e49d95ee544c70ff95db5698c51d7cc0cf3b8362e8c03281c0d64c6bb" and
+  .candidates[0].workflow_run_id == 29770661240 and
+  .candidates[0].workflow_run_number == 107 and
+  .candidates[0].workflow_path == ".github/workflows/ci.yml" and
+  .candidates[0].workflow_conclusion == "failure" and
+  .candidates[0].product_source_sha == "373d88c3636340d1610187992ec256ecdf65e123" and
+  .candidates[0].diagnostic_only == true and
+  .candidates[0].release_evidence_eligible == false and
+  (.candidates[0].required_success_job_names | length) == 4 and
+  (.candidates[0].required_success_job_prefixes | length) == 2 and
+  .candidates[0].required_failure_job_names == ["production-candidate / constrained-vm-gate"]' \
+  "$LEGACY_CANDIDATES" >/dev/null || fail 'legacy diagnostic candidate provenance lock is incomplete'
 
 fixture_sha="$(cd "$FIXTURE" && find . -type f -print0 | LC_ALL=C sort -z |
   xargs -0 sha256sum | sha256sum | awk '{print $1}')"
