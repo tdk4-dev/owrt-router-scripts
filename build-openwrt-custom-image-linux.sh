@@ -118,6 +118,17 @@ awk -v profile="$PROFILE" '$0 == profile ":" { found=1 } END { exit !found }' "$
     "$PROFILE" "$OPENWRT_VERSION" "$TARGET_DIR" >&2
   exit 1
 }
+if [ "$TARGET_DIR" = "x86/64" ]; then
+  # The release and VM gate boot the combined squashfs image. Building the
+  # unused ext4 variant would require the uncompressed root plus the signed
+  # known-good set to fit inside the same 60 MiB partition and can mask the
+  # actual hard-capped squashfs/overlay contract.
+  sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$IB_DIR/.config"
+  grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$IB_DIR/.config" || {
+    printf 'Could not disable the unused x86 ext4 image variant\n' >&2
+    exit 1
+  }
+fi
 
 install_project_feed() {
   local pkg_dir="$IB_DIR/packages"
@@ -277,6 +288,16 @@ mkdir -p "$PROFILE_ARTIFACT_DIR"
 find "$TARGET_OUT" -maxdepth 1 -type f \
   \( -name "*$PROFILE*" -o -name 'profiles.json' \) \
   -exec cp {} "$PROFILE_ARTIFACT_DIR/" \;
+if [ "$TARGET_DIR" = "x86/64" ]; then
+  find "$PROFILE_ARTIFACT_DIR" -maxdepth 1 -type f -name '*ext4*' | grep -q . && {
+    printf 'x86 artifact unexpectedly contains an ext4 variant\n' >&2
+    exit 1
+  }
+  find "$PROFILE_ARTIFACT_DIR" -maxdepth 1 -type f -name '*combined-squashfs.img.gz' | grep -q . || {
+    printf 'x86 artifact lacks the mandatory combined squashfs image\n' >&2
+    exit 1
+  }
+fi
 [ -n "$MANIFEST_SRC" ] && cp "$MANIFEST_SRC" "$PROFILE_ARTIFACT_DIR/" || true
 cp "$PACKAGE_FILE" "$PROFILE_ARTIFACT_DIR/packages.txt"
 cp "$PROFILE_INFO" "$PROFILE_ARTIFACT_DIR/profile-info.txt"

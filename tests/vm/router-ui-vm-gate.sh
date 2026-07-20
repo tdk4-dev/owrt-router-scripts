@@ -96,6 +96,9 @@ build_vm_base() {
   local archive="$WORK/$ib_name.tar.zst" ib="$WORK/$ib_name" packages overlay="$WORK/base-overlay"
   curl -fL --retry 3 "https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/$ib_name.tar.zst" -o "$archive"
   tar --use-compress-program=unzstd -xf "$archive" -C "$WORK"
+  sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$ib/.config"
+  grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$ib/.config" ||
+    fail "could not disable the unused VM ext4 image variant"
   ssh-keygen -q -t ed25519 -N '' -f "$WORK/ssh-key"
   mkdir -p "$overlay/etc/config" "$overlay/etc/dropbear" "$overlay/etc/ssl/certs"
   cp "$WORK/ssh-key.pub" "$overlay/etc/dropbear/authorized_keys"
