@@ -293,7 +293,7 @@ if [ "$TARGET_DIR" = "x86/64" ]; then
     printf 'x86 artifact unexpectedly contains an ext4 variant\n' >&2
     exit 1
   }
-  find "$PROFILE_ARTIFACT_DIR" -maxdepth 1 -type f -name '*combined-squashfs.img.gz' | grep -q . || {
+  find "$PROFILE_ARTIFACT_DIR" -maxdepth 1 -type f -name '*squashfs-combined.img.gz' | grep -q . || {
     printf 'x86 artifact lacks the mandatory combined squashfs image\n' >&2
     exit 1
   }

@@ -118,7 +118,7 @@ EOF
     rm -rf "$ib/bin/targets/x86/64"
     make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size" \
       > "$EVIDENCE_DIR/vm-base-${size}mib-build.log" 2>&1
-    base_gz="$(find "$ib/bin/targets/x86/64" -maxdepth 1 -type f -name '*combined-squashfs.img.gz' | sed -n '1p')"
+    base_gz="$(find "$ib/bin/targets/x86/64" -maxdepth 1 -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
     [[ -n "$base_gz" ]] || fail "VM base build did not produce ${size} MiB combined squashfs image"
     gzip -dc "$base_gz" > "$WORK/vm-base-$size.img"
   done
@@ -128,7 +128,7 @@ EOF
 extract_candidate_image() {
   mkdir -p "$WORK/candidate-archive"
   tar -xzf "$X86_IMAGE_ARCHIVE" -C "$WORK/candidate-archive"
-  candidate_gz="$(find "$WORK/candidate-archive" -type f -name '*combined-squashfs.img.gz' | sed -n '1p')"
+  candidate_gz="$(find "$WORK/candidate-archive" -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
   [[ -n "$candidate_gz" ]] || fail "candidate archive lacks x86 combined squashfs image"
   gzip -dc "$candidate_gz" > "$WORK/candidate.img"
 }
