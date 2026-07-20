@@ -99,6 +99,15 @@ prepare_server() {
 build_vm_base() {
   local ib_name="openwrt-imagebuilder-$OPENWRT_VERSION-x86-64.Linux-x86_64"
   local archive="$WORK/$ib_name.tar.zst" ib="$WORK/$ib_name" packages overlay="$WORK/base-overlay"
+  local host_bin="$WORK/host-bin"
+  mkdir -p "$host_bin"
+  cat > "$host_bin/sha256" <<'EOF'
+#!/bin/sh
+sha256sum "$@" | awk '{print $1}'
+EOF
+  chmod 755 "$host_bin/sha256"
+  PATH="$host_bin:$PATH"
+  export PATH
   curl -fL --retry 3 "https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/$ib_name.tar.zst" -o "$archive"
   tar --use-compress-program=unzstd -xf "$archive" -C "$WORK"
   sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$ib/.config"
@@ -121,8 +130,11 @@ EOF
   packages="$(awk 'NF && $1 !~ /^#/ {printf "%s ",$1}' "$ROOT_DIR/image/openwrt-fin0-packages.txt") dropbear ca-bundle usign"
   for size in 60 75 85; do
     rm -rf "$ib/bin/targets/x86/64"
-    make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size" \
-      > "$EVIDENCE_DIR/vm-base-${size}mib-build.log" 2>&1
+    if ! make -C "$ib" image PROFILE=generic PACKAGES="$packages" FILES="$overlay" ROOTFS_PARTSIZE="$size" \
+      > "$EVIDENCE_DIR/vm-base-${size}mib-build.log" 2>&1; then
+      cat "$EVIDENCE_DIR/vm-base-${size}mib-build.log" >&2
+      fail "VM base build failed for the $size MiB profile"
+    fi
     base_gz="$(find "$ib/bin/targets/x86/64" -maxdepth 1 -type f -name '*squashfs-combined.img.gz' | sed -n '1p')"
     [[ -n "$base_gz" ]] || fail "VM base build did not produce ${size} MiB combined squashfs image"
     gzip -dc "$base_gz" > "$WORK/vm-base-$size.img"

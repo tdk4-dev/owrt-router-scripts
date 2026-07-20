@@ -263,6 +263,7 @@ jobs:
           cp "$RELEASE_DIR/router-ui-packages.txt" "$EVIDENCE_DIR/"
           (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: pretag-router-ui-candidate-${{ inputs.source_sha }}
           path: |

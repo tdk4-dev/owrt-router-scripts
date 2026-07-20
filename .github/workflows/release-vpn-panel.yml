@@ -278,6 +278,7 @@ jobs:
           (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/tagged-asset-sha256sums")
           (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: tagged-router-ui-vm-evidence-${{ inputs.tag }}
           path: ${{ runner.temp }}/tagged-evidence/

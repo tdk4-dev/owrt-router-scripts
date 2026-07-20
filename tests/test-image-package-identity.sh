@@ -50,6 +50,8 @@ grep -q 'router-ui-vm-gate.sh' "$CANDIDATE_WORKFLOW"
 grep -q 'pretag-router-ui-candidate-' "$CANDIDATE_WORKFLOW"
 grep -q "network.lan.proto='dhcp'" "$VM_GATE"
 grep -q 'HOST_ORIGIN="https://127.0.0.1:' "$VM_GATE"
+grep -q 'host_bin/sha256' "$VM_GATE"
+grep -q 'VM base build failed' "$VM_GATE"
 grep -q '/proc/mounts' "$VM_GUEST"
 
 # The overlay may contain only the root redirect and the signed exact-package
