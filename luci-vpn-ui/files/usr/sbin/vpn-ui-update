@@ -400,7 +400,7 @@ status_json() {
 
 derive_candidate_owned_paths() {
   local assets="$1" manifest="$2" paths="$3" dirs="$4"
-  local index=0 package filename member logical control_name
+  local index=0 package filename member logical control_name include_dir legacy_include
   : > "$paths"
   : > "$dirs"
   while [ "$index" -lt 16 ]; do
@@ -434,6 +434,12 @@ derive_candidate_owned_paths() {
     /etc/premier-router/installed-manifest.json.sig \
     /etc/premier-router/compat-source-version \
     /www/luci-static/resources/view/status/include/_35_vpn.js >> "$paths"
+  include_dir="${ROOT_PREFIX}/www/luci-static/resources/view/status/include"
+  for legacy_include in "$include_dir"/35_vpn*.js "$include_dir"/_35_vpn*.js; do
+    [ -e "$legacy_include" ] || [ -L "$legacy_include" ] || continue
+    printf '/www/luci-static/resources/view/status/include/%s\n' \
+      "${legacy_include##*/}" >> "$paths"
+  done
   LC_ALL=C sort -u "$paths" -o "$paths"
   LC_ALL=C sort -u "$dirs" -o "$dirs"
 }
@@ -858,8 +864,14 @@ install_packages() {
 
 apply_compatibility() {
   local assets="$1"
-  local compat="${ROOT_PREFIX}/www/luci-static/resources/view/status/include/_35_vpn.js"
+  local include_dir="${ROOT_PREFIX}/www/luci-static/resources/view/status/include"
+  local compat="$include_dir/_35_vpn.js" legacy_include
   mkdir -p "${ROOT_PREFIX}/etc/premier-router"
+  for legacy_include in "$include_dir"/35_vpn*.js "$include_dir"/_35_vpn*.js; do
+    [ -e "$legacy_include" ] || [ -L "$legacy_include" ] || continue
+    [ "${legacy_include##*/}" = 35_vpn.js ] && continue
+    rm -f "$legacy_include"
+  done
   if [ "$J_SOURCE_APP_VERSION" = 0.7.9 ]; then
     [ -s "$assets/0.7.9-_35_vpn.js" ] || return 1
     cp "$assets/0.7.9-_35_vpn.js" "$compat"

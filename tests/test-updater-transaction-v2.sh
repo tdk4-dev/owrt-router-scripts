@@ -107,7 +107,16 @@ reset_source() {
     "$FAKE_ROOT/root" "$FAKE_ROOT/proc/sys/kernel/random"
   printf '%s\n' "$source_version" > "$FAKE_ROOT/usr/share/vpn-ui/version"
   printf '{"admin/update":{"action":{"path":"system/update"}}}\n' > "$FAKE_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json"
-  printf 'source canonical card\n' > "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js"
+  case "$source_version" in
+    0.7.0|0.7.1|0.7.2|0.7.3|0.7.4|0.7.5|0.7.6|0.7.8)
+      printf 'source versioned card\n' > \
+        "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js"
+      ;;
+    *)
+      printf 'source canonical card\n' > \
+        "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js"
+      ;;
+  esac
   if [ "$source_version" = 0.7.9 ]; then
     printf 'source legacy alias card\n' > "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js"
   fi
@@ -159,6 +168,26 @@ run_supervisor() {
     VPN_UI_UPDATE_RESTART_CRON=0 \
     sh "$TMP_ROOT/release/router-update-supervisor" "$@"
 }
+
+reset_source 0.7.0
+legacy_status="$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js"
+legacy_status_sha="$(sha256sum "$legacy_status" | awk '{print $1}')"
+if ! run_update manual > "$TMP_ROOT/070-success.log" 2> "$TMP_ROOT/070-success.err"; then
+  cat "$TMP_ROOT/070-success.err" >&2
+  cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
+  find "$FAKE_ROOT/root/premier-router-updates" -name state.json -exec cat {} \; >&2 2>/dev/null || true
+  exit 1
+fi
+stage 070-applied
+[ ! -e "$legacy_status" ]
+[ -s "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
+transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+grep -qx '/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js' \
+  "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/paths.list"
+run_supervisor rollback "$transaction"
+stage 070-rolled-back
+[ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
+[ "$(sha256sum "$legacy_status" | awk '{print $1}')" = "$legacy_status_sha" ]
 
 reset_source 0.7.9
 if ! run_update manual > "$TMP_ROOT/079-success.log" 2> "$TMP_ROOT/079-success.err"; then
