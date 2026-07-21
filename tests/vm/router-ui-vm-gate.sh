@@ -457,7 +457,7 @@ console_bootstrap_key() {
 import os, re, socket, sys, time
 sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2)
 sock.settimeout(0.2)
-prompt = re.compile(rb"root@[^\r\n]*:~# $")
+prompt = re.compile(rb"(?:^|\r?\n)root@[^\r\n]*:~# ")
 
 def send(payload):
     deadline = time.monotonic() + 20

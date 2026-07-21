@@ -113,6 +113,10 @@ grep -q 'read_until_prompt' "$GATE" ||
   fail 'serial bootstrap is not synchronized to the disposable guest prompt'
 grep -q 'prompt = re.compile' "$GATE" ||
   fail 'serial bootstrap is tied to a single guest hostname'
+grep -Fq 'prompt = re.compile(rb"(?:^|\r?\n)root@[^\r\n]*:~# ")' "$GATE" ||
+  fail 'serial bootstrap rejects a real prompt followed by asynchronous guest output'
+! grep -Fq 'root@[^\r\n]*:~# $' "$GATE" ||
+  fail 'serial bootstrap still requires the guest prompt at the end of a socket read'
 grep -q 'chunk_size = 128' "$GATE" ||
   fail 'serial bootstrap does not split the test CA into bounded commands'
 grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$GATE" ||
