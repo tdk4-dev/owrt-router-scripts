@@ -18,7 +18,13 @@ bytes through a local ImageBuilder feed and embed their package manifest,
 hashes, source commit, epoch, target, profile, and OpenWrt version. Overlay paths
 may be target-specific but must not overlap package ownership.
 
-GitHub assets are flat and unique. The compatibility bundle cannot include its
+The staged release asset set is flat and unique. The compatibility bundle cannot include its
 own hash inside the manifest it embeds; this cryptographic cycle is called out
 explicitly in the manifest, while the legacy `.sha256` sidecar authenticates
 transport after the manifest has authenticated every inner executable and IPK.
+
+Local RC staging emits `candidate-channel.json`; it never rewrites a published
+stable pointer. `Packages.sig` authenticates the ordinary opkg feed, while the
+detached signature over the top-level `SHA256SUMS` authenticates the complete
+flat candidate asset set. The installed-package manifest is separately signed
+and references the same three canonical IPK hashes.

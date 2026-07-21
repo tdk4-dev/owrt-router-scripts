@@ -6,9 +6,24 @@ metadata, target-owned validation, persistent recovery, exact rollback, and a
 generic fail-closed legacy rescue path. It intentionally contains no 0.8
 product features.
 
-The production public trust root is committed with the source; its private key
-remains confined to the protected signing environment. Physical RD23 testing
-is explicitly pending and is not represented by VM or image-extraction proof.
+The active production identity is the locally managed usign key
+`production-2026-07`. Only its public key and derived fingerprint are present
+in release assets; the private key remains confined to the protected Mac Pro
+signing environment and RAM-backed build-VM signing sessions. Routers that
+trusted only the lost former identity require the documented authenticated
+public-key bootstrap before they can trust this release.
+
+This candidate supports the immutable published 0.7.0 through 0.7.6 and 0.7.8
+through 0.7.10 release assets. The tag-only 0.7.7 identity has no published
+installation artifact and is refused. Every supported source converges on one
+canonical set of three 0.7.11-1 IPKs. Those same packages can be installed on
+an already-flashed OpenWrt 24.10.5 router directly or through the signed local
+package feed; no firmware flash or global `opkg upgrade` is part of either
+path.
+
+Physical RD23 testing remains an explicit hardware-canary gate and is not
+represented by VirtualBox or static image proof. This is candidate-channel
+material, not a stable publication.
 
 Historical 0.7.10 notes
 
