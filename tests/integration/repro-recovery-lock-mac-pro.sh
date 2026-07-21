@@ -556,15 +556,22 @@ run_iteration() {
   transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
   [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed transaction ID: $transaction"
   guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" > "$EVIDENCE_DIR/pending-state.json"
-  guest_ssh '
+  guest_ssh "transaction='$transaction';" '
+    state_file="/root/premier-router-updates/$transaction/state.json"
     owner=/root/premier-router-updates/update.lock/owner
-    token="$(sed -n "s/^token=//p" "$owner" 2>/dev/null | sed -n "1p")"
+    token="$(jsonfilter -i "$state_file" -e "@.worker_ownership_token" 2>/dev/null || true)"
     case "$token" in
-      [0-9a-f][0-9a-f]*) [ "${#token}" = 64 ] && shape=valid-64-hex || shape=invalid ;;
-      *) shape=invalid ;;
+      *[!0-9a-f]*|'') shape=invalid ;;
+      *) [ "${#token}" = 64 ] && shape=valid-64-hex || shape=invalid ;;
     esac
-    printf "token_shape=%s\n" "$shape"
-    sed -n "/^pid=/p;/^boot_id=/p;/^start_id=/p" "$owner" 2>/dev/null
+    [ "$shape" = valid-64-hex ] || exit 1
+    printf "journal_token_shape=%s\n" "$shape"
+    if [ -f "$owner" ]; then
+      printf "lock_owner=present\n"
+      sed -n "/^pid=/p;/^boot_id=/p;/^start_id=/p" "$owner" || true
+    else
+      printf "lock_owner=absent\n"
+    fi
   ' > "$EVIDENCE_DIR/pending-lock-owner.txt"
 
   CURRENT_PHASE=reboot-candidate
