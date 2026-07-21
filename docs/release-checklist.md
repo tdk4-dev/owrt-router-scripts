@@ -1,9 +1,10 @@
 # Router UI 0.7.11 release checklist
 
-- Configure protected environments `router-ui-production-signing` and
-  `router-ui-production-release`. Store only `ROUTER_UI_USIGN_SECRET_KEY` in
-  the signing environment; the committed public key, fingerprint, and key ID
-  are authoritative. Never print the secret key.
+- Follow `docs/local-signing-key-lifecycle.md`. Select the Mac Pro private key
+  explicitly with `ROUTER_UI_SIGNING_KEY`, select the registry identity with
+  `ROUTER_UI_SIGNING_KEY_ID`, and use an absolute pinned `USIGN_BIN`. Require
+  mode `0600`, a matching derived fingerprint, and successful `/dev/shm`
+  cleanup. Never print or persist the private key in a build workspace.
 - Dispatch `Validate production-signed Router UI candidate` with the exact
   release commit SHA. It creates no tag or release. Require byte-reproducible
   canonical IPKs, all three images, strict signatures, and the complete serial

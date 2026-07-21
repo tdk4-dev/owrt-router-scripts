@@ -16,7 +16,7 @@ for tool in find jq sha256sum sort; do command -v "$tool" >/dev/null 2>&1 || fai
 mkdir -p "$OUT_DIR"
 
 source_sha="$(jq -er '.source_commit' "$RELEASE_DIR/router-release-manifest.json")"
-key_fingerprint="5b001ed1f9e63c96"
+key_fingerprint="$(jq -er '.signing_key_fingerprint' "$RELEASE_DIR/router-release-manifest.json")"
 
 find "$EVIDENCE_ROOT" -type f -name shard-identity.json -print0 | LC_ALL=C sort -z |
   xargs -0 jq -c . > "$OUT_DIR/shard-identities.jsonl"

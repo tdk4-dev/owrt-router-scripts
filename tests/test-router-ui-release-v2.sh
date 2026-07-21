@@ -5,6 +5,7 @@ umask 077
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 USIGN_BIN="${TEST_USIGN_BIN:-$(command -v usign || true)}"
 [ -x "$USIGN_BIN" ] || { printf 'usign is required for release-v2 tests\n' >&2; exit 1; }
+export USIGN_BIN
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-v2-test.XXXXXX")"
 cleanup() { rm -rf "$TMP_ROOT"; }
 trap cleanup EXIT INT TERM
@@ -15,11 +16,25 @@ SECRET="$TMP_ROOT/test.sec"
 PUBLIC="$TMP_ROOT/test.pub"
 "$USIGN_BIN" -G -s "$SECRET" -p "$PUBLIC" -c 'Router UI protocol v2 ephemeral test key'
 KEY_ID="test-$($USIGN_BIN -F -p "$PUBLIC")"
+TRUST_ROOT="$TMP_ROOT/trust-root"
+TRUST_REGISTRY="$TRUST_ROOT/keys/release/trusted-keys.json"
+mkdir -p "$TRUST_ROOT/keys/release"
+cp "$PUBLIC" "$TRUST_ROOT/keys/release/test.pub"
+jq -n --arg key_id "$KEY_ID" --arg fingerprint "$($USIGN_BIN -F -p "$PUBLIC")" \
+  '{schema_version:1,active_key_id:$key_id,keys:[{
+    key_id:$key_id,fingerprint:$fingerprint,status:"active",
+    creation_date:"2026-07-21",public_key_path:"keys/release/test.pub"}]}' \
+  > "$TRUST_REGISTRY"
+ROUTER_UI_TRUSTED_KEYS_FILE="$TRUST_REGISTRY"
+ROUTER_UI_TRUST_ROOT="$TRUST_ROOT"
+ROUTER_UI_SIGNING_KEY_ID="$KEY_ID"
+ROUTER_UI_SIGNING_KEY="$SECRET"
+export ROUTER_UI_TRUSTED_KEYS_FILE ROUTER_UI_TRUST_ROOT
+export ROUTER_UI_SIGNING_KEY_ID ROUTER_UI_SIGNING_KEY
 
 build_once() {
   label="$1"
   SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-    RELEASE_PUBLIC_KEY="$PUBLIC" RELEASE_KEY_ID="$KEY_ID" \
     BUILD_DIR="$TMP_ROOT/build-$label" OUT_DIR="$TMP_ROOT/ipk-$label" \
     FEED_DIR="$TMP_ROOT/feed-$label" "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/dev/null
 }
@@ -35,10 +50,9 @@ done
 
 OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   RELEASE_DIR="$TMP_ROOT/release" SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false \
-  SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" RELEASE_PUBLIC_KEY="$PUBLIC" \
-  RELEASE_KEY_ID="$KEY_ID" SIGNING_KEY="$SECRET" USIGN_BIN="$USIGN_BIN" \
+  SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
-RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+RELEASE_DIR="$TMP_ROOT/release" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" >/dev/null
 cmp -s "$TMP_ROOT/release/rd23-storage-geometry.json" \
@@ -55,7 +69,7 @@ printf '%s\n' '{"schema_version":1,"diagnostic_geometry_only":true}' \
   > "$TMP_ROOT/diagnostic-shim/router-ui-rd23-stock/image-provenance.json"
 tar -czf "$shim" -C "$TMP_ROOT/diagnostic-shim" router-ui-rd23-stock
 (cd "$TMP_ROOT/release" && sha256sum "$shim_name" >> SHA256SUMS)
-if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+if RELEASE_DIR="$TMP_ROOT/release" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" \
   >"$TMP_ROOT/diagnostic-shim.log" 2>&1; then
@@ -71,7 +85,7 @@ rm -f "$shim"
 
 cp "$TMP_ROOT/release/rd23-storage-geometry.json" "$TMP_ROOT/storage-geometry.good"
 printf 'corruption\n' >> "$TMP_ROOT/release/rd23-storage-geometry.json"
-if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+if RELEASE_DIR="$TMP_ROOT/release" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" \
   >"$TMP_ROOT/storage-geometry.log" 2>&1; then
@@ -82,7 +96,7 @@ grep -Eq 'SHA256SUMS validation failed|manifest RD23 storage geometry hash misma
   "$TMP_ROOT/storage-geometry.log"
 mv "$TMP_ROOT/storage-geometry.good" "$TMP_ROOT/release/rd23-storage-geometry.json"
 
-if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+if RELEASE_DIR="$TMP_ROOT/release" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   STRICT_RELEASE=1 USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" \
   >"$TMP_ROOT/strict.log" 2>&1; then
@@ -97,8 +111,9 @@ OPENWRT_RELEASE="$TMP_ROOT/openwrt_release"
 printf "DISTRIB_RELEASE='24.10.5'\nDISTRIB_TARGET='x86/64'\n" > "$OPENWRT_RELEASE"
 validate_manifest() {
   PREMIER_ROUTER_HOST_TEST=1 PR_OPENWRT_RELEASE_FILE="$OPENWRT_RELEASE" \
-    sh -c '. "$1"; pr_manifest_validate "$2" "$3" 0.7.10 1' sh \
-    "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" "$1" "$KEY_ID"
+    sh -c '. "$1"; pr_manifest_validate "$2" "$3" 0.7.10 1 "$4"' sh \
+    "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" "$1" \
+    "$KEY_ID" "$($USIGN_BIN -F -p "$PUBLIC")"
 }
 reject_filter() {
   name="$1"
@@ -114,6 +129,7 @@ reject_filter malformed-version '.app_version="0.7"'
 reject_filter unsupported-schema '.schema_version=99'
 reject_filter unsupported-protocol '.update_protocol=3'
 reject_filter dirty-provenance '.source_dirty=true'
+reject_filter signing-fingerprint '.signing_key_fingerprint="0000000000000000"'
 reject_filter missing-package '.packages=.packages[0:2]'
 reject_filter extra-package '.packages += [.packages[0]]'
 reject_filter duplicate-package '.packages[1]=.packages[0]'

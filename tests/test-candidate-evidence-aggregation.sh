@@ -8,14 +8,15 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-aggregate-test.XXXXXX")"
 trap 'rm -rf "$TMP_ROOT"' EXIT INT TERM
 
 SOURCE=cccccccccccccccccccccccccccccccccccccccc
+FINGERPRINT=d055711acf1d9a5b
 BASELINE=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 RELEASE="$TMP_ROOT/release"
 EVIDENCE="$TMP_ROOT/evidence"
 OUT="$TMP_ROOT/out"
 mkdir -p "$RELEASE" "$EVIDENCE"
 
-jq -n --arg source "$SOURCE" '
-  {source_commit:$source,transitions:
+jq -n --arg source "$SOURCE" --arg fingerprint "$FINGERPRINT" '
+  {source_commit:$source,signing_key_fingerprint:$fingerprint,transitions:
     (["0.5.1","0.5.2","0.6.0","0.7.0","0.7.1","0.7.2","0.7.3",
       "0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"] |
       map({mode:"rescue",source_version:.}))}
@@ -24,8 +25,8 @@ jq -n --arg source "$SOURCE" '
 for index in $(seq 1 22); do
   case_dir="$EVIDENCE/case-$index"
   mkdir -p "$case_dir"
-  jq -n --arg source "$SOURCE" --arg baseline "$BASELINE" '
-    {candidate_source_sha:$source,production_public_key_fingerprint:"5b001ed1f9e63c96",
+  jq -n --arg source "$SOURCE" --arg baseline "$BASELINE" --arg fingerprint "$FINGERPRINT" '
+    {candidate_source_sha:$source,production_public_key_fingerprint:$fingerprint,
      harness_source_sha:$source,baseline_pack_digest:$baseline,diagnostic:true,
      release_evidence:false,configured_ram_mib:256,
      recovery_timeout_seconds:600,

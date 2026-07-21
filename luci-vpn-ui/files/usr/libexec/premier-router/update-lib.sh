@@ -98,6 +98,37 @@ pr_verify_signature() {
   command -v "$usign_bin" >/dev/null 2>&1 || return 1
   "$usign_bin" -q -V -m "$message" -x "$signature" -p "$public_key"
 }
+pr_resolve_trusted_release_key() {
+  local registry="$1" public_root="$2" requested_id="$3"
+  local usign_bin="${PR_USIGN_BIN:-usign}"
+  local index=0 key_id status fingerprint public_name public_key actual
+  [ -s "$registry" ] && [ -d "$public_root" ] || return 1
+  while [ "$index" -lt 64 ]; do
+    key_id="$(pr_json_get "$registry" "@.keys[$index].key_id" ".keys[$index].key_id // empty")"
+    [ -n "$key_id" ] || break
+    if [ "$key_id" = "$requested_id" ]; then
+      status="$(pr_json_get "$registry" "@.keys[$index].status" ".keys[$index].status // empty")"
+      case "$status" in active|previous) ;; *) pr_fail "release key is not trusted: $key_id ($status)"; return 1 ;; esac
+      fingerprint="$(pr_json_get "$registry" "@.keys[$index].fingerprint" ".keys[$index].fingerprint // empty")"
+      public_name="$(pr_json_get "$registry" "@.keys[$index].public_key_path" ".keys[$index].public_key_path // empty")"
+      printf '%s' "$fingerprint" | grep -Eq '^[0-9a-f]{16}$' || return 1
+      printf '%s' "$public_name" | grep -Eq '^[A-Za-z0-9._-]+\.pub$' || return 1
+      public_key="$public_root/$public_name"
+      [ -s "$public_key" ] && command -v "$usign_bin" >/dev/null 2>&1 || return 1
+      actual="$("$usign_bin" -F -p "$public_key")" || return 1
+      [ "$actual" = "$fingerprint" ] || return 1
+      PR_TRUSTED_KEY_ID="$key_id"
+      PR_TRUSTED_KEY_STATUS="$status"
+      PR_TRUSTED_KEY_FINGERPRINT="$fingerprint"
+      PR_TRUSTED_PUBLIC_KEY="$public_key"
+      export PR_TRUSTED_KEY_ID PR_TRUSTED_KEY_STATUS
+      export PR_TRUSTED_KEY_FINGERPRINT PR_TRUSTED_PUBLIC_KEY
+      return 0
+    fi
+    index=$((index + 1))
+  done
+  pr_fail "unknown release key ID: $requested_id"
+}
 pr_detect_openwrt_version() {
   local release_file="${PR_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
   sed -n "s/^DISTRIB_RELEASE=['\"]\([^'\"]*\)['\"]$/\1/p" "$release_file" | sed -n '1p'
@@ -133,6 +164,7 @@ pr_transition_supported() {
 
 pr_manifest_validate() {
   local manifest="$1" expected_key_id="$2" source_version="$3" source_protocol="$4"
+  local expected_fingerprint="${5:-}" key_fingerprint
   local schema protocol channel app package_version tag commit dirty key_id minimum
   local openwrt_min openwrt_max openwrt_version target
   local index=0 count=0 name filename version architecture size sha install_order
@@ -147,6 +179,7 @@ pr_manifest_validate() {
   commit="$(pr_json_get "$manifest" '@.source_commit' '.source_commit // empty')"
   dirty="$(pr_json_get "$manifest" '@.source_dirty' '.source_dirty')"
   key_id="$(pr_json_get "$manifest" '@.signing_key_id' '.signing_key_id // empty')"
+  key_fingerprint="$(pr_json_get "$manifest" '@.signing_key_fingerprint' '.signing_key_fingerprint // empty')"
   minimum="$(pr_json_get "$manifest" '@.minimum_updater_protocol' '.minimum_updater_protocol // empty')"
 
   [ "$schema" = "2" ] || pr_fail "unsupported manifest schema: $schema" || return 1
@@ -159,6 +192,8 @@ pr_manifest_validate() {
     pr_fail "invalid source commit" || return 1
   [ "$dirty" = "false" ] || pr_fail "dirty release provenance is forbidden" || return 1
   [ "$key_id" = "$expected_key_id" ] || pr_fail "signing key ID mismatch" || return 1
+  [ -z "$expected_fingerprint" ] || [ "$key_fingerprint" = "$expected_fingerprint" ] ||
+    pr_fail "signing key fingerprint mismatch" || return 1
   printf '%s' "$minimum" | grep -Eq '^[0-9]+$' ||
     pr_fail "invalid minimum updater protocol" || return 1
   [ "$minimum" -le "$PR_UPDATE_PROTOCOL" ] ||

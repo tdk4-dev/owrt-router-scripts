@@ -12,13 +12,13 @@ RELEASE_DIR="${RELEASE_DIR:-$OUT_ROOT/release-v$APP_VERSION}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")}"
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
-RELEASE_KEY_ID="${RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
-SIGNING_KEY="${SIGNING_KEY:-}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
 PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-stage.XXXXXX")"
+ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
+export ROUTER_UI_RELEASE_ROOT
+. "$ROOT_DIR/scripts/release-key-lib.sh"
 
 cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT INT TERM
@@ -33,18 +33,13 @@ if [ -z "$SOURCE_DIRTY" ]; then
   if [ -n "$(git -C "$ROOT_DIR" status --short)" ]; then SOURCE_DIRTY=true; else SOURCE_DIRTY=false; fi
 fi
 case "$SOURCE_DIRTY" in true|false) ;; *) fail "SOURCE_DIRTY must be true or false" ;; esac
-[ -s "$SIGNING_KEY" ] || fail "SIGNING_KEY is required"
-[ -s "$RELEASE_PUBLIC_KEY" ] || fail "release public key is missing"
-[ "$("$USIGN_BIN" -F -s "$SIGNING_KEY")" = "$("$USIGN_BIN" -F -p "$RELEASE_PUBLIC_KEY")" ] ||
-  fail "signing key and release public key do not match"
+pr_require_active_signing_key || exit 1
 if [ "$STRICT_RELEASE" = 1 ]; then
   [ "$SOURCE_DIRTY" = false ] || fail "strict release refuses dirty source"
   case "$RELEASE_KEY_ID" in test-*|dev-*|development-*) fail "strict release refuses a development key ID" ;; esac
   grep -qi 'development\|test key' "$RELEASE_PUBLIC_KEY" &&
     fail "strict release refuses a development public key"
-  [ "$RELEASE_KEY_ID" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')" ] &&
-    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')" ] ||
-    fail "strict release requires the committed production public key and key ID"
+  pr_require_committed_registry || exit 1
 fi
 
 for package in $PROJECT_PACKAGES; do
@@ -225,6 +220,7 @@ jq -n \
   --argjson source_date_epoch "$SOURCE_DATE_EPOCH" \
   --arg generated_at "$GENERATED_AT" \
   --arg signing_key_id "$RELEASE_KEY_ID" \
+  --arg signing_key_fingerprint "$RELEASE_KEY_FINGERPRINT" \
   --argjson packages "$PACKAGES_JSON" \
   --argjson validator "$VALIDATOR_JSON" \
   --argjson supervisor "$SUPERVISOR_JSON" \
@@ -251,6 +247,7 @@ jq -n \
     minimum_updater_protocol:2,
     transitions:$transitions,
     signing_key_id:$signing_key_id,
+    signing_key_fingerprint:$signing_key_fingerprint,
     packages:$packages,
     candidate_validator:$validator,
     transaction_supervisor:$supervisor,
@@ -278,9 +275,11 @@ jq -n \
   --arg manifest_filename router-release-manifest.json \
   --arg manifest_sha256 "$(sha256sum "$MANIFEST" | awk '{print $1}')" \
   --arg signing_key_id "$RELEASE_KEY_ID" \
+  --arg signing_key_fingerprint "$RELEASE_KEY_FINGERPRINT" \
   '{schema_version:1,channel:$channel,target_version:$target_version,
     release_tag:$release_tag,manifest_filename:$manifest_filename,
-    manifest_sha256:$manifest_sha256,signing_key_id:$signing_key_id}' |
+    manifest_sha256:$manifest_sha256,signing_key_id:$signing_key_id,
+    signing_key_fingerprint:$signing_key_fingerprint}' |
   jq -S . > "$POINTER"
 "$USIGN_BIN" -S -m "$POINTER" -s "$SIGNING_KEY" \
   -x "$RELEASE_DIR/stable-channel.json.sig"
@@ -346,11 +345,13 @@ jq -n \
   --argjson source_dirty "$SOURCE_DIRTY" \
   --argjson source_date_epoch "$SOURCE_DATE_EPOCH" \
   --arg signing_key_id "$RELEASE_KEY_ID" \
+  --arg signing_key_fingerprint "$RELEASE_KEY_FINGERPRINT" \
   --argjson canonical_ipks "$IPK_PROVENANCE" \
   --argjson images "$IMAGES_JSON" \
   '{schema_version:1,app_version:$app_version,package_version:$package_version,
     source_commit:$source_commit,source_dirty:$source_dirty,
     source_date_epoch:$source_date_epoch,signing_key_id:$signing_key_id,
+    signing_key_fingerprint:$signing_key_fingerprint,
     canonical_ipks:$canonical_ipks,derived_images:$images}' |
   jq -S . > "$PROVENANCE"
 "$USIGN_BIN" -S -m "$PROVENANCE" -s "$SIGNING_KEY" \

@@ -7,8 +7,7 @@ APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 PKG_VERSION="$APP_VERSION-${PKG_RELEASE:-1}"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 RELEASE_DIR="${RELEASE_DIR:-$ROOT_DIR/dist/release-v$APP_VERSION}"
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
-EXPECTED_RELEASE_KEY_ID="${EXPECTED_RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
+EXPECTED_RELEASE_KEY_ID="${EXPECTED_RELEASE_KEY_ID:-}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
 REQUIRE_IMAGES="${REQUIRE_IMAGES:-0}"
@@ -16,6 +15,9 @@ REQUIRE_MAIN_ANCESTRY="${REQUIRE_MAIN_ANCESTRY:-$STRICT_RELEASE}"
 EXPECTED_SOURCE_COMMIT="${EXPECTED_SOURCE_COMMIT:-}"
 PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-release-validate.XXXXXX")"
+ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
+export ROUTER_UI_RELEASE_ROOT
+. "$ROOT_DIR/scripts/release-key-lib.sh"
 
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
@@ -25,7 +27,6 @@ for tool in awk cmp find grep gzip jq sed sha256sum sort tar wc "$USIGN_BIN"; do
 
 [ "$APP_VERSION" = 0.7.11 ] || fail "validator is scoped to Router UI 0.7.11"
 [ -d "$RELEASE_DIR" ] || fail "missing release directory: $RELEASE_DIR"
-[ -s "$RELEASE_PUBLIC_KEY" ] || fail "missing release public key"
 for file in router-release-manifest.json router-release-manifest.json.sig \
   stable-channel.json stable-channel.json.sig release-provenance.json \
   release-provenance.json.sig SHA256SUMS router-ui-packages.txt \
@@ -60,6 +61,12 @@ done
 MANIFEST="$RELEASE_DIR/router-release-manifest.json"
 POINTER="$RELEASE_DIR/stable-channel.json"
 PROVENANCE="$RELEASE_DIR/release-provenance.json"
+MANIFEST_KEY_ID="$(jq -er '.signing_key_id | select(type == "string")' "$MANIFEST")" ||
+  fail "manifest signing key ID is missing"
+[ -z "$EXPECTED_RELEASE_KEY_ID" ] || [ "$EXPECTED_RELEASE_KEY_ID" = "$MANIFEST_KEY_ID" ] ||
+  fail "manifest signing key ID differs from expected key ID"
+EXPECTED_RELEASE_KEY_ID="$MANIFEST_KEY_ID"
+pr_select_trusted_key "$EXPECTED_RELEASE_KEY_ID" 'active previous' || exit 1
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$MANIFEST" \
   -x "$RELEASE_DIR/router-release-manifest.json.sig" || fail "manifest signature invalid"
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$POINTER" \
@@ -76,10 +83,12 @@ PREMIER_ROUTER_HOST_TEST=1 PR_USIGN_BIN="$USIGN_BIN" \
 
 jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
   --argjson require_images "$REQUIRE_IMAGES" \
-  --arg tag "vpn-panel-v$APP_VERSION" --arg key "$EXPECTED_RELEASE_KEY_ID" '
+  --arg tag "vpn-panel-v$APP_VERSION" --arg key "$EXPECTED_RELEASE_KEY_ID" \
+  --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
   .schema_version == 2 and .update_protocol == 2 and .channel == "stable" and
   .app_version == $version and .package_version == $package and
-  .release_tag == $tag and .signing_key_id == $key and .source_dirty == false and
+  .release_tag == $tag and .signing_key_id == $key and
+  .signing_key_fingerprint == $fingerprint and .source_dirty == false and
   (.source_commit | test("^[0-9a-f]{40}$")) and
   .rd23_storage_geometry.filename == "rd23-storage-geometry.json" and
   (($require_images == 0) or ((.images | length == 3) and
@@ -96,15 +105,18 @@ MANIFEST_COMMIT="$(jq -r .source_commit "$MANIFEST")"
   fail "manifest source commit differs from expected commit"
 jq -e --arg version "$APP_VERSION" --arg tag "vpn-panel-v$APP_VERSION" \
   --arg hash "$(sha256sum "$MANIFEST" | awk '{print $1}')" \
-  --arg key "$EXPECTED_RELEASE_KEY_ID" '
+  --arg key "$EXPECTED_RELEASE_KEY_ID" --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
   .schema_version == 1 and .channel == "stable" and .target_version == $version and
   .release_tag == $tag and .manifest_filename == "router-release-manifest.json" and
-  .manifest_sha256 == $hash and .signing_key_id == $key
+  .manifest_sha256 == $hash and .signing_key_id == $key and
+  .signing_key_fingerprint == $fingerprint
 ' "$POINTER" >/dev/null || fail "stable pointer does not pin the exact manifest"
 jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
-  --arg commit "$MANIFEST_COMMIT" --arg key "$EXPECTED_RELEASE_KEY_ID" '
+  --arg commit "$MANIFEST_COMMIT" --arg key "$EXPECTED_RELEASE_KEY_ID" \
+  --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
   .schema_version == 1 and .app_version == $version and .package_version == $package and
   .source_commit == $commit and .source_dirty == false and .signing_key_id == $key and
+  .signing_key_fingerprint == $fingerprint and
   (.canonical_ipks | length == 3)
 ' "$PROVENANCE" >/dev/null || fail "release provenance mismatch"
 
@@ -140,6 +152,9 @@ cmp -s "$WORK/core/usr/sbin/install-router-ui-release" "$RELEASE_DIR/install-rou
   fail "published installer was not derived from canonical core IPK"
 grep -Fqx "RELEASE_KEY_ID=$EXPECTED_RELEASE_KEY_ID" "$WORK/core/usr/share/premier-router/build-info" ||
   fail "core IPK release key ID mismatch"
+grep -Fqx "RELEASE_KEY_FINGERPRINT=$RELEASE_KEY_FINGERPRINT" \
+  "$WORK/core/usr/share/premier-router/build-info" ||
+  fail "core IPK release key fingerprint mismatch"
 grep -Fqx "SOURCE_COMMIT=$MANIFEST_COMMIT" "$WORK/core/usr/share/premier-router/build-info" ||
   fail "core IPK source commit mismatch"
 grep -Fqx 'SOURCE_DIRTY=false' "$WORK/core/usr/share/premier-router/build-info" ||
@@ -271,9 +286,7 @@ fi
 if [ "$STRICT_RELEASE" = 1 ]; then
   case "$EXPECTED_RELEASE_KEY_ID" in test-*|dev-*|development-*) fail "strict release refuses a development key ID" ;; esac
   grep -Eqi 'development|test key' "$RELEASE_PUBLIC_KEY" && fail "strict release refuses a development public key"
-  [ "$EXPECTED_RELEASE_KEY_ID" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')" ] &&
-    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')" ] ||
-    fail "strict release requires the committed production public key and key ID"
+  pr_require_committed_registry || exit 1
   expected_comment="$(sed -n '1p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
   expected_data="$(sed -n '2p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
   for script in "$RELEASE_DIR/install-router-ui-release.sh" "$RELEASE_DIR/rescue-router-ui.sh"; do

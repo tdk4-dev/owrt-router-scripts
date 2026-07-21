@@ -5,6 +5,7 @@ umask 077
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 USIGN_BIN="${TEST_USIGN_BIN:-$(command -v usign || true)}"
 [ -x "$USIGN_BIN" ] || { printf 'usign is required for transaction tests\n' >&2; exit 1; }
+export USIGN_BIN
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-transaction-test.XXXXXX")"
 cleanup() {
   if [ "${KEEP_TRANSACTION_TEST_TMP:-0}" = 1 ]; then
@@ -22,13 +23,27 @@ SECRET="$TMP_ROOT/test.sec"
 PUBLIC="$TMP_ROOT/test.pub"
 "$USIGN_BIN" -G -s "$SECRET" -p "$PUBLIC" -c 'Router UI transaction ephemeral test key'
 KEY_ID="test-$($USIGN_BIN -F -p "$PUBLIC")"
+TRUST_ROOT="$TMP_ROOT/trust-root"
+TRUST_REGISTRY="$TRUST_ROOT/keys/release/trusted-keys.json"
+mkdir -p "$TRUST_ROOT/keys/release"
+cp "$PUBLIC" "$TRUST_ROOT/keys/release/test.pub"
+jq -n --arg key_id "$KEY_ID" --arg fingerprint "$($USIGN_BIN -F -p "$PUBLIC")" \
+  '{schema_version:1,active_key_id:$key_id,keys:[{
+    key_id:$key_id,fingerprint:$fingerprint,status:"active",
+    creation_date:"2026-07-21",public_key_path:"keys/release/test.pub"}]}' \
+  > "$TRUST_REGISTRY"
+ROUTER_UI_TRUSTED_KEYS_FILE="$TRUST_REGISTRY"
+ROUTER_UI_TRUST_ROOT="$TRUST_ROOT"
+ROUTER_UI_SIGNING_KEY_ID="$KEY_ID"
+ROUTER_UI_SIGNING_KEY="$SECRET"
+export ROUTER_UI_TRUSTED_KEYS_FILE ROUTER_UI_TRUST_ROOT
+export ROUTER_UI_SIGNING_KEY_ID ROUTER_UI_SIGNING_KEY
 SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-  RELEASE_PUBLIC_KEY="$PUBLIC" RELEASE_KEY_ID="$KEY_ID" BUILD_DIR="$TMP_ROOT/build" \
+  BUILD_DIR="$TMP_ROOT/build" \
   OUT_DIR="$TMP_ROOT/ipk" FEED_DIR="$TMP_ROOT/feed" \
   "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/dev/null
 OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk" RELEASE_DIR="$TMP_ROOT/release" \
   SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-  RELEASE_PUBLIC_KEY="$PUBLIC" RELEASE_KEY_ID="$KEY_ID" SIGNING_KEY="$SECRET" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 printf '%s\n' "$KEY_ID" > "$TMP_ROOT/release-key-id"
 

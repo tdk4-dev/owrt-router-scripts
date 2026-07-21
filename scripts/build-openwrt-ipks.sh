@@ -12,10 +12,11 @@ SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null 
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT" 2>/dev/null || printf 0)}"
 UPDATER_PROTOCOL=2
-RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY:-$ROOT_DIR/release/keys/router-ui-production.pub}"
-RELEASE_KEY_ID="${RELEASE_KEY_ID:-$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
+ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
+export ROUTER_UI_RELEASE_ROOT
+. "$ROOT_DIR/scripts/release-key-lib.sh"
 
 if [ -z "$SOURCE_DIRTY" ]; then
   if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
@@ -32,9 +33,11 @@ need() {
   }
 }
 
-for tool in awk env find gzip sed sha256sum sort tar; do
+for tool in awk env find gzip jq sed sha256sum sort tar "$USIGN_BIN"; do
   need "$tool"
 done
+
+pr_select_active_public_key || exit 1
 
 [ -n "$APP_VERSION" ] || {
   printf 'luci-vpn-ui/VERSION is empty\n' >&2
@@ -57,14 +60,7 @@ printf '%s' "$RELEASE_KEY_ID" | grep -Eq '^[A-Za-z0-9._-]+$' || {
   exit 1
 }
 if [ "$STRICT_RELEASE" = 1 ]; then
-  need "$USIGN_BIN"
-  expected_fingerprint="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint" | tr -d '\r\n')"
-  expected_key_id="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')"
-  [ "$RELEASE_KEY_ID" = "$expected_key_id" ] &&
-    [ "$($USIGN_BIN -F -p "$RELEASE_PUBLIC_KEY")" = "$expected_fingerprint" ] || {
-    printf 'Strict build requires the committed production public key and key ID\n' >&2
-    exit 1
-  }
+  pr_require_committed_registry || exit 1
 fi
 
 rm -rf "$BUILD_DIR"
@@ -281,6 +277,17 @@ copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/releas
 mkdir -p "$CORE_ROOT/usr/share/premier-router/keys"
 printf '%s\n' "$RELEASE_KEY_ID" > "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
 chmod 644 "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
+mkdir -p "$CORE_ROOT/usr/share/premier-router/keys/release"
+jq '.keys |= map(.public_key_path = (.public_key_path | split("/") | last))' \
+  "$ROUTER_UI_TRUSTED_KEYS_FILE" > \
+  "$CORE_ROOT/usr/share/premier-router/keys/trusted-keys.json"
+chmod 644 "$CORE_ROOT/usr/share/premier-router/keys/trusted-keys.json"
+jq -r '.keys[].public_key_path' "$ROUTER_UI_TRUSTED_KEYS_FILE" |
+  while IFS= read -r repository_public_key; do
+    runtime_name="$(basename "$repository_public_key")"
+    copy_file "$ROUTER_UI_TRUST_ROOT/$repository_public_key" \
+      "$CORE_ROOT/usr/share/premier-router/keys/release/$runtime_name" 644
+  done
 cat > "$CORE_ROOT/usr/share/premier-router/build-info" <<EOF
 APP_VERSION=$APP_VERSION
 PACKAGE_VERSION=$PKG_VERSION
@@ -289,6 +296,7 @@ SOURCE_DIRTY=$SOURCE_DIRTY
 SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
 UPDATER_PROTOCOL=$UPDATER_PROTOCOL
 RELEASE_KEY_ID=$RELEASE_KEY_ID
+RELEASE_KEY_FINGERPRINT=$RELEASE_KEY_FINGERPRINT
 EOF
 chmod 644 "$CORE_ROOT/usr/share/premier-router/build-info"
 mkdir -p "$CORE_ROOT/etc"

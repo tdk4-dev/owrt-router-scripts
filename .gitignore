@@ -56,6 +56,8 @@ run.log
 !rd23.env.example
 *.pem
 *.key
+*.sec
+*.p7m
 *.p12
 *.pfx
 *.ovpn

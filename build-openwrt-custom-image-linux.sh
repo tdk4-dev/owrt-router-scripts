@@ -183,8 +183,18 @@ fi
   printf 'Signed installed package-set checksums failed\n' >&2
   exit 1
 }
-cmp -s "$INSTALLED_PACKAGE_SET_DIR/release.pub" "$ROOT_DIR/release/keys/router-ui-production.pub" || {
+EXPECTED_RELEASE_PUBLIC="$WORK_DIR/canonical-package-release.pub"
+EXPECTED_RELEASE_KEY_ID="$WORK_DIR/canonical-package-release-key-id"
+tar -xzOf "$PROJECT_PACKAGE_DIR/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
+  tar -xzOf - ./usr/share/premier-router/keys/release.pub > "$EXPECTED_RELEASE_PUBLIC"
+tar -xzOf "$PROJECT_PACKAGE_DIR/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
+  tar -xzOf - ./usr/share/premier-router/keys/release-key-id > "$EXPECTED_RELEASE_KEY_ID"
+cmp -s "$INSTALLED_PACKAGE_SET_DIR/release.pub" "$EXPECTED_RELEASE_PUBLIC" || {
   printf 'Installed package set uses another public key\n' >&2
+  exit 1
+}
+cmp -s "$INSTALLED_PACKAGE_SET_DIR/release-key-id" "$EXPECTED_RELEASE_KEY_ID" || {
+  printf 'Installed package set uses another release key ID\n' >&2
   exit 1
 }
 PACKAGE_SET_HASH="$(sha256sum "$INSTALLED_PACKAGE_SET_DIR/installed-manifest.json" | awk '{print $1}')"

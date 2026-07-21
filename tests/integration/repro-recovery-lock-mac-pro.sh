@@ -167,8 +167,9 @@ validate_candidate() {
   (cd "$CANDIDATE_DIR" && shasum -a 256 -c SHA256SUMS) > "$RUN_DIR/candidate-sha256.log"
   grep -Fq "\"source_commit\": \"$EXPECTED_SOURCE_SHA\"" \
     "$CANDIDATE_DIR/router-release-manifest.json" || fail 'candidate source SHA mismatch'
-  grep -Fq '"signing_key_id": "router-ui-prod-5b001ed1f9e63c96"' \
-    "$CANDIDATE_DIR/router-release-manifest.json" || fail 'candidate production key ID mismatch'
+  expected_key_id="$(jq -er .active_key_id "$ROOT_DIR/release/keys/trusted-keys.json")"
+  [ "$(jq -er .signing_key_id "$CANDIDATE_DIR/router-release-manifest.json")" = \
+    "$expected_key_id" ] || fail 'candidate production key ID mismatch'
 }
 
 prepare_https_server() {

@@ -956,7 +956,7 @@ run_clean_image() {
   VM_ACTIVE_VERSION=0.7.11
   disk="$WORK/clean-image.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_candidate_vm "$disk" clean-image; record_measurement clean-image
-  fingerprint="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")"
+  fingerprint="$(jq -er .signing_key_fingerprint "$RELEASE_DIR/router-release-manifest.json")"
   guest verify-clean-image "$fingerprint"; normal_reboot; guest verify-clean-image "$fingerprint"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" image clean-x86-boot pass '{}'
   shutdown_vm; rm -f "$disk"
@@ -1209,7 +1209,7 @@ finalize_evidence() {
     --arg diagnostic_run "$DIAGNOSTIC_RUN" \
     --arg baseline_pack_digest "$BASELINE_PACK_DIGEST" \
     --argjson recovery_timeout_seconds "$VM_RECOVERY_TIMEOUT_SECONDS" \
-    --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
+    --arg key_fingerprint "$(jq -er .signing_key_fingerprint "$RELEASE_DIR/router-release-manifest.json")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
       harness_source_sha:$harness_source_sha,diagnostic_case:$diagnostic_case,
       baseline_pack_digest:$baseline_pack_digest,

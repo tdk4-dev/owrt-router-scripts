@@ -53,11 +53,12 @@ reboot-validation-pending transactions are never pruned. Known-good package
 sets are removed only when no retained transaction or installed manifest
 references their exact manifest hash.
 
-The production public key, fingerprint, and key ID are committed under
-`release/keys/` and are the only trust root accepted by strict builds. The
-private key is never stored in Git; it exists only as the protected
-`ROUTER_UI_USIGN_SECRET_KEY` environment secret and is materialized for signing
-as a mode-0600 temporary file. Test keys remain under `tests/fixtures/`; strict
-validation refuses `test-*`, `dev-*`, and development identities. Rotation
-requires a separately reviewed bridge release trusted by the old key that
-installs the new public key, followed by manifests signed by the new key.
+The public trust registry is committed as `release/keys/trusted-keys.json`.
+New signing requires its one active identity; verification accepts active and
+the optional previous identity, and rejects revoked or unknown IDs. The
+private key is never stored in Git. It is selected explicitly with
+`ROUTER_UI_SIGNING_KEY`, `ROUTER_UI_SIGNING_KEY_ID`, and an absolute
+`USIGN_BIN`, then fingerprint-checked before use. Production signing streams
+the key from the Mac Pro into `/dev/shm` in the Linux build VM and removes it
+immediately. See `docs/local-signing-key-lifecycle.md` for rotation, encrypted
+backup, and manual fleet-bootstrap requirements.
