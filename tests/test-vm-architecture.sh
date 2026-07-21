@@ -191,6 +191,12 @@ grep -q 'VM_RECOVERY_TIMEOUT_SECONDS < VM_PHASE_TIMEOUT_SECONDS' "$GATE" ||
   fail 'VM recovery deadline is not bounded by the phase deadline'
 grep -q 'vm_wait_for_recovery' "$GATE" ||
   fail 'VM gate does not wait for the expected owned recovery transaction'
+grep -q 'wait_reboot_ssh' "$GATE" ||
+  fail 'VM gate does not require a changed boot ID before post-reboot SSH use'
+grep -q 'VM SSH did not become ready on a new boot ID' "$GATE" ||
+  fail 'VM gate has no explicit changed-boot readiness failure'
+! sed -n '/normal_reboot()/,/^}/p' "$GATE" | grep -q '^  wait_ssh$' ||
+  fail 'normal reboot can still accept the pre-reboot SSH daemon'
 grep -q 'reboot-recovery.jsonl' "$GATE" ||
   fail 'VM gate does not preserve reboot and recovery readiness evidence'
 grep -q 'reboot recovery readiness evidence is incomplete' "$AGGREGATOR" ||

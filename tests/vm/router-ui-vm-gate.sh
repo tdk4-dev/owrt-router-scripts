@@ -543,6 +543,19 @@ wait_ssh() {
   done
   fail "VM SSH did not become ready"
 }
+wait_reboot_ssh() {
+  local previous_boot_id="$1" boot_id
+  for _ in {1..180}; do
+    boot_id="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)"
+    if [[ -n "$boot_id" && "$boot_id" != "$previous_boot_id" ]] &&
+      "${ssh_base[@]}" true >/dev/null 2>&1; then
+      printf '%s\n' "$boot_id"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 start_candidate_vm() {
   local disk="$1" name="$2"
   local expected_key actual_key expected_key_sha actual_key_sha expected_ca actual_ca
@@ -685,10 +698,8 @@ normal_reboot() {
   fi
   before="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
   "${ssh_base[@]}" 'sync; reboot' >/dev/null 2>&1 || true
-  sleep 2
-  wait_ssh
-  after="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
-  [[ "$before" != "$after" ]] || fail "VM reboot did not change boot ID"
+  after="$(wait_reboot_ssh "$before")" ||
+    fail "VM SSH did not become ready on a new boot ID"
 
   vm_wait_for_recovery "$EVIDENCE_DIR/reboot-recovery.jsonl" \
     "$VM_RECOVERY_TIMEOUT_SECONDS" "$transaction" "$expected_state" "$before" "$after" || rc=$?
