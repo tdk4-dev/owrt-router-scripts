@@ -2,6 +2,7 @@
 set -euo pipefail
 umask 077
 
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 VBOXMANAGE=/usr/local/bin/VBoxManage
 MODE=focused
 REPEAT=1
