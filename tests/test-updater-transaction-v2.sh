@@ -182,6 +182,10 @@ stage 070-applied
 [ ! -e "$legacy_status" ]
 [ -s "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+printf '%s\n' "$transaction" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$'
+[ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
+journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+[ "$(jq -r .worker_ownership_token "$journal" | wc -c | tr -d ' ')" -eq 65 ]
 grep -qx '/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js' \
   "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/paths.list"
 run_supervisor rollback "$transaction"
@@ -209,6 +213,7 @@ printf 'boot-after-079\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 run_supervisor recover
 stage 079-recovered
 [ "$(jq -r .state "$journal")" = committed ]
+[ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
 reset_source 0.7.10
@@ -310,6 +315,9 @@ VPN_UI_UPDATE_SOURCE_ONLY=1 PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$LOCK
     printf "token=stale\npid=999999\nboot_id=lock-boot\nstart_id=99\n" > "$LOCK_DIR/owner"
     lock_acquire token-after-stale
     lock_release token-after-stale
+    generated="$(random_token)"
+    [ "${#generated}" -eq 64 ]
+    case "$generated" in *[!0-9a-f]*) exit 1 ;; esac
   ' sh "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
 stage lock-ownership
 

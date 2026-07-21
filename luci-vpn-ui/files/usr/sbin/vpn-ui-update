@@ -72,11 +72,16 @@ process_start_id() {
   awk '{ print $22 }' "${ROOT_PREFIX}/proc/$pid/stat" 2>/dev/null
 }
 random_token() {
-  if [ -r "${ROOT_PREFIX}/dev/urandom" ]; then
-    od -An -N16 -tx1 "${ROOT_PREFIX}/dev/urandom" 2>/dev/null | tr -d ' \n'
-  else
-    printf '%s-%s-%s' "$$" "$(date +%s)" "$(process_start_id $$)" | sha256sum | awk '{print $1}'
-  fi
+  local token
+  token="$({
+    printf '%s|%s|%s|%s|' "$$" "$(date +%s)" "$(process_start_id $$)" "$(boot_id)"
+    if [ -r "${ROOT_PREFIX}/dev/urandom" ]; then
+      dd if="${ROOT_PREFIX}/dev/urandom" bs=16 count=1 2>/dev/null || true
+    fi
+  } | sha256sum | awk '{print $1}')"
+  [ "${#token}" -eq 64 ] || return 1
+  case "$token" in *[!0-9a-f]*) return 1 ;; esac
+  printf '%s\n' "$token"
 }
 atomic_from_stdin() {
   local dst="$1" tmp="$1.new.$$"
