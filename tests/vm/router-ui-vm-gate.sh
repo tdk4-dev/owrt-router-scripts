@@ -454,65 +454,71 @@ console_bootstrap_key() {
   ROUTER_UI_VM_PUBLIC_KEY="$(cat "$WORK/ssh-key.pub")" \
   ROUTER_UI_VM_CA_B64="$(base64 < "$WORK/ca.crt" | tr -d '\n')" \
     python3 - "$SERIAL_PORT" <<'PY'
-import os, socket, sys, time
+import os, re, socket, sys, time
 sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2)
-sock.setblocking(False)
-
-def drain():
-    while True:
-        try:
-            if not sock.recv(65536):
-                raise RuntimeError("serial console closed during bootstrap")
-        except BlockingIOError:
-            return
+sock.settimeout(0.2)
+prompt = re.compile(rb"root@[^\r\n]*:~# $")
 
 def send(payload):
-    pending = memoryview(payload)
     deadline = time.monotonic() + 20
-    while pending:
-        drain()
-        try:
-            sent = sock.send(pending[:32])
-            pending = pending[sent:]
-        except BlockingIOError:
-            pass
+    for offset in range(0, len(payload), 32):
+        sock.sendall(payload[offset:offset + 32])
         if time.monotonic() >= deadline:
             raise TimeoutError("serial console bootstrap write timed out")
         time.sleep(0.003)
 
-def drain_for(seconds):
-    deadline = time.monotonic() + seconds
+def read_until_prompt(label):
+    output = bytearray()
+    deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        drain()
-        time.sleep(0.01)
+        try:
+            chunk = sock.recv(65536)
+            if not chunk:
+                raise RuntimeError("serial console closed during " + label)
+            output.extend(chunk)
+            if prompt.search(output):
+                return bytes(output)
+        except socket.timeout:
+            pass
+    raise TimeoutError("serial console prompt timed out during " + label)
+
+def run_command(command, label):
+    send(command.encode() + b"\n")
+    return read_until_prompt(label)
 
 key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
 ca = os.environ["ROUTER_UI_VM_CA_B64"]
-command = (
-    "mkdir -p /etc/dropbear /etc/ssl/certs; "
-    "printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys; "
-    "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
-    "chmod 600 /etc/dropbear/authorized_keys; "
+marker = "ROUTER_UI_CONSOLE_BOOTSTRAP_OK"
+send(b"\n")
+read_until_prompt("console activation")
+run_command("mkdir -p /etc/dropbear /etc/ssl/certs", "credential directories")
+run_command("printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys",
+            "runtime public key")
+run_command(": > /tmp/router-ui-vm-ca.b64", "test CA staging")
+chunk_size = 128
+for offset in range(0, len(ca), chunk_size):
+    chunk = ca[offset:offset + chunk_size]
+    run_command("printf '%s' '" + chunk + "' >> /tmp/router-ui-vm-ca.b64",
+                "test CA chunk")
+run_command(
+    "base64 -d /tmp/router-ui-vm-ca.b64 > /etc/ssl/certs/router-ui-vm-ca.pem; "
+    "rm -f /tmp/router-ui-vm-ca.b64; chmod 600 /etc/dropbear/authorized_keys",
+    "credential installation")
+run_command(
     "uci -q set network.lan.proto='dhcp'; "
     "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
     "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
-    "uci commit network; /etc/init.d/network restart; /etc/init.d/dropbear restart; "
-    "stty echo; echo ROUTER_UI_CONSOLE_BOOTSTRAP_OK\n"
-)
-send(b"\n")
-drain_for(0.5)
-send(b"stty -echo\n")
-drain_for(0.25)
-send(command.encode())
-drain_for(8)
+    "uci commit network; /etc/init.d/network restart; /etc/init.d/dropbear restart",
+    "network and SSH restart")
+marker_output = run_command("echo " + marker, "completion marker")
+normalized_lines = marker_output.replace(b"\r\n", b"\n").replace(b"\r", b"\n").splitlines()
+if marker.encode() not in [line.strip() for line in normalized_lines]:
+    raise RuntimeError("serial credential bootstrap marker was not executed")
 sock.close()
 PY
-  for _ in {1..30}; do
-    grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$serial_log" && return
-    kill -0 "$CURRENT_PID" 2>/dev/null || fail "VM exited during serial credential bootstrap"
-    sleep 1
-  done
-  fail "serial credential bootstrap did not complete"
+  kill -0 "$CURRENT_PID" 2>/dev/null || fail "VM exited during serial credential bootstrap"
+  grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$serial_log" ||
+    fail "serial credential bootstrap evidence marker is missing"
 }
 wait_serial_console() {
   local serial_log="$1"
@@ -532,7 +538,7 @@ wait_ssh() {
 }
 start_candidate_vm() {
   local disk="$1" name="$2"
-  local expected_key actual_key expected_ca actual_ca
+  local expected_key actual_key expected_key_sha actual_key_sha expected_ca actual_ca
   start_vm "$disk" "$name"
   wait_serial_console "$EVIDENCE_DIR/$name.serial.log"
   console_bootstrap_key "$EVIDENCE_DIR/$name.serial.log"
@@ -540,9 +546,19 @@ start_candidate_vm() {
   expected_key="$(sed -n '1p' "$WORK/ssh-key.pub")"
   actual_key="$("${ssh_base[@]}" sed -n '1p' /etc/dropbear/authorized_keys)"
   [[ "$actual_key" = "$expected_key" ]] || fail "guest SSH bootstrap key does not match the runtime key"
+  expected_key_sha="$(sha256sum "$WORK/ssh-key.pub" | awk '{print $1}')"
+  actual_key_sha="$(printf '%s\n' "$actual_key" | sha256sum | awk '{print $1}')"
   expected_ca="$(sha256sum "$WORK/ca.crt" | awk '{print $1}')"
   actual_ca="$("${ssh_base[@]}" sha256sum /etc/ssl/certs/router-ui-vm-ca.pem | awk '{print $1}')"
   [[ "$actual_ca" = "$expected_ca" ]] || fail "guest test CA does not match the runtime artifact server CA"
+  jq -n --arg ssh_public_key_sha256 "$expected_key_sha" \
+    --arg guest_ssh_public_key_sha256 "$actual_key_sha" \
+    --arg test_ca_sha256 "$expected_ca" --arg guest_test_ca_sha256 "$actual_ca" \
+    '{ssh_public_key_sha256:$ssh_public_key_sha256,
+      guest_ssh_public_key_sha256:$guest_ssh_public_key_sha256,
+      test_ca_sha256:$test_ca_sha256,guest_test_ca_sha256:$guest_test_ca_sha256,
+      exact_runtime_credentials_verified:true}' \
+    > "$EVIDENCE_DIR/$name.credential-bootstrap.json"
 }
 start_baseline_vm() {
   start_candidate_vm "$@"

@@ -109,14 +109,22 @@ grep -A3 '^setup_tls()' "$GATE" | grep -q "ssh-keygen -q -t ed25519 -N '' -f \"\
   fail 'candidate consumers do not generate disposable runtime SSH credentials'
 [ "$(grep -c "ssh-keygen -q -t ed25519 -N '' -f \"\$WORK/ssh-key\"" "$GATE")" -eq 1 ] ||
   fail 'runtime SSH credentials are generated outside the shared setup phase'
-grep -q 'sock.setblocking(False)' "$GATE" ||
-  fail 'serial bootstrap does not drain the QEMU console while transmitting credentials'
+grep -q 'read_until_prompt' "$GATE" ||
+  fail 'serial bootstrap is not synchronized to the disposable guest prompt'
+grep -q 'prompt = re.compile' "$GATE" ||
+  fail 'serial bootstrap is tied to a single guest hostname'
+grep -q 'chunk_size = 128' "$GATE" ||
+  fail 'serial bootstrap does not split the test CA into bounded commands'
 grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$GATE" ||
   fail 'serial bootstrap has no explicit completion marker'
+grep -q 'marker.encode() not in \[line.strip() for line in normalized_lines\]' "$GATE" ||
+  fail 'serial bootstrap accepts marker text without exact executed output'
 grep -q 'guest SSH bootstrap key does not match the runtime key' "$GATE" ||
   fail 'guest runtime SSH key is not verified before candidate operations'
 grep -q 'guest test CA does not match the runtime artifact server CA' "$GATE" ||
   fail 'guest runtime test CA is not verified before candidate operations'
+grep -q 'exact_runtime_credentials_verified:true' "$GATE" ||
+  fail 'exact runtime credential verification is not preserved as VM evidence'
 
 for input in tests/vm/legacy-baseline-lock.json tests/vm/router-ui-vm-gate.sh \
   tests/vm/router-ui-vm-guest.sh tests/vm/fail-closed-runner.sh \
