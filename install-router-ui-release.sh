@@ -7,6 +7,7 @@ REQUESTED_VERSION="${ROUTER_UI_VERSION:-}"
 DISCOVERY_BASE="${ROUTER_UI_DISCOVERY_BASE:-https://github.com/$REPO/releases/latest/download}"
 WORK_DIR="$(mktemp -d /tmp/router-ui-package-install.XXXXXX)"
 TRUSTED_KEY_ID='UNRENDERED-PRODUCTION-KEY-ID'
+TRUSTED_KEY_FINGERPRINT='UNRENDERED-PRODUCTION-FINGERPRINT'
 TRUSTED_KEY_COMMENT='UNRENDERED-PRODUCTION-PUBLIC-KEY'
 TRUSTED_KEY_DATA=''
 PUBLIC_KEY="$WORK_DIR/release.pub"
@@ -73,7 +74,7 @@ if [ "$(id -u)" != 0 ] && [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
   die "run this installer as root on OpenWrt"
 fi
 [ -f "$OPENWRT_RELEASE_FILE" ] || die "this does not appear to be OpenWrt"
-case "$TRUSTED_KEY_ID:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
+case "$TRUSTED_KEY_ID:$TRUSTED_KEY_FINGERPRINT:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
   *UNRENDERED*|*:|*test-*|*dev-*)
     die "this source-tree installer is unrendered and contains no trusted production key; use the signed release asset"
     ;;
@@ -82,6 +83,8 @@ for tool in jsonfilter usign sha256sum tar mktemp; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 printf '%s\n%s\n' "$TRUSTED_KEY_COMMENT" "$TRUSTED_KEY_DATA" > "$PUBLIC_KEY"
+[ "$(usign -F -p "$PUBLIC_KEY")" = "$TRUSTED_KEY_FINGERPRINT" ] ||
+  die "embedded release public-key fingerprint mismatch"
 mkdir -p "$WORK_DIR/assets"
 
 if [ -n "${ROUTER_UI_ASSET_DIR:-}" ]; then
@@ -135,6 +138,8 @@ else
     die "manifest version mismatch"
   [ "$(jget "$MANIFEST" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
     die "manifest signing key ID mismatch"
+  [ "$(jget "$MANIFEST" '@.signing_key_fingerprint')" = "$TRUSTED_KEY_FINGERPRINT" ] ||
+    die "manifest signing key fingerprint mismatch"
 
   index=0
   while [ "$index" -lt 16 ]; do

@@ -15,10 +15,10 @@ run_source() {
     sh "$ROOT_DIR/rescue-router-ui.sh"
 }
 
-for version in 0.5.1 0.5.2 0.6.0 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10; do
+for version in 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10; do
   run_source "$version" | grep -Fqx "Recognized rescue source: $version"
 done
-for version in 0.5.0 0.7.7 0.7.12 0.8.0RC2 development dirty ''; do
+for version in 0.5.1 0.5.2 0.6.0 0.7.7 0.7.12 0.8.0RC2 development dirty ''; do
   if run_source "$version" > "$TMP_ROOT/rejected.out" 2> "$TMP_ROOT/rejected.err"; then
     printf 'rescue accepted unsupported source: %s\n' "${version:-empty}" >&2
     exit 1
@@ -29,5 +29,6 @@ grep -q 'tag-only' "$TMP_ROOT/rejected.err" || true
 grep -q 'TARGET_VERSION=0.7.11' "$ROOT_DIR/rescue-router-ui.sh"
 grep -q 'TARGET_TAG="vpn-panel-v\$TARGET_VERSION"' "$ROOT_DIR/rescue-router-ui.sh"
 ! grep -Eq 'releases/latest|opkg upgrade|sysupgrade ' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'embedded release public-key fingerprint mismatch' "$ROOT_DIR/rescue-router-ui.sh"
 
 printf 'Explicit generic-rescue support and refusal matrix passed\n'

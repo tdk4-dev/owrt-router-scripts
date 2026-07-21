@@ -9,6 +9,7 @@ RELEASE_BASE="${ROUTER_UI_RELEASE_BASE:-https://github.com/$REPO/releases/downlo
 VERSION_FILE="${ROUTER_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
 WORK_DIR="$(mktemp -d /tmp/router-ui-rescue.XXXXXX)"
 TRUSTED_KEY_ID='UNRENDERED-PRODUCTION-KEY-ID'
+TRUSTED_KEY_FINGERPRINT='UNRENDERED-PRODUCTION-FINGERPRINT'
 TRUSTED_KEY_COMMENT='UNRENDERED-PRODUCTION-PUBLIC-KEY'
 TRUSTED_KEY_DATA=''
 PUBLIC_KEY="$WORK_DIR/release.pub"
@@ -52,7 +53,7 @@ fi
 
 SOURCE_VERSION="$(sed -n '1p' "$VERSION_FILE" | tr -d '\r\n')"
 case "$SOURCE_VERSION" in
-  0.5.1|0.5.2|0.6.0|0.7.0|0.7.1|0.7.2|0.7.3|0.7.4|0.7.5|0.7.6|0.7.8|0.7.9|0.7.10)
+  0.7.0|0.7.1|0.7.2|0.7.3|0.7.4|0.7.5|0.7.6|0.7.8|0.7.9|0.7.10)
     ;;
   0.7.7)
     die "Router UI 0.7.7 is tag-only and has no published installation artifact; automatic rescue is refused"
@@ -79,7 +80,7 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
   printf 'Recognized rescue source: %s\n' "$SOURCE_VERSION"
   exit 0
 fi
-case "$TRUSTED_KEY_ID:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
+case "$TRUSTED_KEY_ID:$TRUSTED_KEY_FINGERPRINT:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY_DATA" in
   *UNRENDERED*|*:|*test-*|*dev-*)
     die "this source-tree rescue is unrendered and contains no trusted production key; use the signed release asset"
     ;;
@@ -89,6 +90,8 @@ for tool in jsonfilter usign sha256sum tar mktemp; do
 done
 
 printf '%s\n%s\n' "$TRUSTED_KEY_COMMENT" "$TRUSTED_KEY_DATA" > "$PUBLIC_KEY"
+[ "$(usign -F -p "$PUBLIC_KEY")" = "$TRUSTED_KEY_FINGERPRINT" ] ||
+  die "embedded release public-key fingerprint mismatch"
 MANIFEST="$WORK_DIR/router-release-manifest.json"
 SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
 fetch "$RELEASE_BASE/router-release-manifest.json" "$MANIFEST" ||
@@ -107,6 +110,8 @@ usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
   die "manifest tag mismatch"
 [ "$(jget "$MANIFEST" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
   die "manifest signing key ID mismatch"
+[ "$(jget "$MANIFEST" '@.signing_key_fingerprint')" = "$TRUSTED_KEY_FINGERPRINT" ] ||
+  die "manifest signing key fingerprint mismatch"
 [ "$(jget "$MANIFEST" '@.source_dirty')" = false ] ||
   die "dirty target provenance is refused"
 

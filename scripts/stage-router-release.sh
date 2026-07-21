@@ -79,8 +79,10 @@ render_trust_script() {
     fail "release public key comment is unsafe"
   printf '%s' "$key_data" | grep -Eq '^RW[A-Za-z0-9+/=]+$' ||
     fail "release public key data is malformed"
-  awk -v key_id="$RELEASE_KEY_ID" -v key_comment="$key_comment" -v key_data="$key_data" '
+  awk -v key_id="$RELEASE_KEY_ID" -v fingerprint="$RELEASE_KEY_FINGERPRINT" \
+    -v key_comment="$key_comment" -v key_data="$key_data" '
     /^TRUSTED_KEY_ID=/ { print "TRUSTED_KEY_ID=\047" key_id "\047"; next }
+    /^TRUSTED_KEY_FINGERPRINT=/ { print "TRUSTED_KEY_FINGERPRINT=\047" fingerprint "\047"; next }
     /^TRUSTED_KEY_COMMENT=/ { print "TRUSTED_KEY_COMMENT=\047" key_comment "\047"; next }
     /^TRUSTED_KEY_DATA=/ { print "TRUSTED_KEY_DATA=\047" key_data "\047"; next }
     { print }
