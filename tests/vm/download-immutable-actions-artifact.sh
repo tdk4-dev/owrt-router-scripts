@@ -60,6 +60,7 @@ workflow_conclusion="$(jq -er '.conclusion' "$run_json")"
 provenance_mode=""
 release_evidence_eligible=false
 producer_jobs_api_sha256=""
+candidate_scope="full"
 
 case "$KIND" in
   candidate)
@@ -67,6 +68,44 @@ case "$KIND" in
           "$workflow_conclusion" = success ]]; then
       provenance_mode=successful-manual-candidate
       release_evidence_eligible=true
+    elif [[ "${ROUTER_UI_ALLOW_FAILED_PROTECTED_CANDIDATE:-0}" = 1 &&
+            "$workflow_path" = .github/workflows/validate-router-ui-candidate.yml &&
+            "$workflow_conclusion" = failure ]]; then
+      gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+        --jq '.jobs[]' | jq -s '{jobs:.}' > "$jobs_json"
+      case "$artifact_name" in
+        "pretag-router-ui-transition-candidate-$run_head_sha")
+          candidate_scope=transition-only
+          jq -e '
+            (.jobs) as $jobs |
+            any($jobs[]; .name == "canonical-ipks" and .conclusion == "success") and
+            any($jobs[]; .name == "sign-installed-package-set" and .conclusion == "success") and
+            any($jobs[]; .name == "Fail-fast production-signed rescue-0.7.0" and
+              .conclusion == "failure")
+          ' "$jobs_json" >/dev/null ||
+            fail "failed transition candidate producer jobs are not fail-closed"
+          ;;
+        "pretag-router-ui-candidate-$run_head_sha")
+          jq -e '
+            (.jobs) as $jobs |
+            any($jobs[]; .name == "canonical-ipks" and .conclusion == "success") and
+            any($jobs[]; .name == "sign-installed-package-set" and .conclusion == "success") and
+            any($jobs[]; .name == "Fail-fast production-signed rescue-0.7.0" and
+              .conclusion == "success") and
+            any($jobs[]; .name == "rd23-stock-image" and .conclusion == "success") and
+            any($jobs[]; .name == "rd23-ubootmod-image" and .conclusion == "success") and
+            any($jobs[]; .name == "x86-image" and .conclusion == "success") and
+            any($jobs[]; .name == "assemble-and-sign" and .conclusion == "success") and
+            (any($jobs[]; (.name | startswith("VM shard - ")) and .conclusion == "failure") or
+             any($jobs[]; .name == "Aggregate mandatory VM evidence" and .conclusion == "failure"))
+          ' "$jobs_json" >/dev/null ||
+            fail "failed full candidate producer jobs are not fail-closed"
+          ;;
+        *) fail "failed protected candidate artifact name is not recognized" ;;
+      esac
+      provenance_mode=failed-protected-diagnostic-candidate
+      release_evidence_eligible=false
+      producer_jobs_api_sha256="$(sha256sum "$jobs_json" | awk '{print $1}')"
     elif [[ "${ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE:-0}" = 1 ]]; then
       [[ -s "$LEGACY_DIAGNOSTIC_CANDIDATES" ]] || fail "legacy diagnostic candidate lock is missing"
       jq -e --argjson artifact_id "$ARTIFACT_ID" --arg artifact_name "$artifact_name" \
@@ -133,8 +172,17 @@ case "$KIND" in
     key_id="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id")"
     key_fingerprint="$(usign -F -p "$ROOT_DIR/release/keys/router-ui-production.pub")"
     [[ "$source_sha" = "$run_head_sha" ]] || fail "candidate source SHA differs from workflow head"
-    [[ "$artifact_name" = "pretag-router-ui-candidate-$source_sha" ]] ||
-      fail "candidate artifact name is not bound to its product source SHA"
+    case "$candidate_scope" in
+      full)
+        [[ "$artifact_name" = "pretag-router-ui-candidate-$source_sha" ]] ||
+          fail "candidate artifact name is not bound to its product source SHA"
+        ;;
+      transition-only)
+        [[ "$artifact_name" = "pretag-router-ui-transition-candidate-$source_sha" ]] ||
+          fail "transition candidate artifact name is not bound to its product source SHA"
+        ;;
+      *) fail "candidate scope is invalid" ;;
+    esac
     [[ "$key_id" = router-ui-prod-5b001ed1f9e63c96 ]] || fail "unexpected production key ID"
     [[ "$key_fingerprint" = 5b001ed1f9e63c96 ]] || fail "unexpected production key fingerprint"
     jq -e --arg sha "$source_sha" --arg key "$key_id" '
@@ -145,14 +193,17 @@ case "$KIND" in
       .source_commit == $sha and .source_dirty == false and .app_version == "0.7.12" and
       .signing_key_id == $key
     ' "$synthetic/router-release-manifest.json" >/dev/null || fail "synthetic signed manifest contract failed"
+    [[ "$candidate_scope" = full ]] && require_images=1 || require_images=0
     RELEASE_DIR="$release" RELEASE_PUBLIC_KEY="$ROOT_DIR/release/keys/router-ui-production.pub" \
-      STRICT_RELEASE=1 REQUIRE_IMAGES=1 REQUIRE_MAIN_ANCESTRY=0 \
+      STRICT_RELEASE=1 REQUIRE_IMAGES="$require_images" \
+      REQUIRE_MAIN_ANCESTRY=0 \
       EXPECTED_SOURCE_COMMIT="$source_sha" USIGN_BIN=usign \
       "$ROOT_DIR/scripts/validate-staged-release.sh"
     jq -n --argjson artifact_id "$ARTIFACT_ID" --arg artifact_name "$artifact_name" \
       --arg artifact_digest "sha256:$ZIP_SHA256" --argjson workflow_run_id "$run_id" \
       --argjson workflow_run_number "$run_number" --arg workflow_path "$workflow_path" \
       --arg workflow_conclusion "$workflow_conclusion" --arg provenance_mode "$provenance_mode" \
+      --arg candidate_scope "$candidate_scope" \
       --argjson release_evidence_eligible "$release_evidence_eligible" \
       --arg producer_jobs_api_sha256 "$producer_jobs_api_sha256" \
       --arg product_source_sha "$source_sha" --arg production_key_id "$key_id" \
@@ -166,6 +217,7 @@ case "$KIND" in
          workflow_run_id:$workflow_run_id,workflow_run_number:$workflow_run_number,
          workflow_path:$workflow_path,workflow_conclusion:$workflow_conclusion,
          provenance_mode:$provenance_mode,release_evidence_eligible:$release_evidence_eligible,
+         candidate_scope:$candidate_scope,
          producer_jobs_api_sha256:(if ($producer_jobs_api_sha256 | length) > 0
            then $producer_jobs_api_sha256 else null end),
          product_source_sha:$product_source_sha,

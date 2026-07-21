@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: router-ui-candidate-${{ inputs.source_sha }}
+  group: router-ui-project-vm-global
   cancel-in-progress: false
 
 jobs:
@@ -78,12 +78,18 @@ jobs:
         with:
           name: candidate-canonical-router-ui-ipks
           path: ${{ runner.temp }}/canonical-ipks
-      - name: Sign the exact initial package rollback set
+      - name: Sign the exact rollback and transition candidate sets
         env:
           RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
           SIGNING_KEY: ${{ runner.temp }}/release.sec
           IPK_DIR: ${{ runner.temp }}/canonical-ipks
           OUT_DIR: ${{ runner.temp }}/installed-package-set
+          OUT_ROOT: ${{ runner.temp }}/transition-stage-root
+          RELEASE_DIR: ${{ runner.temp }}/transition-candidate/release-v0.7.11
+          OUTPUT_DIR: ${{ runner.temp }}/transition-candidate/synthetic-next
+          STRICT_RELEASE: "1"
+          REQUIRE_IMAGES: "0"
+          REQUIRE_MAIN_ANCESTRY: "0"
         run: |
           sudo apt-get update && sudo apt-get install -y jq cmake
           USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
@@ -93,8 +99,13 @@ jobs:
           chmod 600 "$SIGNING_KEY"
           export USIGN_BIN="$RUNNER_TEMP/bin/usign"
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT"
+          export SOURCE_DIRTY=false
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           ./scripts/stage-installed-package-set.sh
+          ./scripts/stage-router-release.sh
+          ./scripts/validate-staged-release.sh
+          ./tests/vm/build-synthetic-next.sh
           cleanup_secret
           trap - EXIT INT TERM
       - uses: actions/upload-artifact@v4
@@ -103,26 +114,90 @@ jobs:
           path: ${{ runner.temp }}/installed-package-set/
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pretag-router-ui-transition-candidate-${{ inputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/transition-candidate/release-v0.7.11/
+            ${{ runner.temp }}/transition-candidate/synthetic-next/
+          if-no-files-found: error
+          retention-days: 30
 
-  images:
-    needs: [canonical-ipks, sign-installed-package-set]
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        include:
-          - name: rd23-stock
-            target: mediatek/filogic
-            profile: xiaomi_mi-router-ax3000t
-            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-stock
-            rootfs_partsize: 0
-            writable_budget_kib: 0
-          - name: rd23-ubootmod
-            target: mediatek/filogic
-            profile: xiaomi_mi-router-ax3000t-ubootmod
-            artifact_prefix: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-ubootmod
-            rootfs_partsize: 0
-            writable_budget_kib: 0
+  rescue-0-7-0:
+    name: Fail-fast production-signed rescue-0.7.0
+    needs: sign-installed-package-set
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Initialize fail-fast evidence
+        run: mkdir -p "$RUNNER_TEMP/rescue-0.7.0-evidence"
+      - uses: actions/download-artifact@v4
+        with:
+          name: pretag-router-ui-transition-candidate-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/transition-candidate
+      - name: Download and verify the exact complete legacy baseline pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}
+          BASELINE_ARTIFACT_ZIP_SHA256: ${{ inputs.baseline_pack_artifact_zip_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          ./tests/vm/download-immutable-actions-artifact.sh baseline \
+            "$BASELINE_ARTIFACT_ID" "$BASELINE_ARTIFACT_ZIP_SHA256" \
+            "$RUNNER_TEMP/baseline-input" "$RUNNER_TEMP/baseline-descriptor.json"
+          pack="$RUNNER_TEMP/baseline-input/legacy-baseline-pack"
+          jq -e '
+            .verified == true and
+            any(.baselines[]; .storage_profile == "rd23-stock" and
+              .version == "0.7.0" and .self_validation.ok == true)
+          ' "$pack/baseline-pack-manifest.json" >/dev/null
+          printf 'BASELINE_PACK_DIR=%s\n' "$pack" >> "$GITHUB_ENV"
+      - name: Install fail-fast VM dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils jq openssl zstd cmake nodejs
+      - name: Run rescue-0.7.0 against the signed transition candidate
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/transition-candidate/release-v0.7.11
+          SYNTHETIC_DIR: ${{ runner.temp }}/transition-candidate/synthetic-next
+          EVIDENCE_DIR: ${{ runner.temp }}/rescue-0.7.0-evidence
+          ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
+          ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
+          ROUTER_UI_VM_DIAGNOSTIC: "1"
+          ROUTER_UI_VM_HARNESS_SHA: ${{ inputs.source_sha }}
+          ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
+          ROUTER_UI_VM_CASE: rescue
+          ROUTER_UI_VM_SOURCE_VERSION: "0.7.0"
+          CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          vm_work_root="$RUNNER_TEMP/baseline-pack-work"
+          mkdir -p "$vm_work_root/overlays" "$EVIDENCE_DIR"
+          ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
+          export TMPDIR="$vm_work_root/overlays"
+          export X86_IMAGE_ARCHIVE="$(find "$RELEASE_DIR" -maxdepth 1 -type f \
+            -name 'premier-router-core_0.7.11-1_all.ipk' | sed -n '1p')"
+          test -n "$X86_IMAGE_ARCHIVE"
+          cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
+          ./tests/vm/router-ui-vm-gate.sh
+          ./tests/vm/write-candidate-content-descriptor.sh \
+            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/candidate-content-descriptor.json"
+          (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pretag-router-ui-rescue-0.7.0-evidence-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/rescue-0.7.0-evidence/
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true
+
+  rd23-stock-image:
+    needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -139,16 +214,16 @@ jobs:
           path: ${{ runner.temp }}/installed-package-set
       - name: Build image only from the canonical IPKs
         env:
-          TARGET_DIR: ${{ matrix.target }}
-          PROFILE: ${{ matrix.profile }}
-          ARTIFACT_PREFIX: ${{ matrix.artifact_prefix }}
+          TARGET_DIR: mediatek/filogic
+          PROFILE: xiaomi_mi-router-ax3000t
+          ARTIFACT_PREFIX: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-stock
           PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
           PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
           INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set
           OUT_DIR: ${{ runner.temp }}/images
           WORK_DIR: ${{ runner.temp }}/imagebuilder
-          ROOTFS_PARTSIZE: ${{ matrix.rootfs_partsize }}
-          WRITABLE_BUDGET_KIB: ${{ matrix.writable_budget_kib }}
+          ROOTFS_PARTSIZE: "0"
+          WRITABLE_BUDGET_KIB: "0"
         run: |
           sudo apt-get update && sudo apt-get install -y zstd jq
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
@@ -157,13 +232,54 @@ jobs:
           ./build-openwrt-custom-image-linux.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: candidate-router-image-${{ matrix.name }}
+          name: candidate-router-image-rd23-stock
+          path: ${{ runner.temp }}/images/
+          if-no-files-found: error
+          retention-days: 30
+
+  rd23-ubootmod-image:
+    needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-canonical-router-ui-ipks
+          path: ${{ runner.temp }}/canonical-ipks
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-signed-installed-package-set
+          path: ${{ runner.temp }}/installed-package-set
+      - name: Build image only from the canonical IPKs
+        env:
+          TARGET_DIR: mediatek/filogic
+          PROFILE: xiaomi_mi-router-ax3000t-ubootmod
+          ARTIFACT_PREFIX: premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-ubootmod
+          PROJECT_PACKAGE_DIR: ${{ runner.temp }}/canonical-ipks
+          PROJECT_PACKAGE_MANIFEST: ${{ runner.temp }}/canonical-ipks/router-ui-packages.txt
+          INSTALLED_PACKAGE_SET_DIR: ${{ runner.temp }}/installed-package-set
+          OUT_DIR: ${{ runner.temp }}/images
+          WORK_DIR: ${{ runner.temp }}/imagebuilder
+          ROOTFS_PARTSIZE: "0"
+          WRITABLE_BUDGET_KIB: "0"
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd jq
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export SOURCE_DIRTY=false
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          ./build-openwrt-custom-image-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-router-image-rd23-ubootmod
           path: ${{ runner.temp }}/images/
           if-no-files-found: error
           retention-days: 30
 
   x86-image:
-    needs: [canonical-ipks, sign-installed-package-set, images]
+    needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -214,7 +330,7 @@ jobs:
           retention-days: 30
 
   assemble-and-sign:
-    needs: [images, x86-image]
+    needs: [rd23-stock-image, rd23-ubootmod-image, x86-image]
     runs-on: ubuntu-24.04
     environment: router-ui-production-signing
     steps:
@@ -231,14 +347,17 @@ jobs:
           pattern: candidate-router-image-*
           path: ${{ runner.temp }}/stage-root
           merge-multiple: true
-      - name: Assemble, sign, validate, and build a distinct synthetic next target
+      - uses: actions/download-artifact@v4
+        with:
+          name: pretag-router-ui-transition-candidate-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/transition-candidate
+      - name: Assemble, sign, validate, and compare with the tested transition bytes
         env:
           RELEASE_SECRET_KEY_DATA: ${{ secrets.ROUTER_UI_USIGN_SECRET_KEY }}
           SIGNING_KEY: ${{ runner.temp }}/release.sec
           IPK_DIR: ${{ runner.temp }}/canonical-ipks
           OUT_ROOT: ${{ runner.temp }}/stage-root
           RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
-          OUTPUT_DIR: ${{ runner.temp }}/synthetic-next
           STRICT_RELEASE: "1"
           REQUIRE_IMAGES: "1"
           REQUIRE_MAIN_ANCESTRY: "0"
@@ -257,7 +376,21 @@ jobs:
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           ./scripts/stage-router-release.sh
           ./scripts/validate-staged-release.sh
-          ./tests/vm/build-synthetic-next.sh
+          transition="$RUNNER_TEMP/transition-candidate/release-v0.7.11"
+          for asset in \
+            0.7.9-_35_vpn.js \
+            install-router-ui-release.sh \
+            rescue-router-ui.sh \
+            router-candidate-validator \
+            router-update-lib.sh \
+            router-update-supervisor \
+            router-ui-packages.txt \
+            premier-router-core_0.7.11-1_all.ipk \
+            luci-app-premier-router_0.7.11-1_all.ipk \
+            premier-router-setup_0.7.11-1_all.ipk
+          do
+            cmp -s "$transition/$asset" "$RELEASE_DIR/$asset"
+          done
           cleanup_secret
           trap - EXIT INT TERM
       - uses: actions/upload-artifact@v4
@@ -269,12 +402,31 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: candidate-synthetic-next
-          path: ${{ runner.temp }}/synthetic-next/
+          path: ${{ runner.temp }}/transition-candidate/synthetic-next/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Assemble immutable diagnostic candidate payload
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate-bytes"
+          cp -a "$RUNNER_TEMP/release-v0.7.11" "$RUNNER_TEMP/candidate-bytes/release-v0.7.11"
+          cp -a "$RUNNER_TEMP/transition-candidate/synthetic-next" \
+            "$RUNNER_TEMP/candidate-bytes/synthetic-next"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pretag-router-ui-candidate-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/candidate-bytes/
           if-no-files-found: error
           retention-days: 30
 
-  constrained-vm-gate:
+  vm-shards:
+    name: VM shard - ${{ matrix.shard }}
     needs: assemble-and-sign
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [legacy, protocol-concurrency-storage, faults-a, faults-b]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -282,6 +434,12 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
+      - name: Initialize independent shard evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate-evidence/${{ matrix.shard }}"
+          jq -n --arg shard '${{ matrix.shard }}' --arg source '${{ inputs.source_sha }}' \
+            '{schema_version:1,shard:$shard,candidate_source_sha:$source,complete:false}' \
+            > "$RUNNER_TEMP/candidate-evidence/${{ matrix.shard }}/shard-identity.json"
       - uses: actions/download-artifact@v4
         with:
           name: candidate-verified-flat-release
@@ -314,44 +472,134 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 qemu-utils jq openssl zstd cmake nodejs npm
-          npm install --prefix "$RUNNER_TEMP/playwright" playwright@1.55.1
-          npx --prefix "$RUNNER_TEMP/playwright" playwright install --with-deps chromium
-      - name: Run the serial 256 MiB exact-RD23-storage VM matrix
+          if test '${{ matrix.shard }}' = legacy; then
+            npm install --prefix "$RUNNER_TEMP/playwright" playwright@1.55.1
+            npx --prefix "$RUNNER_TEMP/playwright" playwright install --with-deps chromium
+          fi
+      - name: Run the assigned immutable-byte VM shard
         env:
           RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
           SYNTHETIC_DIR: ${{ runner.temp }}/synthetic-next
-          EVIDENCE_DIR: ${{ runner.temp }}/candidate-evidence
           NODE_PATH: ${{ runner.temp }}/playwright/node_modules
           ROUTER_UI_BASELINE_PACK_DIR: ${{ env.BASELINE_PACK_DIR }}
           ROUTER_UI_BASELINE_PACK_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
           ROUTER_UI_VM_HARNESS_SHA: ${{ inputs.source_sha }}
           ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
-          ROUTER_UI_VM_CASE: full
+          ROUTER_UI_VM_DIAGNOSTIC: "1"
+          CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          vm_work_root="$RUNNER_TEMP/baseline-pack-work"
-          mkdir -p "$vm_work_root/overlays"
-          ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
-          export TMPDIR="$vm_work_root/overlays"
           x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
-          ./tests/vm/router-ui-vm-gate.sh
-          cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
+          shard='${{ matrix.shard }}'
+          shard_root="$RUNNER_TEMP/candidate-evidence/$shard"
+          mkdir -p "$shard_root"
+          run_case() {
+            local label="$1" case_name="$2" phase="${3:-all}" boundary="${4:-}"
+            local case_root="$shard_root/$label"
+            local vm_work_root="$RUNNER_TEMP/vm-work-$label"
+            mkdir -p "$case_root" "$vm_work_root/overlays"
+            ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
+            EVIDENCE_DIR="$case_root" TMPDIR="$vm_work_root/overlays" \
+              ROUTER_UI_VM_CASE="$case_name" ROUTER_UI_VM_PHASE="$phase" \
+              ROUTER_UI_VM_FAULT_BOUNDARY="$boundary" \
+              ./tests/vm/router-ui-vm-gate.sh
+            cp "$RUNNER_TEMP/baseline-descriptor.json" "$case_root/"
+          }
+          case "$shard" in
+            legacy)
+              run_case old-worker old-worker
+              run_case rescue rescue
+              run_case refusals rescue refusals
+              run_case clean-image clean-image
+              ;;
+            protocol-concurrency-storage)
+              run_case protocol-v2 protocol-v2
+              run_case concurrency concurrency
+              run_case storage storage
+              ;;
+            faults-a)
+              for boundary in before-mutation snapshot_ready applying \
+                after-premier-router-core after-luci-app-premier-router \
+                after-premier-router-setup validating committing; do
+                run_case "fault-$boundary" fault all "$boundary"
+              done
+              ;;
+            faults-b)
+              for boundary in rollback_pending rolling_back \
+                rollback-after-premier-router-core rollback-after-luci-app-premier-router \
+                rollback-after-premier-router-setup compatibility-cleanup post-reboot-validation; do
+                run_case "fault-$boundary" fault all "$boundary"
+              done
+              ;;
+          esac
           ./tests/vm/write-candidate-content-descriptor.sh \
-            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/candidate-content-descriptor.json"
-          (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$EVIDENCE_DIR/candidate-asset-sha256sums")
-          cp "$RELEASE_DIR/router-release-manifest.json" "$EVIDENCE_DIR/"
-          cp "$RELEASE_DIR/router-ui-packages.txt" "$EVIDENCE_DIR/"
-          (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
+            "$RELEASE_DIR" "$SYNTHETIC_DIR" "$shard_root/candidate-content-descriptor.json"
+          jq '.complete = true' "$shard_root/shard-identity.json" \
+            > "$shard_root/shard-identity.json.new"
+          mv "$shard_root/shard-identity.json.new" "$shard_root/shard-identity.json"
+          (cd "$shard_root" && find . -type f ! -name shard-files-sha256sums -print |
+            LC_ALL=C sort | while IFS= read -r file; do sha256sum "$file"; done > shard-files-sha256sums)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pretag-router-ui-candidate-${{ inputs.source_sha }}
-          path: |
-            ${{ runner.temp }}/release-v0.7.11/
-            ${{ runner.temp }}/synthetic-next/
-            ${{ runner.temp }}/candidate-evidence/
+          name: candidate-vm-evidence-${{ matrix.shard }}-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/candidate-evidence/${{ matrix.shard }}/
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true
+
+  aggregate-vm-evidence:
+    name: Aggregate mandatory VM evidence
+    if: always()
+    needs: [assemble-and-sign, vm-shards]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Initialize aggregation evidence
+        env:
+          ASSEMBLY_RESULT: ${{ needs.assemble-and-sign.result }}
+          SHARDS_RESULT: ${{ needs.vm-shards.result }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate-evidence"
+          jq -n --arg assembly "$ASSEMBLY_RESULT" --arg shards "$SHARDS_RESULT" \
+            '{schema_version:1,assembly_result:$assembly,shards_result:$shards,complete:false}' \
+            > "$RUNNER_TEMP/candidate-evidence/aggregation-input.json"
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-verified-flat-release
+          path: ${{ runner.temp }}/release-v0.7.11
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-vm-evidence-*-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/vm-shards
+      - name: Require every shard and aggregate all mandatory evidence
+        env:
+          EVIDENCE_ROOT: ${{ runner.temp }}/vm-shards
+          RELEASE_DIR: ${{ runner.temp }}/release-v0.7.11
+          OUT_DIR: ${{ runner.temp }}/candidate-evidence
+          EXPECTED_BASELINE_DIGEST: sha256:${{ inputs.baseline_pack_artifact_zip_sha256 }}
+          ASSEMBLY_RESULT: ${{ needs.assemble-and-sign.result }}
+          SHARDS_RESULT: ${{ needs.vm-shards.result }}
+        run: |
+          set -Eeuo pipefail
+          test "$ASSEMBLY_RESULT" = success
+          test "$SHARDS_RESULT" = success
+          ./tests/vm/aggregate-candidate-evidence.sh
+          cp "$RELEASE_DIR/router-release-manifest.json" "$OUT_DIR/"
+          cp "$RELEASE_DIR/router-ui-packages.txt" "$OUT_DIR/"
+          (cd "$RELEASE_DIR" && sha256sum ./* | sed 's#  \./#  #' > "$OUT_DIR/candidate-asset-sha256sums")
+          (cd "$OUT_DIR" && find . -maxdepth 1 -type f ! -name evidence-files-sha256sums -print |
+            LC_ALL=C sort | while IFS= read -r file; do sha256sum "$file"; done > evidence-files-sha256sums)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pretag-router-ui-candidate-evidence-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/candidate-evidence/
           if-no-files-found: error
           retention-days: 30
           include-hidden-files: true

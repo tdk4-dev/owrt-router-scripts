@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: router-ui-legacy-baselines-${{ github.sha }}-${{ inputs.selector }}
+  group: router-ui-project-vm-global
   cancel-in-progress: false
 
 jobs:

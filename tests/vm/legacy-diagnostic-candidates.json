@@ -12,6 +12,8 @@
       "product_source_sha": "373d88c3636340d1610187992ec256ecdf65e123",
       "diagnostic_only": true,
       "release_evidence_eligible": false,
+      "superseded": true,
+      "superseded_reason": "standalone installer left the downloaded candidate validator mode 0600, causing direct execution to fail before validation",
       "required_success_job_names": [
         "production-candidate / canonical-ipks",
         "production-candidate / sign-installed-package-set",

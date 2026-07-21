@@ -13,6 +13,7 @@ RUNNER="$ROOT_DIR/tests/vm/fail-closed-runner.sh"
 ARTIFACT_HELPER="$ROOT_DIR/tests/vm/download-immutable-actions-artifact.sh"
 DIGEST="$ROOT_DIR/tests/vm/baseline-contract-digest.sh"
 CONTENT_DESCRIPTOR="$ROOT_DIR/tests/vm/write-candidate-content-descriptor.sh"
+AGGREGATOR="$ROOT_DIR/tests/vm/aggregate-candidate-evidence.sh"
 LOCK="$ROOT_DIR/tests/vm/legacy-baseline-lock.json"
 LEGACY_CANDIDATES="$ROOT_DIR/tests/vm/legacy-diagnostic-candidates.json"
 FIXTURE="$ROOT_DIR/tests/vm/fixtures/legacy-nonsecret"
@@ -34,6 +35,10 @@ for workflow in "$CANDIDATE" "$RELEASE"; do
   for derived in baseline_pack_run_id baseline_pack_artifact_name baseline_pack_manifest_sha256; do
     ! grep -q "^      $derived:" "$workflow" || fail "release gate still asks operators for derived baseline identity: $workflow $derived"
   done
+done
+for workflow in "$BASELINES" "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
+  grep -q 'group: router-ui-project-vm-global' "$workflow" ||
+    fail "VM workflow does not share the no-overlap concurrency group: $workflow"
 done
 for input in candidate_artifact_id candidate_artifact_zip_sha256; do
   grep -q "^      $input:" "$RELEASE" || fail "tagged workflow lacks pre-tag candidate identity: $input"
@@ -58,15 +63,23 @@ grep -q "timeout-minutes: \${{ inputs.selector == 'all' && 360 || 90 }}" "$BASEL
 for workflow in "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
   grep -q 'download-immutable-actions-artifact.sh' "$workflow" ||
     fail "workflow does not derive immutable artifact descriptors: $workflow"
-  grep -q 'vm_work_root="$RUNNER_TEMP/baseline-pack-work"' "$workflow" ||
-    fail "baseline consumer does not preserve the relocatable overlay layout: $workflow"
-  grep -q 'export TMPDIR="$vm_work_root/overlays"' "$workflow" ||
-    fail "VM work directory is not rooted beside the baseline bases directory: $workflow"
+done
+grep -q 'vm_work_root="$RUNNER_TEMP/baseline-pack-work"' "$DIAGNOSTIC" ||
+  fail 'diagnostic baseline consumer does not preserve the relocatable overlay layout'
+grep -q 'export TMPDIR="$vm_work_root/overlays"' "$DIAGNOSTIC" ||
+  fail 'diagnostic VM work directory is not rooted beside the baseline bases directory'
+for workflow in "$CANDIDATE" "$RELEASE"; do
+  grep -q 'local vm_work_root="$RUNNER_TEMP/vm-work-$label"' "$workflow" ||
+    fail "sharded baseline consumer does not preserve a per-case relocatable layout: $workflow"
+  grep -q 'TMPDIR="$vm_work_root/overlays"' "$workflow" ||
+    fail "sharded VM work directory is not rooted beside the baseline bases directory: $workflow"
 done
 [ -s "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is missing'
 [ -x "$ARTIFACT_HELPER" ] || fail 'immutable artifact descriptor verifier is not executable'
 grep -q 'ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE: "1"' "$DIAGNOSTIC" ||
   fail 'diagnostic workflow cannot consume the exact locked legacy candidate'
+grep -q 'ROUTER_UI_ALLOW_FAILED_PROTECTED_CANDIDATE: "1"' "$DIAGNOSTIC" ||
+  fail 'diagnostic workflow cannot consume failed protected candidate bytes'
 for workflow in "$CANDIDATE" "$RELEASE"; do
   ! grep -q 'ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE' "$workflow" ||
     fail "release-authorizing workflow enables legacy diagnostic provenance: $workflow"
@@ -75,6 +88,53 @@ grep -q 'locked-legacy-diagnostic-candidate' "$ARTIFACT_HELPER" ||
   fail 'immutable artifact helper does not label legacy candidate provenance'
 grep -q 'release_evidence_eligible=false' "$ARTIFACT_HELPER" ||
   fail 'legacy candidate is not explicitly ineligible as release evidence'
+grep -q 'failed-protected-diagnostic-candidate' "$ARTIFACT_HELPER" ||
+  fail 'failed protected candidates are not explicitly diagnostic-only'
+grep -q 'candidate_scope=transition-only' "$ARTIFACT_HELPER" ||
+  fail 'transition-only failed candidates are not scoped fail closed'
+grep -q '^  rescue-0-7-0:' "$CANDIDATE" ||
+  fail 'protected candidate lacks the earliest rescue-0.7.0 gate'
+grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]' "$CANDIDATE" ||
+  fail 'image builds do not wait for rescue-0.7.0'
+grep -q 'pretag-router-ui-transition-candidate-' "$CANDIDATE" ||
+  fail 'protected workflow does not preserve reusable signed transition bytes'
+grep -q 'compare with the tested transition bytes' "$CANDIDATE" ||
+  fail 'final assembly does not compare against early tested transition bytes'
+grep -q 'max-parallel: 2' "$CANDIDATE" ||
+  fail 'candidate VM shards are not capped at two parallel jobs'
+for shard in legacy protocol-concurrency-storage faults-a faults-b; do
+  grep -q "$shard" "$CANDIDATE" || fail "candidate VM shard is missing: $shard"
+done
+grep -q '^  aggregate-vm-evidence:' "$CANDIDATE" ||
+  fail 'candidate has no mandatory evidence aggregation job'
+grep -q 'Aggregate mandatory VM evidence' "$CANDIDATE" ||
+  fail 'candidate aggregation job is not an explicit authorization boundary'
+grep -q 'aggregate-candidate-evidence.sh' "$CANDIDATE" ||
+  fail 'candidate aggregation job does not run the completeness validator'
+grep -q '^  rd23-stock-image:' "$CANDIDATE" &&
+  grep -q '^  rd23-ubootmod-image:' "$CANDIDATE" ||
+  fail 'RD23 stock and ubootmod are not independent concurrent jobs'
+grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]' "$CANDIDATE" ||
+  fail 'x86 does not start from stock provenance independently of ubootmod completion'
+grep -q 'max-parallel: 2' "$RELEASE" ||
+  fail 'tagged VM shards are not capped at two parallel jobs'
+for shard in legacy protocol-concurrency-storage faults-a faults-b; do
+  grep -q "$shard" "$RELEASE" || fail "tagged VM shard is missing: $shard"
+done
+grep -q '^  aggregate-tagged-vm-evidence:' "$RELEASE" ||
+  fail 'tagged release has no mandatory evidence aggregation job'
+grep -q 'aggregate-candidate-evidence.sh' "$RELEASE" ||
+  fail 'tagged aggregation job does not run the completeness validator'
+grep -q '^  rd23-stock-image:' "$RELEASE" &&
+  grep -q '^  rd23-ubootmod-image:' "$RELEASE" ||
+  fail 'tagged RD23 stock and ubootmod are not independent concurrent jobs'
+grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]' "$RELEASE" ||
+  fail 'tagged x86 does not start from stock provenance independently of ubootmod completion'
+[ -x "$AGGREGATOR" ] || fail 'candidate evidence aggregator is not executable'
+grep -q 'maximum_parallel_vm_jobs:2' "$AGGREGATOR" ||
+  fail 'aggregated evidence does not record the two-VM maximum'
+grep -q 'individual_shards_authorize_release:false' "$AGGREGATOR" ||
+  fail 'individual shard evidence can be mistaken for release authorization'
 for workflow in "$CANDIDATE" "$RELEASE"; do
   grep -q 'write-candidate-content-descriptor.sh' "$workflow" ||
     fail "workflow does not persist a candidate content descriptor: $workflow"
@@ -169,6 +229,8 @@ jq -e '.schema_version == 1 and (.candidates | length) == 1 and
   .candidates[0].product_source_sha == "373d88c3636340d1610187992ec256ecdf65e123" and
   .candidates[0].diagnostic_only == true and
   .candidates[0].release_evidence_eligible == false and
+  .candidates[0].superseded == true and
+  (.candidates[0].superseded_reason | contains("mode 0600")) and
   (.candidates[0].required_success_job_names | length) == 4 and
   (.candidates[0].required_success_job_prefixes | length) == 2 and
   .candidates[0].required_failure_job_names == ["production-candidate / constrained-vm-gate"]' \

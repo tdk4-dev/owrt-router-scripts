@@ -54,7 +54,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: router-ui-vm-diagnostic-${{ github.sha }}-${{ inputs.case }}-${{ inputs.source_version }}-${{ inputs.phase }}-${{ inputs.fault_boundary }}
+  group: router-ui-project-vm-global
   cancel-in-progress: false
 
 jobs:
@@ -86,6 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ROUTER_UI_ALLOW_LEGACY_DIAGNOSTIC_CANDIDATE: "1"
+          ROUTER_UI_ALLOW_FAILED_PROTECTED_CANDIDATE: "1"
           CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
           CANDIDATE_ARTIFACT_ZIP_SHA256: ${{ inputs.candidate_artifact_zip_sha256 }}
           BASELINE_ARTIFACT_ID: ${{ inputs.baseline_pack_artifact_id }}
@@ -105,14 +106,20 @@ jobs:
           synthetic="$candidate_input/synthetic-next"
           baseline_pack="$baseline_input/legacy-baseline-pack"
           candidate_source_sha="$(jq -r .product_source_sha "$evidence/candidate-descriptor.json")"
+          candidate_scope="$(jq -r .candidate_scope "$evidence/candidate-descriptor.json")"
+          if test "$candidate_scope" = transition-only; then
+            test '${{ inputs.case }}' = rescue
+            test '${{ inputs.source_version }}' = 0.7.0
+          fi
           jq -n --slurpfile candidate "$evidence/candidate-descriptor.json" \
             --slurpfile baseline "$evidence/baseline-descriptor.json" \
             --arg harness_sha '${{ github.sha }}' \
             '{schema_version:1,diagnostic:true,release_evidence:false,
               harness_source_sha:$harness_sha,candidate:$candidate[0],baseline:$baseline[0]}' \
             > "$evidence/diagnostic-identity.json"
-          printf 'RELEASE_DIR=%s\nSYNTHETIC_DIR=%s\nBASELINE_PACK_DIR=%s\nCANDIDATE_SOURCE_SHA=%s\n' \
-            "$release" "$synthetic" "$baseline_pack" "$candidate_source_sha" >> "$GITHUB_ENV"
+          printf 'RELEASE_DIR=%s\nSYNTHETIC_DIR=%s\nBASELINE_PACK_DIR=%s\nCANDIDATE_SOURCE_SHA=%s\nCANDIDATE_SCOPE=%s\n' \
+            "$release" "$synthetic" "$baseline_pack" "$candidate_source_sha" \
+            "$candidate_scope" >> "$GITHUB_ENV"
 
       - name: Install browser only when the selected case renders LuCI
         if: inputs.case == 'full' || inputs.case == 'old-worker'
@@ -142,7 +149,12 @@ jobs:
           mkdir -p "$vm_work_root/overlays"
           ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
           export TMPDIR="$vm_work_root/overlays"
-          x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
+          if test "$CANDIDATE_SCOPE" = transition-only; then
+            x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f \
+              -name 'premier-router-core_0.7.11-1_all.ipk' | sed -n '1p')"
+          else
+            x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
+          fi
           test -n "$x86_archive"
           export X86_IMAGE_ARCHIVE="$x86_archive"
           ./tests/vm/router-ui-vm-gate.sh
