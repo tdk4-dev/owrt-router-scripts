@@ -273,6 +273,7 @@ FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
   VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
   VPN_UI_OPKG_BIN="$FAKE_OPKG" sh "$TMP_ROOT/release/router-update-supervisor" rollback "$transaction"
 stage idempotent-rollback
+[ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 
 reset_source
 if run_update auto VPN_UI_TEST_FAIL_AFTER=validating VPN_UI_TEST_FAIL_MODE=return; then
@@ -285,6 +286,7 @@ journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .rollback_status "$journal")" = succeeded ]
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(find "$FAKE_ROOT/root/premier-router-updates/quarantine" -type f -name '*.json' | wc -l | tr -d ' ')" = 1 ]
+[ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 stage validator-failure-rollback
 
 reset_source
@@ -296,6 +298,7 @@ transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
 journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
+[ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 stage package-failure-rollback
 
 # Lock ownership, race refusal, token checks, and stale recovery.
@@ -311,10 +314,17 @@ VPN_UI_UPDATE_SOURCE_ONLY=1 PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$LOCK
     ! lock_acquire token-two
     ! lock_release wrong-token
     lock_release token-one
+    lock_release token-one || true
+    [ ! -d "$LOCK_DIR" ]
     mkdir -p "$LOCK_DIR"
     printf "token=stale\npid=999999\nboot_id=lock-boot\nstart_id=99\n" > "$LOCK_DIR/owner"
     lock_acquire token-after-stale
     lock_release token-after-stale
+    mkdir -p "$LOCK_DIR"
+    printf "token=old-boot\npid=%s\nboot_id=previous-boot\nstart_id=4242\n" "$$" > "$LOCK_DIR/owner"
+    lock_acquire token-after-boot-change
+    ! lock_release old-boot
+    lock_release token-after-boot-change
     generated="$(random_token)"
     [ "${#generated}" -eq 64 ]
     case "$generated" in *[!0-9a-f]*) exit 1 ;; esac
