@@ -42,7 +42,13 @@ SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DAT
   BUILD_DIR="$TMP_ROOT/build" \
   OUT_DIR="$TMP_ROOT/ipk" FEED_DIR="$TMP_ROOT/feed" \
   "$ROOT_DIR/scripts/build-openwrt-ipks.sh" >/dev/null
-OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk" RELEASE_DIR="$TMP_ROOT/release" \
+IPK_DIR="$TMP_ROOT/ipk" FEED_DIR="$TMP_ROOT/feed" SOURCE_COMMIT="$SOURCE_COMMIT" \
+  USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/sign-opkg-feed.sh" >/dev/null
+IPK_DIR="$TMP_ROOT/ipk" OUT_DIR="$TMP_ROOT/installed-set" SOURCE_COMMIT="$SOURCE_COMMIT" \
+  SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
+  "$ROOT_DIR/scripts/stage-installed-package-set.sh"
+OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk" FEED_DIR="$TMP_ROOT/feed" \
+  INSTALLED_SET_DIR="$TMP_ROOT/installed-set" RELEASE_DIR="$TMP_ROOT/release" \
   SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 printf '%s\n' "$KEY_ID" > "$TMP_ROOT/release-key-id"
