@@ -39,7 +39,9 @@ cp "$ROOT_DIR/release/keys/$EXPECTED_KEY_ID.fingerprint" "$RC_DIR/reports/produc
 RELEASE_DIR="$RC_DIR/release" RELEASE_CHANNEL=candidate REQUIRE_IMAGES=1 STRICT_RELEASE=1 \
   REQUIRE_MAIN_ANCESTRY=0 EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   EXPECTED_RELEASE_KEY_ID="$EXPECTED_KEY_ID" USIGN_BIN="$USIGN_BIN" \
-  "$ROOT_DIR/scripts/validate-staged-release.sh" > "$RC_DIR/reports/archive-preflight.log"
+  "$ROOT_DIR/scripts/validate-staged-release.sh" > "$VERIFY_ROOT/archive-preflight.raw.log"
+printf 'result=passed\nsource_commit=%s\nsigning_key_id=%s\n' \
+  "$SOURCE_COMMIT" "$EXPECTED_KEY_ID" > "$RC_DIR/reports/archive-preflight.log"
 
 if find "$RC_DIR" -type f \( -name '*.sec' -o -name '*.key' -o -name '*.pem' \
   -o -name '.env' -o -name 'id_rsa*' -o -name 'id_ed25519*' \) | grep -q .; then
