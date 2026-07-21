@@ -114,6 +114,10 @@ usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
   die "manifest signing key fingerprint mismatch"
 [ "$(jget "$MANIFEST" '@.source_dirty')" = false ] ||
   die "dirty target provenance is refused"
+TARGET_CHANNEL="$(jget "$MANIFEST" '@.channel')"
+case "$TARGET_CHANNEL" in stable|candidate) ;; *)
+  die "unsupported target release channel: $TARGET_CHANNEL"
+esac
 
 INSTALLER_NAME="$(jget "$MANIFEST" '@.standalone_installer.filename')"
 INSTALLER_SIZE="$(jget "$MANIFEST" '@.standalone_installer.size')"
@@ -134,6 +138,7 @@ chmod 700 "$WORK_DIR/$INSTALLER_NAME"
 printf 'Installing the exact Router UI 0.7.11 bridge from recognized source %s.\n' \
   "$SOURCE_VERSION"
 ROUTER_UI_VERSION="$TARGET_VERSION" ROUTER_UI_REPO="$REPO" \
+  ROUTER_UI_RELEASE_CHANNEL="$TARGET_CHANNEL" \
   ROUTER_UI_EXACT_RELEASE_BASE="$RELEASE_BASE" \
   sh "$WORK_DIR/$INSTALLER_NAME"
 

@@ -30,5 +30,7 @@ grep -q 'TARGET_VERSION=0.7.11' "$ROOT_DIR/rescue-router-ui.sh"
 grep -q 'TARGET_TAG="vpn-panel-v\$TARGET_VERSION"' "$ROOT_DIR/rescue-router-ui.sh"
 ! grep -Eq 'releases/latest|opkg upgrade|sysupgrade ' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'embedded release public-key fingerprint mismatch' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'case "$TARGET_CHANNEL" in stable|candidate)' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'ROUTER_UI_RELEASE_CHANNEL="$TARGET_CHANNEL"' "$ROOT_DIR/rescue-router-ui.sh"
 
 printf 'Explicit generic-rescue support and refusal matrix passed\n'
