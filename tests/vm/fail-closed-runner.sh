@@ -80,6 +80,14 @@ vm_phase_child_cleanup() {
     vm_candidate_mutation_began > "$EVIDENCE_DIR/.phase-candidate-mutation" 2>/dev/null || true
   fi
   if [[ -n "${CURRENT_PID:-}" ]]; then
+    if [[ "$exit_code" = 124 ]]; then
+      jq -n --arg phase "$VM_PHASE" --argjson qemu_pid "$CURRENT_PID" \
+        --argjson alive_before_timeout_cleanup "$(kill -0 "$CURRENT_PID" 2>/dev/null && printf true || printf false)" \
+        --argjson observed_at_epoch "$(date +%s)" \
+        '{schema_version:1,phase:$phase,qemu_pid:$qemu_pid,
+          alive_before_timeout_cleanup:$alive_before_timeout_cleanup,
+          observed_at_epoch:$observed_at_epoch}' > "$EVIDENCE_DIR/qemu-timeout.json"
+    fi
     if kill -0 "$CURRENT_PID" 2>/dev/null && declare -F capture_guest_state >/dev/null; then
       capture_guest_state "timeout-or-phase-failure-$VM_PHASE" >/dev/null 2>&1 || true
     fi
@@ -104,6 +112,7 @@ vm_write_phase_state() {
     STOCK_WRITABLE_KIB STOCK_UBIFS_DF_KIB UBOOTMOD_WRITABLE_KIB UBOOTMOD_UBIFS_DF_KIB \
     CURRENT_PID SERVER_PID BASELINE_VERSIONS FAULT_BOUNDARIES ssh_base \
     VM_PHASE VM_PHASE_COMMAND VM_PHASE_TIMEOUT_SECONDS VM_PHASE_STATE \
+    VM_RECOVERY_TIMEOUT_SECONDS \
     CANDIDATE_SOURCE_SHA NODE_PATH PATH; do
     declaration="$(declare -p "$variable" 2>/dev/null)" || continue
     declaration="${declaration#declare -- }"

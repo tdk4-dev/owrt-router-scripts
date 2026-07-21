@@ -26,6 +26,11 @@ patching input. The builder commit remains separate provenance in the baseline
 descriptor and manifest. Every baseline guest must match the Xray binary hash
 derived from the exact locked Xray IPK before its own legacy validator can pass.
 
+Post-0.7.11 CI improvement: split immutable baseline-content compatibility
+from consumer-harness identity. The 0.7.11 release deliberately retains the
+single digest contract, so a VM gate or guest harness change requires one new
+self-validated baseline pack.
+
 Every VM is serial. QEMU receives `-m 256`; the harness records only the PID it
 started, terminates and waits for that PID, and does not inspect other host QEMU
 processes. Baseline consumers inject a fresh disposable SSH key and TLS CA over

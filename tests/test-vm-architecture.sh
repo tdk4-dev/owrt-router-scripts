@@ -15,6 +15,7 @@ DIGEST="$ROOT_DIR/tests/vm/baseline-contract-digest.sh"
 CONTENT_DESCRIPTOR="$ROOT_DIR/tests/vm/write-candidate-content-descriptor.sh"
 AGGREGATOR="$ROOT_DIR/tests/vm/aggregate-candidate-evidence.sh"
 PREIMAGE_RESCUE="$ROOT_DIR/tests/vm/run-preimage-rescue-smoke.sh"
+RECOVERY="$ROOT_DIR/tests/vm/recovery-readiness.sh"
 LOCK="$ROOT_DIR/tests/vm/legacy-baseline-lock.json"
 LEGACY_CANDIDATES="$ROOT_DIR/tests/vm/legacy-diagnostic-candidates.json"
 FIXTURE="$ROOT_DIR/tests/vm/fixtures/legacy-nonsecret"
@@ -129,6 +130,8 @@ for shard in legacy protocol-concurrency-storage faults-a faults-b; do
 done
 grep -q '^  aggregate-vm-evidence:' "$CANDIDATE" ||
   fail 'candidate has no mandatory evidence aggregation job'
+grep -Fq "if: \${{ always() && needs.assemble-and-sign.result == 'success' }}" "$CANDIDATE" ||
+  fail 'candidate aggregation still emits a secondary failure when assembly is skipped'
 grep -q 'Aggregate mandatory VM evidence' "$CANDIDATE" ||
   fail 'candidate aggregation job is not an explicit authorization boundary'
 grep -q 'aggregate-candidate-evidence.sh' "$CANDIDATE" ||
@@ -182,6 +185,19 @@ done
 grep -q -- '-m 256' "$GATE" || fail 'guest RAM is not exactly 256 MiB'
 grep -q 'CURRENT_PID=\$!' "$GATE" || fail 'harness does not track its exact QEMU child PID'
 grep -q 'wait "\$CURRENT_PID"' "$GATE" || fail 'harness does not wait for its exact QEMU child PID'
+grep -q 'ROUTER_UI_VM_RECOVERY_TIMEOUT_SECONDS:-600' "$GATE" ||
+  fail 'VM gate recovery deadline does not default to 600 seconds'
+grep -q 'VM_RECOVERY_TIMEOUT_SECONDS < VM_PHASE_TIMEOUT_SECONDS' "$GATE" ||
+  fail 'VM recovery deadline is not bounded by the phase deadline'
+grep -q 'vm_wait_for_recovery' "$GATE" ||
+  fail 'VM gate does not wait for the expected owned recovery transaction'
+grep -q 'reboot-recovery.jsonl' "$GATE" ||
+  fail 'VM gate does not preserve reboot and recovery readiness evidence'
+grep -q 'reboot recovery readiness evidence is incomplete' "$AGGREGATOR" ||
+  fail 'VM aggregation does not enforce recovery readiness evidence'
+grep -q 'while :' "$RECOVERY" || fail 'recovery readiness helper is missing its deadline loop'
+! grep -Eq 'for .*\{[0-9]+\.\.[0-9]+\}' "$RECOVERY" ||
+  fail 'recovery readiness uses a fixed loop counter'
 grep -q 'ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS' "$RUNNER" || fail 'phase runner has no enforced deadline'
 grep -q 'raise SystemExit(124)' "$RUNNER" || fail 'phase timeout does not preserve exit 124'
 grep -q 'qemu-timeout.json' "$RUNNER" || fail 'phase timeout does not preserve exact QEMU evidence'
@@ -216,6 +232,7 @@ grep -q 'exact_runtime_credentials_verified:true' "$GATE" ||
 
 for input in tests/vm/legacy-baseline-lock.json tests/vm/router-ui-vm-gate.sh \
   tests/vm/router-ui-vm-guest.sh tests/vm/fail-closed-runner.sh \
+  tests/vm/recovery-readiness.sh \
   image/openwrt-fin0-packages.txt release/rd23-storage-geometry.json \
   scripts/patch-openwrt-x86-writable-extent.sh; do
   grep -q "emit $input" "$DIGEST" || fail "baseline content digest omits $input"

@@ -4,6 +4,7 @@ umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT_DIR/tests/vm/fail-closed-runner.sh"
+source "$ROOT_DIR/tests/vm/recovery-readiness.sh"
 
 VM_MODE="${ROUTER_UI_VM_MODE:-candidate}"
 RELEASE_DIR="${RELEASE_DIR:-}"
@@ -18,6 +19,7 @@ VM_SOURCE_VERSION="${ROUTER_UI_VM_SOURCE_VERSION:-}"
 VM_ACTIVE_VERSION=""
 VM_PHASE_SELECTOR="${ROUTER_UI_VM_PHASE:-all}"
 VM_FAULT_BOUNDARY="${ROUTER_UI_VM_FAULT_BOUNDARY:-}"
+VM_RECOVERY_TIMEOUT_SECONDS="${ROUTER_UI_VM_RECOVERY_TIMEOUT_SECONDS:-600}"
 BASELINE_PACK_DIR="${ROUTER_UI_BASELINE_PACK_DIR:-}"
 BASELINE_OUTPUT_DIR="${ROUTER_UI_BASELINE_OUTPUT_DIR:-}"
 BASELINE_PACK_DIGEST="${ROUTER_UI_BASELINE_PACK_DIGEST:-}"
@@ -80,6 +82,10 @@ trap 'exit 143' TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; return 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
+[[ "$VM_RECOVERY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+  fail "invalid recovery timeout: $VM_RECOVERY_TIMEOUT_SECONDS"
+(( VM_RECOVERY_TIMEOUT_SECONDS < VM_PHASE_TIMEOUT_SECONDS )) ||
+  fail "recovery timeout must be lower than the phase timeout"
 case "$VM_MODE" in
   candidate|baseline-pack) ;;
   *) fail "unsupported VM gate mode: $VM_MODE" ;;
@@ -122,6 +128,7 @@ mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
 : > "$EVIDENCE_DIR/fault-results.jsonl"
 : > "$EVIDENCE_DIR/storage-results.jsonl"
 : > "$EVIDENCE_DIR/published-baselines.jsonl"
+: > "$EVIDENCE_DIR/reboot-recovery.jsonl"
 
 record_result() {
   file="$1" kind="$2" name="$3" status="$4"
@@ -660,12 +667,51 @@ hard_poweroff_vm() {
   rm -f "$EVIDENCE_DIR/current-qemu.pid"
 }
 normal_reboot() {
+  local before after transaction pre_state expected_state rc=0
+  transaction="$("${ssh_base[@]}" sed -n '1p' \
+    /root/premier-router-updates/active-transaction 2>/dev/null || true)"
+  if [[ -n "$transaction" ]]; then
+    pre_state="$("${ssh_base[@]}" \
+      "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" \
+      2>/dev/null || true)"
+    case "$pre_state" in
+      committed_pending_reboot_validation) expected_state=committed ;;
+      committed|rolled_back|failed_before_mutation) expected_state="$pre_state" ;;
+      *) fail "unexpected pre-reboot transaction state: ${pre_state:-missing}" ;;
+    esac
+  else
+    pre_state=none
+    expected_state=none
+  fi
   before="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
   "${ssh_base[@]}" 'sync; reboot' >/dev/null 2>&1 || true
   sleep 2
   wait_ssh
   after="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
   [[ "$before" != "$after" ]] || fail "VM reboot did not change boot ID"
+
+  vm_wait_for_recovery "$EVIDENCE_DIR/reboot-recovery.jsonl" \
+    "$VM_RECOVERY_TIMEOUT_SECONDS" "$transaction" "$expected_state" "$before" "$after" || rc=$?
+  case "$rc" in
+    0) ;;
+    86) fail "post-reboot recovery reached unsafe state" ;;
+    87) fail "post-reboot recovery reached an unexpected terminal state" ;;
+    124) return 124 ;;
+    *) fail "post-reboot recovery observation failed with exit $rc" ;;
+  esac
+}
+
+vm_recovery_observe() {
+  local transaction="$1" state=none lock_present=false
+  if [[ -n "$transaction" ]]; then
+    state="$("${ssh_base[@]}" \
+      "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" \
+      2>/dev/null || true)"
+  fi
+  if "${ssh_base[@]}" test -d /root/premier-router-updates/update.lock 2>/dev/null; then
+    lock_present=true
+  fi
+  printf '%s\t%s\n' "${state:-missing}" "$lock_present"
 }
 
 initialize_baseline_pack() {
@@ -1151,12 +1197,14 @@ finalize_evidence() {
     --arg diagnostic_case "$DIAGNOSTIC_CASE" \
     --arg diagnostic_run "$DIAGNOSTIC_RUN" \
     --arg baseline_pack_digest "$BASELINE_PACK_DIGEST" \
+    --argjson recovery_timeout_seconds "$VM_RECOVERY_TIMEOUT_SECONDS" \
     --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
       harness_source_sha:$harness_source_sha,diagnostic_case:$diagnostic_case,
       baseline_pack_digest:$baseline_pack_digest,
       diagnostic:($diagnostic_run == "1"),release_evidence:($diagnostic_run != "1"),
       configured_ram_mib:$configured,vm_execution_mode:"strictly-serial-exact-child-pid",
+      recovery_timeout_seconds:$recovery_timeout_seconds,
       storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
         expected_ubifs_df_total_kib:$stock_ubifs_df},
         "rd23-ubootmod":{writable_backing_kib:$ubootmod_backing,

@@ -45,6 +45,7 @@ jq -s -e --arg source "$source_sha" --arg fingerprint "$key_fingerprint" \
       .baseline_pack_digest == $baseline and
       .diagnostic == true and .release_evidence == false and
       .configured_ram_mib == 256 and
+      .recovery_timeout_seconds == 600 and
       .vm_execution_mode == "strictly-serial-exact-child-pid" and
       .storage_profiles["rd23-stock"].writable_backing_kib == 54436 and
       .storage_profiles["rd23-stock"].expected_ubifs_df_total_kib == 51352 and
@@ -56,6 +57,21 @@ for stem in vm-measurements transition-results fault-results storage-results; do
   find "$EVIDENCE_ROOT" -type f -name "$stem.jsonl" -print0 | LC_ALL=C sort -z |
     xargs -0 cat > "$OUT_DIR/$stem.jsonl"
 done
+find "$EVIDENCE_ROOT" -type f -name reboot-recovery.jsonl -print0 | LC_ALL=C sort -z |
+  xargs -0 cat > "$OUT_DIR/reboot-recovery.jsonl"
+jq -s -e '
+  length > 0 and all(.[ ];
+    .boot_id_changed == true and .transaction_id != null and
+    .outcome == "converged" and .timed_out == false and
+    .final_state == .expected_terminal_state and .final_lock_present == false and
+    (.real_elapsed_seconds | type == "number") and
+    (.observations | length) > 0 and
+    all(.observations[];
+      (.observed_at_epoch | type == "number") and
+      (.elapsed_seconds | type == "number") and
+      (.state | type == "string") and (.lock_present | type == "boolean")))
+  ' "$OUT_DIR/reboot-recovery.jsonl" >/dev/null ||
+  fail "reboot recovery readiness evidence is incomplete"
 
 jq -s -e '
   length > 0 and all(.[ ];

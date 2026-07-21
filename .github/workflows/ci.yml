@@ -59,8 +59,10 @@ jobs:
             tests/vm/aggregate-candidate-evidence.sh \
             tests/vm/download-immutable-actions-artifact.sh \
             tests/vm/fail-closed-runner.sh \
+            tests/vm/recovery-readiness.sh \
             tests/vm/run-preimage-rescue-smoke.sh \
-            tests/vm/router-ui-vm-gate.sh
+            tests/vm/router-ui-vm-gate.sh \
+            tests/test-vm-recovery-readiness.sh
 
       - name: Validate JavaScript
         run: |
@@ -83,4 +85,5 @@ jobs:
           sh tests/test-rescue-support-matrix.sh
           sh tests/test-image-package-identity.sh
           sh tests/test-vm-architecture.sh
+          bash tests/test-vm-recovery-readiness.sh
           node tests/test-tailscale-ping-ui.mjs

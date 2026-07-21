@@ -28,6 +28,7 @@ for index in $(seq 1 22); do
     {candidate_source_sha:$source,production_public_key_fingerprint:"5b001ed1f9e63c96",
      harness_source_sha:$source,baseline_pack_digest:$baseline,diagnostic:true,
      release_evidence:false,configured_ram_mib:256,
+     recovery_timeout_seconds:600,
      vm_execution_mode:"strictly-serial-exact-child-pid",
      storage_profiles:{"rd23-stock":{writable_backing_kib:54436,
        expected_ubifs_df_total_kib:51352},"rd23-ubootmod":{writable_backing_kib:80352,
@@ -40,6 +41,15 @@ for index in $(seq 1 22); do
   : > "$case_dir/fault-results.jsonl"
   : > "$case_dir/storage-results.jsonl"
 done
+
+jq -nc '{schema_version:1,before_boot_id:"boot-old",after_boot_id:"boot-new",
+  boot_id_changed:true,transaction_id:"tx",expected_terminal_state:"committed",
+  outcome:"converged",real_elapsed_seconds:17,final_state:"committed",
+  final_lock_present:false,timed_out:false,
+  observations:[{observed_at_epoch:100,elapsed_seconds:0,
+    state:"committed_pending_reboot_validation",lock_present:true},
+    {observed_at_epoch:117,elapsed_seconds:17,state:"committed",lock_present:false}]}' \
+  > "$EVIDENCE/case-1/reboot-recovery.jsonl"
 
 for pair in '1 legacy' '2 protocol-concurrency-storage' '3 faults-a' '4 faults-b'; do
   set -- $pair

@@ -542,7 +542,7 @@ jobs:
 
   aggregate-vm-evidence:
     name: Aggregate mandatory VM evidence
-    if: always()
+    if: ${{ always() && needs.assemble-and-sign.result == 'success' }}
     needs: [assemble-and-sign, vm-shards]
     runs-on: ubuntu-24.04
     steps:
