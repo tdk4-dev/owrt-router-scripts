@@ -1,0 +1,70 @@
+name: Build verified Router UI legacy baseline pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      selector:
+        description: One source version for audit, or all for the complete pack
+        required: true
+        default: "0.7.0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: router-ui-legacy-baselines-${{ github.sha }}-${{ inputs.selector }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-validate:
+    name: Serial baseline validation - no candidate bytes or secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.selector == 'all' && 360 || 90 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact clean harness and selector
+        run: |
+          printf '%s' '${{ github.sha }}' | grep -Eq '^[0-9a-f]{40}$'
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test -z "$(git status --porcelain)"
+          case '${{ inputs.selector }}' in
+            all|0.5.1|0.5.2|0.6.0|0.7.0|0.7.1|0.7.2|0.7.3|0.7.4|0.7.5|0.7.6|0.7.8|0.7.9|0.7.10) ;;
+            *) echo 'Selector is not a claimed published source version' >&2; exit 1 ;;
+          esac
+
+      - name: Install baseline-builder dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq qemu-system-x86 qemu-utils zstd
+
+      - name: Build and self-validate the selected immutable baselines
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/baseline-artifact/baseline-evidence
+          ROUTER_UI_BASELINE_OUTPUT_DIR: ${{ runner.temp }}/baseline-artifact/legacy-baseline-pack
+          ROUTER_UI_VM_MODE: baseline-pack
+          ROUTER_UI_VM_CASE: baseline-validation
+          ROUTER_UI_VM_DIAGNOSTIC: "1"
+          ROUTER_UI_VM_HARNESS_SHA: ${{ github.sha }}
+          ROUTER_UI_VM_PHASE_TIMEOUT_SECONDS: "2400"
+          ROUTER_UI_BASELINE_SELECTOR: ${{ inputs.selector }}
+          ROUTER_UI_VM_SOURCE_VERSION: ${{ inputs.selector != 'all' && inputs.selector || '' }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$EVIDENCE_DIR" "$ROUTER_UI_BASELINE_OUTPUT_DIR"
+          ./tests/vm/router-ui-vm-gate.sh
+          test -s "$ROUTER_UI_BASELINE_OUTPUT_DIR/baseline-pack-manifest.json"
+          (cd "$ROUTER_UI_BASELINE_OUTPUT_DIR" && sha256sum -c SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: router-ui-legacy-baselines-${{ github.sha }}-${{ inputs.selector }}
+          path: ${{ runner.temp }}/baseline-artifact/
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true
