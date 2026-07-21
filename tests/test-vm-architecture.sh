@@ -145,7 +145,8 @@ jq -e '.schema_version == 1 and (.baselines | length) == 13 and
   .openwrt.version == "24.10.5" and
   .openwrt.imagebuilder_sha256 == "78ce7cda0409e4afad9226c3018c8827264790ae198118dfc735339d8211fc61" and
   .xray.version == "25.1.30-r1" and
-  .xray.package_sha256 == "fb7a8aef5e4d61f2ef6bb37e5506e3bde4a2f342ad1ba707bd68203bf6317d2d" and
+  .xray.package_url == "https://archive.openwrt.org/releases/24.10.5/packages/x86_64/packages/xray-core_25.1.30-r1_x86_64.ipk" and
+  .xray.package_sha256 == "bd104b9badb83ee63e03e2abccc1b664f8994e00a0fc3e435af35d5e6fc864dc" and
   .storage_profiles["rd23-stock"].writable_backing_kib == 54436 and
   .storage_profiles["rd23-ubootmod"].writable_backing_kib == 80352 and
   all(.baselines[]; (.release_sha256 | test("^[0-9a-f]{64}$")) and
