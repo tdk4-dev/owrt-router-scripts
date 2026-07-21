@@ -29,14 +29,14 @@ running_routerui="$($VBOXMANAGE list runningvms | awk -F'"' '$2 ~ /^RouterUI-/ {
 [[ -z "$running_routerui" ]] || fail "RouterUI VM already running: $running_routerui"
 
 run_source() {
-  local version="$1" rollback_flag=() next_flag=()
-  case "$version" in 0.7.0|0.7.1|0.7.10) rollback_flag=(--rollback) ;; esac
-  [[ "$version" != 0.7.8 ]] || next_flag=(--next-candidate "$NEXT_CANDIDATE_DIR")
-  "$CONTROLLER" --mode bridge --repeat 1 --root "$REMOTE_ROOT" \
+  local version="$1"
+  local args=(--mode bridge --repeat 1 --root "$REMOTE_ROOT" \
     --vm "$VM_NAME" --snapshot "$SNAPSHOT_NAME" --candidate "$CANDIDATE_DIR" \
     --source-sha "$EXPECTED_SOURCE_SHA" --source-version "$version" \
-    --baseline-dir "$BASELINE_DIR" --baseline-lock "$BASELINE_LOCK" \
-    "${rollback_flag[@]}" "${next_flag[@]}"
+    --baseline-dir "$BASELINE_DIR" --baseline-lock "$BASELINE_LOCK")
+  case "$version" in 0.7.0|0.7.1|0.7.10) args+=(--rollback) ;; esac
+  [[ "$version" != 0.7.8 ]] || args+=(--next-candidate "$NEXT_CANDIDATE_DIR")
+  "$CONTROLLER" "${args[@]}"
 }
 
 for version in 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10; do
