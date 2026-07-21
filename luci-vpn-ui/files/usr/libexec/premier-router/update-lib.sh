@@ -25,7 +25,7 @@ pr_safe_asset_name() {
   return 0
 }
 pr_version_valid() {
-  printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(RC[0-9]+)?$'
+  printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(RC[0-9]+|-test[0-9]+)?$'
 }
 pr_version_newer() {
   pr_version_valid "$1" && pr_version_valid "$2" || return 2
@@ -184,7 +184,12 @@ pr_manifest_validate() {
 
   [ "$schema" = "2" ] || pr_fail "unsupported manifest schema: $schema" || return 1
   [ "$protocol" = "2" ] || pr_fail "unsupported update protocol: $protocol" || return 1
-  [ "$channel" = "stable" ] || pr_fail "unsupported release channel: $channel" || return 1
+  case "$channel" in stable|candidate) ;; *)
+    pr_fail "unsupported release channel: $channel" || return 1
+  esac
+  case "$channel:$app" in stable:*-test*)
+    pr_fail "disposable test versions are forbidden on the stable channel" || return 1
+  esac
   pr_version_valid "$app" || pr_fail "malformed app version: $app" || return 1
   [ "$package_version" = "$app-1" ] || pr_fail "package version mismatch" || return 1
   [ "$tag" = "vpn-panel-v$app" ] || pr_fail "release tag mismatch" || return 1

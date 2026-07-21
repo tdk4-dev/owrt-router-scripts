@@ -5,6 +5,12 @@ umask 077
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 REQUESTED_VERSION="${ROUTER_UI_VERSION:-}"
 DISCOVERY_BASE="${ROUTER_UI_DISCOVERY_BASE:-https://github.com/$REPO/releases/latest/download}"
+RELEASE_CHANNEL="${ROUTER_UI_RELEASE_CHANNEL:-stable}"
+case "$RELEASE_CHANNEL" in stable|candidate) ;; *)
+  printf 'ERROR: unsupported release channel: %s\n' "$RELEASE_CHANNEL" >&2
+  exit 64
+esac
+POINTER_NAME="$RELEASE_CHANNEL-channel.json"
 WORK_DIR="$(mktemp -d /tmp/router-ui-package-install.XXXXXX)"
 TRUSTED_KEY_ID='UNRENDERED-PRODUCTION-KEY-ID'
 TRUSTED_KEY_FINGERPRINT='UNRENDERED-PRODUCTION-FINGERPRINT'
@@ -97,30 +103,30 @@ if [ -n "${ROUTER_UI_ASSET_DIR:-}" ]; then
   SUPERVISOR="$ASSET_DIR/$(jget "$MANIFEST" '@.transaction_supervisor.filename')"
   UPDATE_LIB="$ASSET_DIR/$(jget "$MANIFEST" '@.update_library.filename')"
 else
-  POINTER="$WORK_DIR/stable-channel.json"
-  POINTER_SIG="$WORK_DIR/stable-channel.json.sig"
+  POINTER="$WORK_DIR/$POINTER_NAME"
+  POINTER_SIG="$WORK_DIR/$POINTER_NAME.sig"
   if [ -n "$REQUESTED_VERSION" ]; then
     printf '%s' "$REQUESTED_VERSION" |
-      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(RC[0-9]+)?$' ||
+      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(RC[0-9]+|-test[0-9]+)?$' ||
       die "requested version is malformed"
     TAG="vpn-panel-v$REQUESTED_VERSION"
   else
-    fetch "$DISCOVERY_BASE/stable-channel.json" "$POINTER" ||
-      die "could not download the stable-channel pointer"
-    fetch "$DISCOVERY_BASE/stable-channel.json.sig" "$POINTER_SIG" ||
-      die "could not download the stable-channel signature"
+    fetch "$DISCOVERY_BASE/$POINTER_NAME" "$POINTER" ||
+      die "could not download the $RELEASE_CHANNEL-channel pointer"
+    fetch "$DISCOVERY_BASE/$POINTER_NAME.sig" "$POINTER_SIG" ||
+      die "could not download the $RELEASE_CHANNEL-channel signature"
     usign -q -V -p "$PUBLIC_KEY" -m "$POINTER" -x "$POINTER_SIG" ||
-      die "stable-channel signature verification failed"
+      die "$RELEASE_CHANNEL-channel signature verification failed"
     [ "$(jget "$POINTER" '@.schema_version')" = 1 ] ||
-      die "unsupported stable-channel schema"
-    [ "$(jget "$POINTER" '@.channel')" = stable ] ||
-      die "stable-channel metadata names another channel"
+      die "unsupported $RELEASE_CHANNEL-channel schema"
+    [ "$(jget "$POINTER" '@.channel')" = "$RELEASE_CHANNEL" ] ||
+      die "$RELEASE_CHANNEL-channel metadata names another channel"
     [ "$(jget "$POINTER" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
-      die "stable-channel signing key ID mismatch"
+      die "$RELEASE_CHANNEL-channel signing key ID mismatch"
     TAG="$(jget "$POINTER" '@.release_tag')"
     REQUESTED_VERSION="$(jget "$POINTER" '@.target_version')"
     [ "$TAG" = "vpn-panel-v$REQUESTED_VERSION" ] ||
-      die "stable-channel tag/version mismatch"
+      die "$RELEASE_CHANNEL-channel tag/version mismatch"
   fi
 
   RELEASE_BASE="${ROUTER_UI_EXACT_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TAG}"
@@ -140,6 +146,8 @@ else
     die "manifest signing key ID mismatch"
   [ "$(jget "$MANIFEST" '@.signing_key_fingerprint')" = "$TRUSTED_KEY_FINGERPRINT" ] ||
     die "manifest signing key fingerprint mismatch"
+  [ "$(jget "$MANIFEST" '@.channel')" = "$RELEASE_CHANNEL" ] ||
+    die "manifest release channel mismatch"
 
   index=0
   while [ "$index" -lt 16 ]; do

@@ -32,7 +32,7 @@ if [ "${1:-}" = --release-tool ]; then
   release_tool="$2"
   shift 2
   case "$release_tool" in
-    stage-installed-package-set.sh|stage-router-release.sh) ;;
+    sign-opkg-feed.sh|stage-installed-package-set.sh|stage-router-release.sh) ;;
     *) printf 'ERROR: release tool is not allowed: %s\n' "$release_tool" >&2; exit 2 ;;
   esac
   "$ROOT_DIR/scripts/$release_tool" "$@"

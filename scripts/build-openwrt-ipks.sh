@@ -301,6 +301,15 @@ RELEASE_KEY_ID=$RELEASE_KEY_ID
 RELEASE_KEY_FINGERPRINT=$RELEASE_KEY_FINGERPRINT
 EOF
 chmod 644 "$CORE_ROOT/usr/share/premier-router/build-info"
+if [ -n "${ROUTER_UI_DISPOSABLE_TEST_MARKER:-}" ]; then
+  printf '%s' "$ROUTER_UI_DISPOSABLE_TEST_MARKER" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' || {
+    printf 'Disposable test marker is malformed\n' >&2
+    exit 1
+  }
+  printf '%s\n' "$ROUTER_UI_DISPOSABLE_TEST_MARKER" > \
+    "$CORE_ROOT/usr/share/premier-router/disposable-test-marker"
+  chmod 644 "$CORE_ROOT/usr/share/premier-router/disposable-test-marker"
+fi
 mkdir -p "$CORE_ROOT/etc"
 cat > "$CORE_ROOT/etc/vpn-ui-update.conf" <<'EOF'
 AUTO_UPDATE='0'

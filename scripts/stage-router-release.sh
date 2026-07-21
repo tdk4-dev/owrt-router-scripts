@@ -8,7 +8,10 @@ PKG_VERSION="$APP_VERSION-${PKG_RELEASE:-1}"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 OUT_ROOT="${OUT_ROOT:-$ROOT_DIR/dist}"
 IPK_DIR="${IPK_DIR:-$OUT_ROOT/ipk}"
+FEED_DIR="${FEED_DIR:-$OUT_ROOT/opkg-feed}"
+INSTALLED_SET_DIR="${INSTALLED_SET_DIR:-$OUT_ROOT/installed-package-set}"
 RELEASE_DIR="${RELEASE_DIR:-$OUT_ROOT/release-v$APP_VERSION}"
+RELEASE_CHANNEL="${RELEASE_CHANNEL:-candidate}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")}"
@@ -24,9 +27,10 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT INT TERM
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"; }
-for tool in awk cp date find grep gzip jq sed sha256sum sort tar wc "$USIGN_BIN"; do need "$tool"; done
+for tool in awk cmp cp date find grep gzip jq sed sha256sum sort tar wc "$USIGN_BIN"; do need "$tool"; done
 
 [ "$APP_VERSION" = 0.7.11 ] || fail "stage script is scoped to Router UI 0.7.11"
+case "$RELEASE_CHANNEL" in candidate|stable) ;; *) fail "unsupported release channel: $RELEASE_CHANNEL" ;; esac
 printf '%s' "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$' ||
   fail "SOURCE_COMMIT must be an exact commit"
 if [ -z "$SOURCE_DIRTY" ]; then
@@ -54,6 +58,33 @@ for package in $PROJECT_PACKAGES; do
   cp "$IPK_DIR/${package}_${PKG_VERSION}_all.ipk" "$RELEASE_DIR/"
 done
 cp "$IPK_DIR/router-ui-packages.txt" "$RELEASE_DIR/router-ui-packages.txt"
+cp "$RELEASE_PUBLIC_KEY" "$RELEASE_DIR/$RELEASE_KEY_ID.pub"
+printf '%s\n' "$RELEASE_KEY_ID" > "$RELEASE_DIR/release-signing-key-id"
+printf '%s\n' "$RELEASE_KEY_FINGERPRINT" > "$RELEASE_DIR/$RELEASE_KEY_ID.fingerprint"
+cp "$ROOT_DIR/release/keys/trusted-keys.json" "$RELEASE_DIR/trusted-keys.json"
+cp "$ROOT_DIR/release/transition-matrix.json" "$RELEASE_DIR/historical-rescue-support-matrix.json"
+cp "$ROOT_DIR/docs/historical-rescue-support-matrix.md" "$RELEASE_DIR/historical-rescue-support-matrix.md"
+cp "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md" "$RELEASE_DIR/RELEASE-NOTES.md"
+
+for file in installed-manifest.json installed-manifest.json.sig; do
+  [ -s "$INSTALLED_SET_DIR/$file" ] || fail "installed package-set artifact is missing: $file"
+  cp "$INSTALLED_SET_DIR/$file" "$RELEASE_DIR/$file"
+done
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$RELEASE_DIR/installed-manifest.json" \
+  -x "$RELEASE_DIR/installed-manifest.json.sig" || fail "installed package manifest signature is invalid"
+
+for file in Packages Packages.gz Packages.sig SHA256SUMS feed-provenance.json feed-provenance.json.sig; do
+  [ -s "$FEED_DIR/$file" ] || fail "signed candidate feed artifact is missing: $file"
+done
+for package in $PROJECT_PACKAGES; do
+  cmp -s "$IPK_DIR/${package}_${PKG_VERSION}_all.ipk" \
+    "$FEED_DIR/${package}_${PKG_VERSION}_all.ipk" || fail "feed package differs from canonical bytes: $package"
+done
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$FEED_DIR/Packages" \
+  -x "$FEED_DIR/Packages.sig" || fail "candidate feed signature is invalid"
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$FEED_DIR/feed-provenance.json" \
+  -x "$FEED_DIR/feed-provenance.json.sig" || fail "candidate feed provenance signature is invalid"
+(cd "$FEED_DIR" && sha256sum -c SHA256SUMS >/dev/null) || fail "candidate feed checksums are invalid"
 
 CORE_ROOT="$STAGE/core-root"
 mkdir -p "$CORE_ROOT"
@@ -106,6 +137,22 @@ else
   GENERATED_AT="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')"
   date -u -d "@$SOURCE_DATE_EPOCH" '+%B %d, %Y' > "$RELEASE_DIR/vpn-ui-release-date.txt"
 fi
+
+create_repro_tar() {
+  local source="$1" output="$2" member="$3"
+  if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+    tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+      --numeric-owner -czf "$output" -C "$source" "$member"
+  else
+    normalized="$(date -u -r "$SOURCE_DATE_EPOCH" '+%Y%m%d%H%M.%S')"
+    find "$source/$member" -exec env TZ=UTC touch -h -t "$normalized" {} +
+    COPYFILE_DISABLE=1 tar --format ustar --no-xattrs --no-mac-metadata \
+      --owner=0 --group=0 --numeric-owner -czf "$output" -C "$source" "$member"
+  fi
+}
+
+FEED_ARCHIVE="$RELEASE_DIR/premier-router-opkg-feed-$APP_VERSION.tar.gz"
+create_repro_tar "$FEED_DIR" "$FEED_ARCHIVE" .
 
 find "$OUT_ROOT" -maxdepth 1 -type f \
   -name "premier-router-$APP_VERSION-openwrt-$OPENWRT_VERSION-*.tar.gz" |
@@ -162,6 +209,8 @@ COMPAT_JSON="$(asset_object "$RELEASE_DIR/0.7.9-_35_vpn.js" 1)"
 INSTALLER_JSON="$(asset_object "$RELEASE_DIR/install-router-ui-release.sh" 2)"
 RESCUE_JSON="$(asset_object "$RELEASE_DIR/rescue-router-ui.sh" 1)"
 STORAGE_GEOMETRY_JSON="$(asset_object "$RELEASE_DIR/rd23-storage-geometry.json" 1)"
+FEED_JSON="$(asset_object "$FEED_ARCHIVE" 1)"
+INSTALLED_MANIFEST_JSON="$(asset_object "$RELEASE_DIR/installed-manifest.json" 1)"
 
 IMAGES_FILE="$STAGE/images.jsonl"
 : > "$IMAGES_FILE"
@@ -194,26 +243,15 @@ else
   IMAGES_JSON='[]'
 fi
 
-TRANSITIONS_JSON='[
-  {"source_version":"0.5.1","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.5.2","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.6.0","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.0","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.1","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.2","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.3","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.4","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.5","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.6","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.8","source_protocol":1,"mode":"rescue"},
-  {"source_version":"0.7.9","source_protocol":1,"mode":"legacy-bridge-or-rescue"},
-  {"source_version":"0.7.10","source_protocol":1,"mode":"legacy-bridge-or-rescue"},
-  {"source_version":"0.7.11","source_protocol":2,"mode":"package-v2"}
-]'
+TRANSITIONS_JSON="$(jq '[.baselines[] | select(.published_release == true) |
+  {source_version:.version,source_protocol:1,
+   mode:(if .adapter == "none" then "rescue" else "compatibility-adapter" end)}] +
+  [{source_version:"0.7.11",source_protocol:2,mode:"package-v2"}]' \
+  "$ROOT_DIR/release/transition-matrix.json")"
 
 MANIFEST="$RELEASE_DIR/router-release-manifest.json"
 jq -n \
-  --arg channel stable \
+  --arg channel "$RELEASE_CHANNEL" \
   --arg app_version "$APP_VERSION" \
   --arg package_version "$PKG_VERSION" \
   --arg release_tag "vpn-panel-v$APP_VERSION" \
@@ -231,6 +269,8 @@ jq -n \
   --argjson standalone_installer "$INSTALLER_JSON" \
   --argjson rescue "$RESCUE_JSON" \
   --argjson storage_geometry "$STORAGE_GEOMETRY_JSON" \
+  --argjson package_feed "$FEED_JSON" \
+  --argjson installed_manifest "$INSTALLED_MANIFEST_JSON" \
   --argjson transitions "$TRANSITIONS_JSON" \
   --argjson images "$IMAGES_JSON" \
   '{
@@ -257,6 +297,8 @@ jq -n \
     compatibility:{status_0_7_9:$compat},
     standalone_installer:$standalone_installer,
     rescue:$rescue,
+    package_feed:$package_feed,
+    installed_package_manifest:$installed_manifest,
     rd23_storage_geometry:$storage_geometry,
     compatibility_transport:{
       filename:"luci-vpn-ui.tar.gz",
@@ -269,9 +311,9 @@ jq -n \
 "$USIGN_BIN" -S -m "$MANIFEST" -s "$SIGNING_KEY" \
   -x "$RELEASE_DIR/router-release-manifest.json.sig"
 
-POINTER="$RELEASE_DIR/stable-channel.json"
+POINTER="$RELEASE_DIR/$RELEASE_CHANNEL-channel.json"
 jq -n \
-  --arg channel stable \
+  --arg channel "$RELEASE_CHANNEL" \
   --arg target_version "$APP_VERSION" \
   --arg release_tag "vpn-panel-v$APP_VERSION" \
   --arg manifest_filename router-release-manifest.json \
@@ -284,7 +326,7 @@ jq -n \
     signing_key_fingerprint:$signing_key_fingerprint}' |
   jq -S . > "$POINTER"
 "$USIGN_BIN" -S -m "$POINTER" -s "$SIGNING_KEY" \
-  -x "$RELEASE_DIR/stable-channel.json.sig"
+  -x "$RELEASE_DIR/$RELEASE_CHANNEL-channel.json.sig"
 
 BUNDLE_ROOT="$STAGE/luci-vpn-ui"
 BRIDGE="$BUNDLE_ROOT/bridge"
@@ -308,18 +350,6 @@ find "$BUNDLE_ROOT" -type f -exec chmod 644 {} \;
 chmod 755 "$BUNDLE_ROOT/install.sh" "$BRIDGE/router-candidate-validator" \
   "$BRIDGE/vpn-ui-update" "$BRIDGE/update-lib.sh"
 
-create_repro_tar() {
-  local source="$1" output="$2" member="$3"
-  if tar --version 2>/dev/null | grep -q 'GNU tar'; then
-    tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
-      --numeric-owner -czf "$output" -C "$source" "$member"
-  else
-    normalized="$(date -u -r "$SOURCE_DATE_EPOCH" '+%Y%m%d%H%M.%S')"
-    find "$source/$member" -exec env TZ=UTC touch -h -t "$normalized" {} +
-    COPYFILE_DISABLE=1 tar --format ustar --no-xattrs --no-mac-metadata \
-      --owner=0 --group=0 --numeric-owner -czf "$output" -C "$source" "$member"
-  fi
-}
 create_repro_tar "$STAGE" "$RELEASE_DIR/luci-vpn-ui.tar.gz" luci-vpn-ui
 
 for file in \
@@ -361,8 +391,10 @@ jq -n \
 
 (
   cd "$RELEASE_DIR"
-  find . -maxdepth 1 -type f ! -name SHA256SUMS -print |
+  find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name SHA256SUMS.sig -print |
     sed 's#^\./##' | sort |
     while IFS= read -r file; do sha256sum "$file"; done > SHA256SUMS
 )
+"$USIGN_BIN" -S -m "$RELEASE_DIR/SHA256SUMS" -s "$SIGNING_KEY" \
+  -x "$RELEASE_DIR/SHA256SUMS.sig"
 printf 'Staged flat Router UI %s release at %s\n' "$APP_VERSION" "$RELEASE_DIR"

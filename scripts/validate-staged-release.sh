@@ -7,6 +7,7 @@ APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 PKG_VERSION="$APP_VERSION-${PKG_RELEASE:-1}"
 OPENWRT_VERSION="${OPENWRT_VERSION:-24.10.5}"
 RELEASE_DIR="${RELEASE_DIR:-$ROOT_DIR/dist/release-v$APP_VERSION}"
+RELEASE_CHANNEL="${RELEASE_CHANNEL:-candidate}"
 EXPECTED_RELEASE_KEY_ID="${EXPECTED_RELEASE_KEY_ID:-}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 STRICT_RELEASE="${STRICT_RELEASE:-0}"
@@ -26,15 +27,20 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1";
 for tool in awk cmp find grep gzip jq sed sha256sum sort tar wc "$USIGN_BIN"; do need "$tool"; done
 
 [ "$APP_VERSION" = 0.7.11 ] || fail "validator is scoped to Router UI 0.7.11"
+case "$RELEASE_CHANNEL" in candidate|stable) ;; *) fail "unsupported release channel: $RELEASE_CHANNEL" ;; esac
 [ -d "$RELEASE_DIR" ] || fail "missing release directory: $RELEASE_DIR"
 for file in router-release-manifest.json router-release-manifest.json.sig \
-  stable-channel.json stable-channel.json.sig release-provenance.json \
-  release-provenance.json.sig SHA256SUMS router-ui-packages.txt \
+  "$RELEASE_CHANNEL-channel.json" "$RELEASE_CHANNEL-channel.json.sig" release-provenance.json \
+  release-provenance.json.sig SHA256SUMS SHA256SUMS.sig router-ui-packages.txt \
   install-router-ui-release.sh install-router-ui-release.sh.sha256 \
   rescue-router-ui.sh rescue-router-ui.sh.sha256 luci-vpn-ui.tar.gz \
   luci-vpn-ui.tar.gz.sha256 vpn-ui-version.txt vpn-ui-changelog.txt \
   vpn-ui-release-date.txt router-candidate-validator router-update-supervisor \
-  router-update-lib.sh 0.7.9-_35_vpn.js rd23-storage-geometry.json
+  router-update-lib.sh 0.7.9-_35_vpn.js rd23-storage-geometry.json \
+  installed-manifest.json installed-manifest.json.sig trusted-keys.json \
+  release-signing-key-id historical-rescue-support-matrix.json \
+  historical-rescue-support-matrix.md RELEASE-NOTES.md \
+  "premier-router-opkg-feed-$APP_VERSION.tar.gz"
 do
   [ -s "$RELEASE_DIR/$file" ] || fail "missing staged asset: $file"
 done
@@ -48,7 +54,7 @@ done
   cd "$RELEASE_DIR"
   sha256sum -c SHA256SUMS > "$WORK/sha256.log"
 ) || { cat "$WORK/sha256.log" >&2; fail "SHA256SUMS validation failed"; }
-find "$RELEASE_DIR" -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; |
+find "$RELEASE_DIR" -maxdepth 1 -type f ! -name SHA256SUMS ! -name SHA256SUMS.sig -exec basename {} \; |
   LC_ALL=C sort > "$WORK/files.actual"
 awk '{print $2}' "$RELEASE_DIR/SHA256SUMS" | sed 's#^\*##' | LC_ALL=C sort > "$WORK/files.sum"
 cmp -s "$WORK/files.actual" "$WORK/files.sum" || fail "SHA256SUMS names do not exactly match flat assets"
@@ -59,7 +65,7 @@ for file in luci-vpn-ui.tar.gz install-router-ui-release.sh rescue-router-ui.sh;
 done
 
 MANIFEST="$RELEASE_DIR/router-release-manifest.json"
-POINTER="$RELEASE_DIR/stable-channel.json"
+POINTER="$RELEASE_DIR/$RELEASE_CHANNEL-channel.json"
 PROVENANCE="$RELEASE_DIR/release-provenance.json"
 MANIFEST_KEY_ID="$(jq -er '.signing_key_id | select(type == "string")' "$MANIFEST")" ||
   fail "manifest signing key ID is missing"
@@ -67,12 +73,20 @@ MANIFEST_KEY_ID="$(jq -er '.signing_key_id | select(type == "string")' "$MANIFES
   fail "manifest signing key ID differs from expected key ID"
 EXPECTED_RELEASE_KEY_ID="$MANIFEST_KEY_ID"
 pr_select_trusted_key "$EXPECTED_RELEASE_KEY_ID" 'active previous' || exit 1
+[ -s "$RELEASE_DIR/$EXPECTED_RELEASE_KEY_ID.pub" ] || fail "staged release public key is missing"
+cmp -s "$RELEASE_PUBLIC_KEY" "$RELEASE_DIR/$EXPECTED_RELEASE_KEY_ID.pub" || fail "staged release public key differs from registry"
+[ "$(sed -n '1p' "$RELEASE_DIR/release-signing-key-id")" = "$EXPECTED_RELEASE_KEY_ID" ] || fail "staged signing key ID mismatch"
+[ "$(sed -n '1p' "$RELEASE_DIR/$EXPECTED_RELEASE_KEY_ID.fingerprint")" = "$RELEASE_KEY_FINGERPRINT" ] || fail "staged signing fingerprint mismatch"
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$MANIFEST" \
   -x "$RELEASE_DIR/router-release-manifest.json.sig" || fail "manifest signature invalid"
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$POINTER" \
-  -x "$RELEASE_DIR/stable-channel.json.sig" || fail "stable pointer signature invalid"
+  -x "$RELEASE_DIR/$RELEASE_CHANNEL-channel.json.sig" || fail "$RELEASE_CHANNEL pointer signature invalid"
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$PROVENANCE" \
   -x "$RELEASE_DIR/release-provenance.json.sig" || fail "provenance signature invalid"
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$RELEASE_DIR/SHA256SUMS" \
+  -x "$RELEASE_DIR/SHA256SUMS.sig" || fail "SHA256SUMS signature invalid"
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$RELEASE_DIR/installed-manifest.json" \
+  -x "$RELEASE_DIR/installed-manifest.json.sig" || fail "installed manifest signature invalid"
 
 printf "DISTRIB_RELEASE='%s'\nDISTRIB_TARGET='x86/64'\n" "$OPENWRT_VERSION" > "$WORK/openwrt_release"
 PREMIER_ROUTER_HOST_TEST=1 PR_USIGN_BIN="$USIGN_BIN" \
@@ -82,15 +96,18 @@ PREMIER_ROUTER_HOST_TEST=1 PR_USIGN_BIN="$USIGN_BIN" \
   "$MANIFEST" "$EXPECTED_RELEASE_KEY_ID" || fail "manifest semantic validation failed"
 
 jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
+  --arg channel "$RELEASE_CHANNEL" \
   --argjson require_images "$REQUIRE_IMAGES" \
   --arg tag "vpn-panel-v$APP_VERSION" --arg key "$EXPECTED_RELEASE_KEY_ID" \
   --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
-  .schema_version == 2 and .update_protocol == 2 and .channel == "stable" and
+  .schema_version == 2 and .update_protocol == 2 and .channel == $channel and
   .app_version == $version and .package_version == $package and
   .release_tag == $tag and .signing_key_id == $key and
   .signing_key_fingerprint == $fingerprint and .source_dirty == false and
   (.source_commit | test("^[0-9a-f]{40}$")) and
   .rd23_storage_geometry.filename == "rd23-storage-geometry.json" and
+  .package_feed.filename == ("premier-router-opkg-feed-" + $version + ".tar.gz") and
+  .installed_package_manifest.filename == "installed-manifest.json" and
   (($require_images == 0) or ((.images | length == 3) and
     ([.images[].storage.storage_profile] | sort == ["rd23-stock","rd23-stock","rd23-ubootmod"]))) and
   (.transitions | map(.source_version) | index("0.7.7") | not) and
@@ -104,13 +121,14 @@ MANIFEST_COMMIT="$(jq -r .source_commit "$MANIFEST")"
 [ -z "$EXPECTED_SOURCE_COMMIT" ] || [ "$MANIFEST_COMMIT" = "$EXPECTED_SOURCE_COMMIT" ] ||
   fail "manifest source commit differs from expected commit"
 jq -e --arg version "$APP_VERSION" --arg tag "vpn-panel-v$APP_VERSION" \
+  --arg channel "$RELEASE_CHANNEL" \
   --arg hash "$(sha256sum "$MANIFEST" | awk '{print $1}')" \
   --arg key "$EXPECTED_RELEASE_KEY_ID" --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
-  .schema_version == 1 and .channel == "stable" and .target_version == $version and
+  .schema_version == 1 and .channel == $channel and .target_version == $version and
   .release_tag == $tag and .manifest_filename == "router-release-manifest.json" and
   .manifest_sha256 == $hash and .signing_key_id == $key and
   .signing_key_fingerprint == $fingerprint
-' "$POINTER" >/dev/null || fail "stable pointer does not pin the exact manifest"
+' "$POINTER" >/dev/null || fail "$RELEASE_CHANNEL pointer does not pin the exact manifest"
 jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
   --arg commit "$MANIFEST_COMMIT" --arg key "$EXPECTED_RELEASE_KEY_ID" \
   --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
@@ -139,6 +157,44 @@ for package in $PROJECT_PACKAGES; do
 done
 [ "$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*.ipk' | wc -l | tr -d ' ')" = 3 ] ||
   fail "flat release must contain exactly three IPKs"
+
+INSTALLED_MANIFEST="$RELEASE_DIR/installed-manifest.json"
+jq -e --arg version "$APP_VERSION" --arg package "$PKG_VERSION" \
+  --arg commit "$MANIFEST_COMMIT" --arg key "$EXPECTED_RELEASE_KEY_ID" \
+  --arg fingerprint "$RELEASE_KEY_FINGERPRINT" '
+  .schema_version == 1 and .kind == "installed-package-set" and
+  .app_version == $version and .package_version == $package and
+  .source_commit == $commit and .source_dirty == false and
+  .signing_key_id == $key and .signing_key_fingerprint == $fingerprint and
+  ([.packages[].name] == ["premier-router-core","luci-app-premier-router","premier-router-setup"])
+' "$INSTALLED_MANIFEST" >/dev/null || fail "installed package manifest metadata mismatch"
+for index in 0 1 2; do
+  filename="$(jq -r ".packages[$index].filename" "$INSTALLED_MANIFEST")"
+  [ "$(jq -r ".packages[$index].sha256" "$INSTALLED_MANIFEST")" = \
+    "$(sha256sum "$RELEASE_DIR/$filename" | awk '{print $1}')" ] ||
+    fail "installed package manifest hash mismatch: $filename"
+done
+
+FEED_ARCHIVE="$RELEASE_DIR/premier-router-opkg-feed-$APP_VERSION.tar.gz"
+[ "$(jq -r '.package_feed.sha256' "$MANIFEST")" = "$(sha256sum "$FEED_ARCHIVE" | awk '{print $1}')" ] ||
+  fail "manifest package-feed hash mismatch"
+if tar -tzf "$FEED_ARCHIVE" | grep -Eq '(^|/)\.\.(/|$)|^/'; then
+  fail "candidate feed archive contains an unsafe member"
+fi
+mkdir -p "$WORK/feed"
+tar -xzf "$FEED_ARCHIVE" -C "$WORK/feed"
+FEED_ROOT="$WORK/feed"
+[ -s "$FEED_ROOT/Packages" ] || FEED_ROOT="$WORK/feed/."
+(cd "$FEED_ROOT" && sha256sum -c SHA256SUMS >/dev/null) || fail "candidate feed checksum validation failed"
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$FEED_ROOT/Packages" \
+  -x "$FEED_ROOT/Packages.sig" || fail "candidate opkg feed signature invalid"
+"$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$FEED_ROOT/feed-provenance.json" \
+  -x "$FEED_ROOT/feed-provenance.json.sig" || fail "candidate feed provenance signature invalid"
+gzip -dc "$FEED_ROOT/Packages.gz" | cmp -s - "$FEED_ROOT/Packages" || fail "candidate feed compressed index mismatch"
+for package in $PROJECT_PACKAGES; do
+  cmp -s "$RELEASE_DIR/${package}_${PKG_VERSION}_all.ipk" \
+    "$FEED_ROOT/${package}_${PKG_VERSION}_all.ipk" || fail "candidate feed package drift: $package"
+done
 
 mkdir -p "$WORK/core"
 ipk_data "$RELEASE_DIR/premier-router-core_${PKG_VERSION}_all.ipk" | tar -xzf - -C "$WORK/core"
@@ -293,6 +349,7 @@ if [ "$STRICT_RELEASE" = 1 ]; then
     ! grep -q 'UNRENDERED-PRODUCTION' "$script" ||
       fail "strict release found an unrendered public bootstrap script"
     grep -Fqx "TRUSTED_KEY_ID='$EXPECTED_RELEASE_KEY_ID'" "$script" &&
+      grep -Fqx "TRUSTED_KEY_FINGERPRINT='$RELEASE_KEY_FINGERPRINT'" "$script" &&
       grep -Fqx "TRUSTED_KEY_COMMENT='$expected_comment'" "$script" &&
       grep -Fqx "TRUSTED_KEY_DATA='$expected_data'" "$script" ||
       fail "strict release bootstrap trust root differs from the committed production key"
@@ -303,6 +360,17 @@ if [ "$STRICT_RELEASE" = 1 ]; then
       fail "release source commit is not contained in origin/main"
   fi
 fi
+
+if find "$RELEASE_DIR" -type f \( -name '*.sec' -o -name '*.key' -o -name '*.pem' \
+  -o -name '.env' -o -name 'id_rsa*' -o -name 'id_ed25519*' \) | grep -q .; then
+  fail "release set contains a secret-key-shaped filename"
+fi
+if grep -RIlE '(^|[^A-Za-z])(ROUTER_UI_SIGNING_KEY=|BEGIN (OPENSSH |RSA |EC )?PRIVATE KEY|/Users/|/private/tmp/|/home/[^/]+/)' \
+  "$RELEASE_DIR" | grep -q .; then
+  fail "release set contains a private path or secret-material indicator"
+fi
+! grep -RIl 'a4d8987' "$RELEASE_DIR" | grep -q . ||
+  fail "release set contains historical candidate provenance"
 
 printf 'staged release validation passed: %s (%s assets, %s images)\n' \
   "$RELEASE_DIR" "$(wc -l < "$WORK/files.actual" | tr -d ' ')" "$image_count"

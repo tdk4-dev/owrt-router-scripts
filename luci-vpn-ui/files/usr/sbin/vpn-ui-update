@@ -13,6 +13,12 @@ LIB="${VPN_UI_UPDATE_LIB:-${ROOT_PREFIX}/usr/libexec/premier-router/update-lib.s
 REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
 RELEASE_ORIGIN="${VPN_UI_RELEASE_ORIGIN:-https://github.com/$REPO}"
 DISCOVERY_BASE="${VPN_UI_DISCOVERY_BASE:-$RELEASE_ORIGIN/releases/latest/download}"
+RELEASE_CHANNEL="${VPN_UI_RELEASE_CHANNEL:-stable}"
+case "$RELEASE_CHANNEL" in stable|candidate) ;; *)
+  printf 'ERROR: unsupported update channel: %s\n' "$RELEASE_CHANNEL" >&2
+  exit 64
+esac
+POINTER_NAME="$RELEASE_CHANNEL-channel.json"
 VERSION_FILE="${VPN_UI_VERSION_FILE:-${ROOT_PREFIX}/usr/share/vpn-ui/version}"
 BUILD_INFO="${VPN_UI_BUILD_INFO:-${ROOT_PREFIX}/usr/share/premier-router/build-info}"
 PUBLIC_KEY="${VPN_UI_RELEASE_PUBLIC_KEY:-${ROOT_PREFIX}/usr/share/premier-router/keys/release.pub}"
@@ -309,7 +315,7 @@ pointer_validate() {
   manifest_hash="$(pr_json_get "$pointer" '@.manifest_sha256' '.manifest_sha256 // empty')"
   key_id="$(pr_json_get "$pointer" '@.signing_key_id' '.signing_key_id // empty')"
   key_fingerprint="$(pr_json_get "$pointer" '@.signing_key_fingerprint' '.signing_key_fingerprint // empty')"
-  [ "$schema" = "1" ] && [ "$channel" = stable ] || return 1
+  [ "$schema" = "1" ] && [ "$channel" = "$RELEASE_CHANNEL" ] || return 1
   pr_version_valid "$version" || return 1
   [ "$tag" = "vpn-panel-v$version" ] || return 1
   [ "$manifest_file" = router-release-manifest.json ] || return 1
@@ -320,13 +326,13 @@ pointer_validate() {
 
 discover_release() {
   local work="$1" source_version="$2" source_proto="$3"
-  local pointer="$work/stable-channel.json" pointer_sig="$work/stable-channel.json.sig"
+  local pointer="$work/$POINTER_NAME" pointer_sig="$work/$POINTER_NAME.sig"
   local manifest="$work/router-release-manifest.json"
   local manifest_sig="$work/router-release-manifest.json.sig"
   local key_id key_fingerprint tag version expected_hash release_base selected_public_key
 
-  pr_download "$DISCOVERY_BASE/stable-channel.json" "$pointer" || return 1
-  pr_download "$DISCOVERY_BASE/stable-channel.json.sig" "$pointer_sig" || return 1
+  pr_download "$DISCOVERY_BASE/$POINTER_NAME" "$pointer" || return 1
+  pr_download "$DISCOVERY_BASE/$POINTER_NAME.sig" "$pointer_sig" || return 1
   key_id="$(pr_json_get "$pointer" '@.signing_key_id' '.signing_key_id // empty')"
   if [ -s "$TRUSTED_KEYS_REGISTRY" ]; then
     pr_resolve_trusted_release_key "$TRUSTED_KEYS_REGISTRY" \
@@ -348,15 +354,16 @@ discover_release() {
   pr_download "$release_base/router-release-manifest.json.sig" "$manifest_sig" || return 1
   [ "$(pr_sha256 "$manifest")" = "$expected_hash" ] || return 1
   pr_verify_signature "$manifest" "$manifest_sig" "$selected_public_key" || return 1
+  [ "$(pr_json_get "$manifest" '@.channel' '.channel // empty')" = "$RELEASE_CHANNEL" ] || return 1
   pr_manifest_validate "$manifest" "$key_id" "$source_version" "$source_proto" \
     "$key_fingerprint" || return 1
   mkdir -p "$CACHE_DIR/$tag"
-  cp "$pointer" "$CACHE_DIR/stable-channel.json.new"
-  cp "$pointer_sig" "$CACHE_DIR/stable-channel.json.sig.new"
+  cp "$pointer" "$CACHE_DIR/$POINTER_NAME.new"
+  cp "$pointer_sig" "$CACHE_DIR/$POINTER_NAME.sig.new"
   cp "$manifest" "$CACHE_DIR/$tag/router-release-manifest.json.new"
   cp "$manifest_sig" "$CACHE_DIR/$tag/router-release-manifest.json.sig.new"
-  mv "$CACHE_DIR/stable-channel.json.new" "$CACHE_DIR/stable-channel.json"
-  mv "$CACHE_DIR/stable-channel.json.sig.new" "$CACHE_DIR/stable-channel.json.sig"
+  mv "$CACHE_DIR/$POINTER_NAME.new" "$CACHE_DIR/$POINTER_NAME"
+  mv "$CACHE_DIR/$POINTER_NAME.sig.new" "$CACHE_DIR/$POINTER_NAME.sig"
   mv "$CACHE_DIR/$tag/router-release-manifest.json.new" "$CACHE_DIR/$tag/router-release-manifest.json"
   mv "$CACHE_DIR/$tag/router-release-manifest.json.sig.new" "$CACHE_DIR/$tag/router-release-manifest.json.sig"
   printf '%s\n' "$tag" | atomic_from_stdin "$CACHE_DIR/resolved-tag"
@@ -381,8 +388,8 @@ status_json() {
   target=""
   rollback=not_started
   needs_reboot=false
-  if [ -s "$CACHE_DIR/stable-channel.json" ]; then
-    latest="$(pr_json_get "$CACHE_DIR/stable-channel.json" '@.target_version' '.target_version // empty')"
+  if [ -s "$CACHE_DIR/$POINTER_NAME" ]; then
+    latest="$(pr_json_get "$CACHE_DIR/$POINTER_NAME" '@.target_version' '.target_version // empty')"
   fi
   if journal="$(latest_journal 2>/dev/null)" && journal_load "$journal"; then
     state="$J_STATE"
