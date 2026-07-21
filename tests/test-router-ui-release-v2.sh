@@ -148,6 +148,10 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_0.7.11-1_all.ipk" ./control.tar.g
   tar -tzf - | grep -q '/_35_vpn.js$'
 
 grep -q 'candidate_validate' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
+grep -Fq 'VALIDATOR="$ASSET_DIR/$(jget "$MANIFEST" '\''@.candidate_validator.filename'\'')"' \
+  "$ROOT_DIR/install-router-ui-release.sh"
+grep -Fq 'chmod 700 "$SUPERVISOR" "$UPDATE_LIB" "$VALIDATOR"' \
+  "$ROOT_DIR/install-router-ui-release.sh"
 ! grep -Eq 'curl -k|wget .*--no-check-certificate|opkg upgrade' \
   "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" \
   "$ROOT_DIR/install-router-ui-release.sh" "$ROOT_DIR/rescue-router-ui.sh"

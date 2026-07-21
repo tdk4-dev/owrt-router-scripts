@@ -162,9 +162,12 @@ else
 fi
 
 [ -s "$SUPERVISOR" ] && [ -s "$UPDATE_LIB" ] || die "verified supervisor assets are missing"
+VALIDATOR="$ASSET_DIR/$(jget "$MANIFEST" '@.candidate_validator.filename')"
+[ -s "$VALIDATOR" ] || die "verified candidate validator asset is missing"
 sh -n "$SUPERVISOR" || die "transaction supervisor shell syntax is invalid"
 sh -n "$UPDATE_LIB" || die "update library shell syntax is invalid"
-chmod 700 "$SUPERVISOR" "$UPDATE_LIB"
+sh -n "$VALIDATOR" || die "candidate validator shell syntax is invalid"
+chmod 700 "$SUPERVISOR" "$UPDATE_LIB" "$VALIDATOR"
 printf '%s\n' "$TRUSTED_KEY_ID" > "$WORK_DIR/release-key-id"
 
 VPN_UI_UPDATE_LIB="$UPDATE_LIB" \
