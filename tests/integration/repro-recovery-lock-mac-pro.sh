@@ -10,6 +10,12 @@ VM_NAME=
 SNAPSHOT_NAME=
 CANDIDATE_DIR=
 EXPECTED_SOURCE_SHA=
+SOURCE_VERSION=0.7.0
+BASELINE_DIR=
+BASELINE_LOCK=
+ROLLBACK=0
+FAILURE_INJECTION=0
+NEXT_CANDIDATE_DIR=
 SSH_PORT=23071
 HTTPS_PORT=18443
 LOCK_GRACE_SECONDS=15
@@ -32,6 +38,12 @@ while [[ $# -gt 0 ]]; do
     --snapshot) SNAPSHOT_NAME="$2"; shift 2 ;;
     --candidate) CANDIDATE_DIR="$2"; shift 2 ;;
     --source-sha) EXPECTED_SOURCE_SHA="$2"; shift 2 ;;
+    --source-version) SOURCE_VERSION="$2"; shift 2 ;;
+    --baseline-dir) BASELINE_DIR="$2"; shift 2 ;;
+    --baseline-lock) BASELINE_LOCK="$2"; shift 2 ;;
+    --rollback) ROLLBACK=1; shift ;;
+    --failure-injection) FAILURE_INJECTION=1; shift ;;
+    --next-candidate) NEXT_CANDIDATE_DIR="$2"; shift 2 ;;
     *) printf 'Unknown controller argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -43,8 +55,23 @@ done
 [[ "$VM_NAME" =~ ^RouterUI-[A-Za-z0-9._-]+$ ]]
 [[ "$SNAPSHOT_NAME" =~ ^[A-Za-z0-9._-]+$ ]]
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$SOURCE_VERSION" =~ ^0\.7\.(0|1|2|3|4|5|6|8|9|10)$ ]]
+[[ "$BASELINE_DIR" = /Users/mac-pro-host/Documents/RouterUI-release/historical-baselines-0.7.x ]]
+[[ "$BASELINE_LOCK" = "$REMOTE_ROOT"/runtime/legacy-baseline-lock.json ]]
 [[ -x "$VBOXMANAGE" ]]
 [[ -d "$CANDIDATE_DIR" && -s "$CANDIDATE_DIR/SHA256SUMS" ]]
+[[ -s "$BASELINE_DIR/$SOURCE_VERSION/luci-vpn-ui.tar.gz" ]]
+[[ -s "$BASELINE_DIR/$SOURCE_VERSION/luci-vpn-ui.tar.gz.sha256" ]]
+[[ -s "$BASELINE_LOCK" ]]
+if [[ -n "$NEXT_CANDIDATE_DIR" ]]; then
+  [[ "$NEXT_CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
+  [[ -s "$NEXT_CANDIDATE_DIR/SHA256SUMS" ]]
+fi
+
+BASELINE_WORKER_SHA="$(jq -er --arg version "$SOURCE_VERSION" '.baselines[] | select(.version == $version) | .worker_sha256' "$BASELINE_LOCK")"
+BASELINE_VALIDATOR_SHA="$(jq -er --arg version "$SOURCE_VERSION" '.baselines[] | select(.version == $version) | .validator_sha256' "$BASELINE_LOCK")"
+XRAY_VERSION="$(jq -er '.xray.version' "$BASELINE_LOCK")"
+XRAY_BINARY_SHA="$(jq -er '.xray.binary_sha256' "$BASELINE_LOCK")"
 
 guest_ssh() {
   ssh -o BatchMode=yes -o PreferredAuthentications=none \
@@ -117,7 +144,15 @@ collect_guest_diagnostics() {
     echo "== active transaction =="; cat /root/premier-router-updates/active-transaction 2>/dev/null || true
     txn="$(sed -n "1p" /root/premier-router-updates/active-transaction 2>/dev/null)"
     echo "== journal =="; [ -n "$txn" ] && cat "/root/premier-router-updates/$txn/state.json" 2>/dev/null || true
-    echo "== lock owner =="; cat /root/premier-router-updates/update.lock/owner 2>/dev/null || true
+    echo "== lock owner (token redacted) =="
+    owner_file=/root/premier-router-updates/update.lock/owner
+    token="$(sed -n "s/^token=//p" "$owner_file" 2>/dev/null | sed -n "1p")"
+    case "$token" in
+      [0-9a-f][0-9a-f]*) [ "${#token}" = 64 ] && shape=valid-64-hex || shape=invalid ;;
+      *) shape=absent ;;
+    esac
+    printf "token_shape=%s\n" "$shape"
+    sed -n "/^pid=/p;/^boot_id=/p;/^start_id=/p" "$owner_file" 2>/dev/null || true
     owner="$(sed -n "s/^pid=//p" /root/premier-router-updates/update.lock/owner 2>/dev/null | sed -n "1p")"
     echo "== process list =="; ps w
     if [ -n "$owner" ] && [ -d "/proc/$owner" ]; then
@@ -152,6 +187,10 @@ on_exit() {
   fi
   stop_server
   stop_vm
+  if (( rc != 0 )) && [[ -n "$VM_NAME" && -n "$SNAPSHOT_NAME" ]] &&
+    [[ "$(vm_state 2>/dev/null || true)" = poweroff ]]; then
+    "$VBOXMANAGE" snapshot "$VM_NAME" restore "$SNAPSHOT_NAME" >/dev/null 2>&1 || true
+  fi
   exit "$rc"
 }
 trap on_exit EXIT INT TERM
@@ -179,6 +218,13 @@ prepare_https_server() {
   mkdir -p "$tls" "$server_root/releases/download" "$server_root/releases/latest"
   ln -s "$CANDIDATE_DIR" "$server_root/releases/download/vpn-panel-v0.7.11"
   ln -s "$CANDIDATE_DIR" "$server_root/releases/latest/download"
+  ln -s "$BASELINE_DIR" "$server_root/baselines"
+  mkdir -p "$server_root/fixtures"
+  ln -s "$REMOTE_ROOT/runtime/legacy-nonsecret" "$server_root/fixtures/legacy-nonsecret"
+  if [[ -n "$NEXT_CANDIDATE_DIR" ]]; then
+    ln -s "$NEXT_CANDIDATE_DIR" "$server_root/releases/download/vpn-panel-v0.7.12-test1"
+    ln -s "$NEXT_CANDIDATE_DIR" "$server_root/candidate"
+  fi
   openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
     -subj '/CN=Router UI local diagnostic CA' \
     -keyout "$tls/ca.key" -out "$tls/ca.crt" >/dev/null 2>&1
@@ -231,41 +277,46 @@ stage_guest_runtime() {
 lock_observation() {
   guest_ssh "txn='$1';" '
     state="$(jsonfilter -i "/root/premier-router-updates/$txn/state.json" -e "@.state" 2>/dev/null || true)"
-    lock=false; live=false; pid=; token=; owner_boot=; owner_start=
+    lock=false; live=false; pid=; token=; token_shape=absent; owner_boot=; owner_start=
     if [ -d /root/premier-router-updates/update.lock ]; then
       lock=true
       owner=/root/premier-router-updates/update.lock/owner
       pid="$(sed -n "s/^pid=//p" "$owner" 2>/dev/null | sed -n "1p")"
       token="$(sed -n "s/^token=//p" "$owner" 2>/dev/null | sed -n "1p")"
+      case "$token" in
+        [0-9a-f][0-9a-f]*) [ "${#token}" = 64 ] && token_shape=valid-64-hex || token_shape=invalid ;;
+        *) token_shape=invalid ;;
+      esac
       owner_boot="$(sed -n "s/^boot_id=//p" "$owner" 2>/dev/null | sed -n "1p")"
       owner_start="$(sed -n "s/^start_id=//p" "$owner" 2>/dev/null | sed -n "1p")"
       current_boot="$(cat /proc/sys/kernel/random/boot_id)"
       current_start="$(awk "{print \$22}" "/proc/$pid/stat" 2>/dev/null || true)"
       [ -n "$pid" ] && [ "$owner_boot" = "$current_boot" ] && [ "$owner_start" = "$current_start" ] && live=true
     fi
-    printf "%s\t%s\t%s\t%s\t%s\n" "${state:-missing}" "$lock" "$live" "${pid:-none}" "${token:-none}"
+    printf "%s\t%s\t%s\t%s\t%s\n" "${state:-missing}" "$lock" "$live" "${pid:-none}" "$token_shape"
   '
 }
 
 wait_for_terminal_and_unlock() {
-  local transaction="$1" started now elapsed observation state lock live pid token terminal_at=-1
+  local transaction="$1" evidence_name="${2:-recovery-observations.tsv}"
+  local started now elapsed observation state lock live pid token_shape terminal_at=-1
   CURRENT_PHASE=post-reboot-recovery
   CURRENT_COMMAND='wait for committed and owned update lock release'
   started="$(date +%s)"
-  : > "$EVIDENCE_DIR/recovery-observations.tsv"
+  : > "$EVIDENCE_DIR/$evidence_name"
   while :; do
     now="$(date +%s)"
     elapsed=$((now - started))
     observation="$(lock_observation "$transaction")"
-    IFS=$'\t' read -r state lock live pid token <<< "$observation"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$elapsed" "$state" "$lock" "$live" "$pid" \
-      >> "$EVIDENCE_DIR/recovery-observations.tsv"
+    IFS=$'\t' read -r state lock live pid token_shape <<< "$observation"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$elapsed" "$state" "$lock" "$live" "$pid" "$token_shape" \
+      >> "$EVIDENCE_DIR/$evidence_name"
     case "$state" in
       rollback_failed|recovery_required) fail "unsafe recovery state: $state" ;;
       committed)
         (( terminal_at < 0 )) && terminal_at=$elapsed
-        [[ "$live" = false ]] || fail "terminal state coexists with owned live lock (pid=$pid token=$token)"
+        [[ "$live" = false ]] || fail "terminal state coexists with owned live lock (pid=$pid token_shape=$token_shape)"
         [[ "$lock" = false ]] && break
         (( elapsed - terminal_at < LOCK_GRACE_SECONDS )) || \
           fail "terminal state retained a stale lock for $LOCK_GRACE_SECONDS seconds"
@@ -288,10 +339,19 @@ verify_candidate_state() {
   CURRENT_PHASE=verify-committed-candidate
   CURRENT_COMMAND='verify packages, manifest, protected hashes, storage, and service state'
   stage_guest_runtime
-  guest_ssh "/tmp/router-ui-vm-guest.sh verify-target 0.7.11 0.7.0 post-reboot"
+  guest_ssh "/tmp/router-ui-vm-guest.sh verify-target 0.7.11 '$SOURCE_VERSION' post-reboot" \
+    > "$EVIDENCE_DIR/target-validation.log"
   after_protected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
   [[ "$after_protected" = "$before_protected" ]] || fail 'protected configuration hashes changed'
-  guest_ssh 'usign -q -V -p /usr/share/premier-router/keys/release.pub -m /etc/premier-router/installed-manifest.json -x /etc/premier-router/installed-manifest.json.sig'
+  printf 'before=%s\nafter_commit=%s\n' "$before_protected" "$after_protected" \
+    > "$EVIDENCE_DIR/protected-hashes.txt"
+  guest_ssh '
+    usign -q -V -p /usr/share/premier-router/keys/release.pub \
+      -m /etc/premier-router/installed-manifest.json \
+      -x /etc/premier-router/installed-manifest.json.sig
+    printf "verified=true\nkey_fingerprint=%s\n" \
+      "$(usign -F -p /usr/share/premier-router/keys/release.pub)"
+  ' > "$EVIDENCE_DIR/installed-manifest-signature.txt"
   guest_ssh "transaction='$transaction';" '
     for package in premier-router-core luci-app-premier-router premier-router-setup; do
       [ "$(opkg status "$package" | sed -n "s/^Version: //p" | sed -n "1p")" = 0.7.11-1 ] || exit 1
@@ -300,53 +360,167 @@ verify_candidate_state() {
   '
   guest_ssh "/tmp/router-ui-vm-guest.sh measure rd23-stock $STOCK_WRITABLE_BACKING_KIB $STOCK_EXPECTED_DF_KIB" \
     > "$EVIDENCE_DIR/final-measurement.json"
+  guest_ssh 'opkg status premier-router-core luci-app-premier-router premier-router-setup' \
+    > "$EVIDENCE_DIR/package-listing.txt"
+  guest_ssh '
+    /usr/sbin/vpn-ui check > /tmp/router-ui-check.json
+    /usr/sbin/vpn-ui vpn-summary > /tmp/router-ui-vpn-summary.json
+    /usr/sbin/vpn-ui tailscale-status > /tmp/router-ui-tailscale-status.json
+    /usr/sbin/vpn-ui update-status > /tmp/router-ui-update-status.json
+    for file in /tmp/router-ui-check.json /tmp/router-ui-vpn-summary.json \
+      /tmp/router-ui-tailscale-status.json /tmp/router-ui-update-status.json; do
+      jsonfilter -i "$file" -e "@" >/dev/null
+      printf "== %s ==\n" "${file##*/}"
+      cat "$file"
+    done
+  ' > "$EVIDENCE_DIR/backend-health.jsonl"
+  guest_ssh '
+    menu=/usr/share/luci/menu.d/luci-app-vpn-ui.json
+    acl=/usr/share/rpcd/acl.d/luci-app-vpn-ui.json
+    for route in admin/network/vpn admin/network/tailscale admin/update; do grep -Fq "\"$route\"" "$menu"; done
+    grep -Fq "\"luci-app-vpn-ui\"" "$acl"
+    for asset in \
+      /luci-static/resources/view/network/vpn.js \
+      /luci-static/resources/view/network/tailscale.js \
+      /luci-static/resources/view/system/update.js \
+      /luci-static/resources/view/status/include/35_vpn.js \
+      /setup/index.html; do
+      code="$(curl -sS -o /tmp/router-ui-http-body -w "%{http_code}" "http://127.0.0.1$asset")"
+      [ "$code" = 200 ]
+      ! grep -Eq "synthetic unrelated user file|token=|PRIVATE KEY" /tmp/router-ui-http-body
+      printf "%s %s\n" "$code" "$asset"
+    done
+    for route in /cgi-bin/luci/admin/network/vpn /cgi-bin/luci/admin/network/tailscale /cgi-bin/luci/admin/update; do
+      code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1$route")"
+      case "$code" in 200|302|403) ;; *) exit 1 ;; esac
+      printf "%s %s\n" "$code" "$route"
+    done
+  ' > "$EVIDENCE_DIR/ui-health.txt"
+  guest_ssh 'netstat -lnt 2>/dev/null | tail -n +2 | sort' > "$EVIDENCE_DIR/listeners-after.txt"
+  cmp -s "$EVIDENCE_DIR/listeners-before.txt" "$EVIDENCE_DIR/listeners-after.txt" ||
+    fail 'panel installation introduced or removed a TCP listener'
   guest_ssh '/etc/init.d/premier-router-update-recovery enabled'
   assert_no_recovery_process_or_lock
 }
 
+run_next_candidate_proof() {
+  local before_protected="$1" before_boot after_boot rollback_before rollback_after transaction
+  CURRENT_PHASE=next-candidate-discovery
+  CURRENT_COMMAND='discover signed 0.7.12-test1 candidate through updater protocol v2'
+  (cd "$NEXT_CANDIDATE_DIR" && shasum -a 256 -c SHA256SUMS) \
+    > "$EVIDENCE_DIR/next-candidate-sha256.log"
+  before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
+  guest_ssh "
+    export VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT'
+    export VPN_UI_DISCOVERY_BASE='https://10.0.2.2:$HTTPS_PORT/candidate'
+    export VPN_UI_RELEASE_CHANNEL=candidate
+    export VPN_UI_SYNC_WORKER=1
+    /usr/sbin/vpn-ui-update check-start
+    /usr/sbin/vpn-ui-update status
+    /usr/sbin/vpn-ui-update apply-start
+  " > "$EVIDENCE_DIR/next-updater-apply.log"
+  transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
+  [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed next-candidate transaction ID: $transaction"
+  guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" \
+    > "$EVIDENCE_DIR/next-pending-state.json"
+  guest_ssh "[ \"\$(jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state')\" = committed_pending_reboot_validation ]"
+  guest_ssh 'sync; reboot' >/dev/null 2>&1 || true
+  after_boot="$(wait_guest_reboot "$before_boot")" || fail '0.7.12-test1 guest did not return after reboot'
+  printf 'pre_update=%s\npost_update=%s\ntransaction_id=%s\n' "$before_boot" "$after_boot" "$transaction" \
+    > "$EVIDENCE_DIR/next-reboot-identity.txt"
+  wait_for_terminal_and_unlock "$transaction" next-recovery-observations.tsv
+  guest_ssh '
+    [ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.12-test1 ]
+    for package in premier-router-core luci-app-premier-router premier-router-setup; do
+      [ "$(opkg status "$package" | sed -n "s/^Version: //p" | sed -n "1p")" = 0.7.12-test1-1 ]
+    done
+    [ "$(sed -n "1p" /usr/share/premier-router/disposable-test-marker)" = 0.7.12-test1 ]
+    /usr/sbin/vpn-ui check
+    [ ! -d /root/premier-router-updates/update.lock ]
+    ! ps w | grep -E "[v]pn-ui-update recover|[p]remier-router-update-recovery"
+  ' > "$EVIDENCE_DIR/next-committed-validation.log"
+  [ "$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)" = "$before_protected" ] ||
+    fail '0.7.12-test1 update changed protected configuration'
+
+  rollback_before="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
+  guest_ssh "sh '/root/premier-router-updates/$transaction/rollback.sh'" \
+    > "$EVIDENCE_DIR/next-rollback.log"
+  guest_ssh 'sync; reboot' >/dev/null 2>&1 || true
+  rollback_after="$(wait_guest_reboot "$rollback_before")" || fail '0.7.11 rollback guest did not return after reboot'
+  printf 'pre_rollback=%s\npost_rollback=%s\n' "$rollback_before" "$rollback_after" \
+    >> "$EVIDENCE_DIR/next-reboot-identity.txt"
+  stage_guest_runtime
+  guest_ssh '
+    [ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.11 ]
+    for package in premier-router-core luci-app-premier-router premier-router-setup; do
+      [ "$(opkg status "$package" | sed -n "s/^Version: //p" | sed -n "1p")" = 0.7.11-1 ]
+    done
+    [ ! -e /usr/share/premier-router/disposable-test-marker ]
+    /usr/sbin/vpn-ui check
+    [ ! -d /root/premier-router-updates/update.lock ]
+    ! ps w | grep -E "[v]pn-ui-update recover|[p]remier-router-update-recovery"
+  ' > "$EVIDENCE_DIR/next-final-0.7.11-validation.log"
+  [ "$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)" = "$before_protected" ] ||
+    fail 'next-candidate rollback changed protected configuration'
+}
+
 run_exact_rollback() {
-  local transaction="$1" before_protected="$2" after_protected boot_before boot_after
+  local transaction="$1" before_protected="$2" source_version="$3" after_protected boot_before boot_after
   CURRENT_PHASE=exact-rollback
   CURRENT_COMMAND="sh /root/premier-router-updates/$transaction/rollback.sh"
   stage_guest_runtime
-  guest_ssh "/tmp/router-ui-vm-guest.sh rollback $transaction 0.7.0"
+  guest_ssh "/tmp/router-ui-vm-guest.sh rollback $transaction $source_version"
   assert_no_recovery_process_or_lock
   after_protected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
   [[ "$after_protected" = "$before_protected" ]] || fail 'rollback changed protected configuration hashes'
+  printf 'after_rollback=%s\n' "$after_protected" >> "$EVIDENCE_DIR/protected-hashes.txt"
   guest_ssh '! opkg status premier-router-core luci-app-premier-router premier-router-setup 2>/dev/null | grep -q "Status:.* installed"'
   boot_before="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
   guest_ssh 'sync; reboot' >/dev/null 2>&1 || true
   boot_after="$(wait_guest_reboot "$boot_before")" || \
-    fail 'restored 0.7.0 guest did not return after rollback reboot'
+    fail "restored $source_version guest did not return after rollback reboot"
   stage_guest_runtime
-  guest_ssh '[ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.0 ]'
+  guest_ssh "[ \"\$(sed -n '1p' /usr/share/vpn-ui/version)\" = '$source_version' ]"
   guest_ssh '/usr/sbin/vpn-ui check' > "$EVIDENCE_DIR/rollback-source-validation.log"
+  guest_ssh "/tmp/router-ui-vm-guest.sh validate-baseline '$source_version' '$BASELINE_WORKER_SHA' '$BASELINE_VALIDATOR_SHA' '$XRAY_VERSION' '$XRAY_BINARY_SHA'" \
+    > "$EVIDENCE_DIR/rollback-baseline-contract.json"
   guest_ssh '[ ! -d /root/premier-router-updates/update.lock ]'
   after_protected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
   [[ "$after_protected" = "$before_protected" ]] || fail 'protected hashes changed after rollback reboot'
+  printf 'after_rollback_reboot=%s\n' "$after_protected" >> "$EVIDENCE_DIR/protected-hashes.txt"
 }
 
 run_iteration() {
   local iteration="$1" transaction before_boot after_boot before_protected rescue_rc
-  RUN_DIR="$REMOTE_ROOT/runs/$(date -u +%Y%m%dT%H%M%SZ)-$$-$iteration"
+  RUN_DIR="$REMOTE_ROOT/runs/$(date -u +%Y%m%dT%H%M%SZ)-$SOURCE_VERSION-$$-$iteration"
   EVIDENCE_DIR="$RUN_DIR/evidence"
   mkdir -p "$EVIDENCE_DIR"
   validate_candidate
   prepare_https_server
   restore_and_start_vm
   CURRENT_PHASE=verify-clean-baseline
-  CURRENT_COMMAND='validate exact 0.7.0 baseline and RD23 stock geometry'
+  CURRENT_COMMAND="validate exact $SOURCE_VERSION baseline and RD23 stock geometry"
   stage_guest_runtime
-  guest_ssh '[ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.0 ]'
-  guest_ssh '/usr/sbin/vpn-ui check' > "$EVIDENCE_DIR/source-validation.log"
+  guest_ssh 'umask 077; cat > /etc/ssl/certs/router-ui-vm-ca.pem' < "$RUN_DIR/tls/ca.crt"
+  if [[ "$SOURCE_VERSION" = 0.7.0 ]]; then
+    guest_ssh "/tmp/router-ui-vm-guest.sh install-test-profile '$SOURCE_VERSION' 'https://10.0.2.2:$HTTPS_PORT/fixtures/legacy-nonsecret'"
+  else
+    guest_ssh "/tmp/router-ui-vm-guest.sh install-baseline '$SOURCE_VERSION' 'https://10.0.2.2:$HTTPS_PORT/baselines'"
+  fi
+  guest_ssh "/tmp/router-ui-vm-guest.sh validate-baseline '$SOURCE_VERSION' '$BASELINE_WORKER_SHA' '$BASELINE_VALIDATOR_SHA' '$XRAY_VERSION' '$XRAY_BINARY_SHA'" \
+    > "$EVIDENCE_DIR/source-validation.json"
   guest_ssh "/tmp/router-ui-vm-guest.sh measure rd23-stock $STOCK_WRITABLE_BACKING_KIB $STOCK_EXPECTED_DF_KIB" \
     > "$EVIDENCE_DIR/source-measurement.json"
   before_protected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
+  guest_ssh 'netstat -lnt 2>/dev/null | tail -n +2 | sort' > "$EVIDENCE_DIR/listeners-before.txt"
   before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
   guest_ssh 'umask 077; cat > /tmp/router-ui-local-ca.pem' < "$RUN_DIR/tls/ca.crt"
 
   CURRENT_PHASE=install-candidate
   CURRENT_COMMAND='production-signed rescue-router-ui.sh from immutable local HTTPS bytes'
+  if [[ "$FAILURE_INJECTION" = 1 ]]; then
+    guest_ssh 'mkdir -p /etc/premier-router; : > /etc/premier-router/test-mode; : > /etc/premier-router/test-mode.force-candidate-failure'
+  fi
   set +e
   guest_ssh "
     export SSL_CERT_FILE=/tmp/router-ui-local-ca.pem
@@ -356,11 +530,41 @@ run_iteration() {
   " > "$EVIDENCE_DIR/rescue.log" 2>&1
   rescue_rc=$?
   set -e
+  if [[ "$FAILURE_INJECTION" = 1 ]]; then
+    [[ "$rescue_rc" != 0 ]] || fail 'failure injection produced false success'
+    transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
+    [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed injected-failure transaction ID: $transaction"
+    guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" > "$EVIDENCE_DIR/injected-failure-state.json"
+    guest_ssh "[ \"\$(jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state')\" = rolled_back ]"
+    guest_ssh "[ \"\$(sed -n '1p' /usr/share/vpn-ui/version)\" = '$SOURCE_VERSION' ]"
+    assert_no_recovery_process_or_lock
+    after_injected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
+    [[ "$after_injected" = "$before_protected" ]] || fail 'failure injection changed protected configuration'
+    guest_ssh "/tmp/router-ui-vm-guest.sh validate-baseline '$SOURCE_VERSION' '$BASELINE_WORKER_SHA' '$BASELINE_VALIDATOR_SHA' '$XRAY_VERSION' '$XRAY_BINARY_SHA'" \
+      > "$EVIDENCE_DIR/injected-failure-baseline-contract.json"
+    CURRENT_PHASE=clean-shutdown
+    stop_vm
+    stop_server
+    "$VBOXMANAGE" snapshot "$VM_NAME" restore "$SNAPSHOT_NAME" >/dev/null
+    printf '%s\t%s\tPASS-INJECTED-ROLLBACK\t%s\t%s\t%s\n' "$SOURCE_VERSION" "$iteration" "$MODE" "$transaction" "$RUN_DIR" \
+      >> "$REMOTE_ROOT/evidence/recovery-lock-summary.tsv"
+    printf 'Injected failure PASS from %s: %s\n' "$SOURCE_VERSION" "$RUN_DIR"
+    return 0
+  fi
   [[ "$rescue_rc" = 0 ]] || fail "rescue installer failed with exit $rescue_rc"
   transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
   [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed transaction ID: $transaction"
   guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" > "$EVIDENCE_DIR/pending-state.json"
-  guest_ssh 'cat /root/premier-router-updates/update.lock/owner 2>/dev/null || true' > "$EVIDENCE_DIR/pending-lock-owner.txt"
+  guest_ssh '
+    owner=/root/premier-router-updates/update.lock/owner
+    token="$(sed -n "s/^token=//p" "$owner" 2>/dev/null | sed -n "1p")"
+    case "$token" in
+      [0-9a-f][0-9a-f]*) [ "${#token}" = 64 ] && shape=valid-64-hex || shape=invalid ;;
+      *) shape=invalid ;;
+    esac
+    printf "token_shape=%s\n" "$shape"
+    sed -n "/^pid=/p;/^boot_id=/p;/^start_id=/p" "$owner" 2>/dev/null
+  ' > "$EVIDENCE_DIR/pending-lock-owner.txt"
 
   CURRENT_PHASE=reboot-candidate
   CURRENT_COMMAND='reboot into synchronous recovery service'
@@ -371,8 +575,11 @@ run_iteration() {
     "$before_boot" "$after_boot" "$transaction" > "$EVIDENCE_DIR/reboot-identity.txt"
   wait_for_terminal_and_unlock "$transaction"
   verify_candidate_state "$transaction" "$before_protected"
-  if [[ "$MODE" = bridge ]]; then
-    run_exact_rollback "$transaction" "$before_protected"
+  if [[ -n "$NEXT_CANDIDATE_DIR" ]]; then
+    run_next_candidate_proof "$before_protected"
+  fi
+  if [[ "$ROLLBACK" = 1 ]]; then
+    run_exact_rollback "$transaction" "$before_protected" "$SOURCE_VERSION"
   fi
 
   CURRENT_PHASE=clean-shutdown
@@ -380,9 +587,9 @@ run_iteration() {
   stop_vm
   stop_server
   "$VBOXMANAGE" snapshot "$VM_NAME" restore "$SNAPSHOT_NAME" >/dev/null
-  printf '%s\tPASS\t%s\t%s\t%s\n' "$iteration" "$MODE" "$transaction" "$RUN_DIR" \
+  printf '%s\t%s\tPASS\t%s\t%s\t%s\n' "$SOURCE_VERSION" "$iteration" "$MODE" "$transaction" "$RUN_DIR" \
     >> "$REMOTE_ROOT/evidence/recovery-lock-summary.tsv"
-  printf 'Iteration %s/%s PASS (%s): %s\n' "$iteration" "$REPEAT" "$MODE" "$RUN_DIR"
+  printf 'Iteration %s/%s PASS (%s from %s): %s\n' "$iteration" "$REPEAT" "$MODE" "$SOURCE_VERSION" "$RUN_DIR"
 }
 
 mkdir -p "$REMOTE_ROOT/evidence" "$REMOTE_ROOT/runs"

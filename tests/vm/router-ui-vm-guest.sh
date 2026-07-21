@@ -57,7 +57,8 @@ measure() {
 protected_hash() {
   work="/tmp/router-ui-protected.$$"
   : > "$work"
-  for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root; do
+  for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root \
+    /root/router-ui-preserved-fixture.txt; do
     if [ -f "$path" ]; then
       sha256sum "$path" >> "$work"
     elif [ -d "$path" ]; then
@@ -86,6 +87,19 @@ install_non_secret_test_profile() {
   chmod 700 /etc/xray/vless-profiles.d
   chmod 600 /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
     /etc/xray/vless-selected /etc/xray/direct-domains.txt
+  for config in network firewall; do
+    printf '\n# router-ui-rc synthetic %s marker for %s\n' "$config" "$source_version" >> "/etc/config/$config"
+  done
+  {
+    printf "config settings 'test'\n"
+    printf "\toption state 'synthetic-not-enrolled'\n"
+    printf "\toption source_version '%s'\n" "$source_version"
+  } > /etc/config/tailscale
+  printf "# router-ui-rc synthetic updater marker for %s\n" "$source_version" >> /etc/vpn-ui-update.conf
+  printf 'synthetic unrelated user file for Router UI %s\n' "$source_version" > \
+    /root/router-ui-preserved-fixture.txt
+  chmod 600 /etc/config/tailscale /etc/vpn-ui-update.conf \
+    /root/router-ui-preserved-fixture.txt
 }
 
 install_baseline() {
@@ -119,7 +133,9 @@ validate_baseline() {
     /usr/sbin/vpn-ui-update \
     /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
     /etc/xray/vless-selected \
-    /etc/xray/direct-domains.txt; do
+    /etc/xray/direct-domains.txt \
+    /etc/config/tailscale \
+    /root/router-ui-preserved-fixture.txt; do
     [ -f "$path" ] || die "baseline filesystem contract missing: $path"
   done
   set +e
@@ -295,6 +311,7 @@ case "${1:-}" in
   measure) shift; measure "$@" ;;
   protected-hash) protected_hash ;;
   install-baseline) shift; install_baseline "$@" ;;
+  install-test-profile) shift; install_non_secret_test_profile "$@" ;;
   validate-baseline) shift; validate_baseline "$@" ;;
   old-worker) shift; run_old_worker "$@" ;;
   rescue) shift; run_rescue "$@" ;;

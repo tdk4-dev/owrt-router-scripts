@@ -12,7 +12,8 @@
   "xray": {
     "version": "25.1.30-r1",
     "package_url": "https://archive.openwrt.org/releases/24.10.5/packages/x86_64/packages/xray-core_25.1.30-r1_x86_64.ipk",
-    "package_sha256": "bd104b9badb83ee63e03e2abccc1b664f8994e00a0fc3e435af35d5e6fc864dc"
+    "package_sha256": "bd104b9badb83ee63e03e2abccc1b664f8994e00a0fc3e435af35d5e6fc864dc",
+    "binary_sha256": "194ae230fba8e43d64990a8c2deb71f740dfdb4f0ec4641f97ff684a43cc9aaa"
   },
   "storage_profiles": {
     "geometry_source": "release/rd23-storage-geometry.json",
