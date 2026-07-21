@@ -47,6 +47,28 @@ jq -e --arg sha "$(sha256sum "$TMP_ROOT/release/rd23-storage-geometry.json" | aw
   '.rd23_storage_geometry.filename == "rd23-storage-geometry.json" and
     .rd23_storage_geometry.sha256 == $sha' \
   "$TMP_ROOT/release/router-release-manifest.json" >/dev/null
+
+shim_name="premier-router-0.7.11-openwrt-24.10.5-xiaomi-ax3000t-stock.tar.gz"
+shim="$TMP_ROOT/release/$shim_name"
+mkdir -p "$TMP_ROOT/diagnostic-shim/router-ui-rd23-stock"
+printf '%s\n' '{"schema_version":1,"diagnostic_geometry_only":true}' \
+  > "$TMP_ROOT/diagnostic-shim/router-ui-rd23-stock/image-provenance.json"
+tar -czf "$shim" -C "$TMP_ROOT/diagnostic-shim" router-ui-rd23-stock
+(cd "$TMP_ROOT/release" && sha256sum "$shim_name" >> SHA256SUMS)
+if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \
+  EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
+  USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" \
+  >"$TMP_ROOT/diagnostic-shim.log" 2>&1; then
+  printf 'release validation accepted a diagnostic geometry-only image shim\n' >&2
+  exit 1
+fi
+grep -q 'diagnostic geometry-only archive is not a release image' \
+  "$TMP_ROOT/diagnostic-shim.log"
+awk -v filename="$shim_name" '$2 != filename && $2 != "*" filename' \
+  "$TMP_ROOT/release/SHA256SUMS" > "$TMP_ROOT/SHA256SUMS.without-shim"
+mv "$TMP_ROOT/SHA256SUMS.without-shim" "$TMP_ROOT/release/SHA256SUMS"
+rm -f "$shim"
+
 cp "$TMP_ROOT/release/rd23-storage-geometry.json" "$TMP_ROOT/storage-geometry.good"
 printf 'corruption\n' >> "$TMP_ROOT/release/rd23-storage-geometry.json"
 if RELEASE_DIR="$TMP_ROOT/release" RELEASE_PUBLIC_KEY="$PUBLIC" \

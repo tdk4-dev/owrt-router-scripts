@@ -173,6 +173,11 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
     tar -xzf "$archive" -C "$archive_root"
     artifact_root="$(find "$archive_root" -mindepth 1 -maxdepth 1 -type d | sed -n '1p')"
     [ -n "$artifact_root" ] || fail "image archive has no artifact root"
+    diagnostic_provenance="$(find "$artifact_root" -type f -name image-provenance.json | sed -n '1p')"
+    if [ -n "$diagnostic_provenance" ] &&
+      jq -e '.diagnostic_geometry_only == true' "$diagnostic_provenance" >/dev/null 2>&1; then
+      fail "diagnostic geometry-only archive is not a release image: $(basename "$archive")"
+    fi
     (cd "$artifact_root" && sha256sum -c sha256sums >/dev/null) ||
       fail "image internal checksum manifest failed: $(basename "$archive")"
     [ -s "$artifact_root/project-payload-sha256sums" ] ||

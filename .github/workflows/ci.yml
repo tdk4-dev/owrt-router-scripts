@@ -59,6 +59,7 @@ jobs:
             tests/vm/aggregate-candidate-evidence.sh \
             tests/vm/download-immutable-actions-artifact.sh \
             tests/vm/fail-closed-runner.sh \
+            tests/vm/run-preimage-rescue-smoke.sh \
             tests/vm/router-ui-vm-gate.sh
 
       - name: Validate JavaScript

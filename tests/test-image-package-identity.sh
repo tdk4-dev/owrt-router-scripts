@@ -77,8 +77,7 @@ grep -q 'pretag-router-ui-candidate-' "$CANDIDATE_WORKFLOW"
 grep -q '^  x86-image:' "$CANDIDATE_WORKFLOW"
 grep -q 'name: candidate-router-image-rd23-stock' "$CANDIDATE_WORKFLOW"
 grep -q 'max-parallel: 2' "$CANDIDATE_WORKFLOW"
-grep -Fq -- "-name '*xiaomi-ax3000t-stock.tar.gz'" "$CANDIDATE_WORKFLOW"
-grep -q 'rd23_storage_layout.rootfs_data_volume_kib' "$CANDIDATE_WORKFLOW"
+grep -q '.storage_profiles\["rd23-stock"\].writable_backing_kib' "$CANDIDATE_WORKFLOW"
 ! grep -Eq 'writable_budget_kib: (54436|61440|76800|87040)' "$CANDIDATE_WORKFLOW"
 grep -q '^  workflow_dispatch:' "$DIAGNOSTIC_WORKFLOW"
 ! grep -q '^  push:' "$DIAGNOSTIC_WORKFLOW"
@@ -140,7 +139,7 @@ grep -q 'domain:router-ui-vm.invalid' "$VM_FIXTURE/direct-domains.txt"
 grep -q '"private_key_present": false' "$VM_FIXTURE/fixture-contract.json"
 ! grep -q 'P_PRIVATE_KEY' "$VM_GUEST"
 ! grep -Eq 'stock-60|uboot-75|uboot-85' "$VM_GATE" "$VM_GUEST"
-for archive_reader in "$WORKFLOW" "$CANDIDATE_WORKFLOW" "$VM_GATE" \
+for archive_reader in "$WORKFLOW" "$VM_GATE" \
   "$STORAGE_DERIVER" "$RELEASE_STAGER"; do
   ! grep -E 'tar .*\| awk .*exit' "$archive_reader"
   grep -Eq 'tar .*\| awk .*![[:alnum:]_]*found.*found=1' "$archive_reader"

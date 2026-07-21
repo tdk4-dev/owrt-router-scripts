@@ -150,14 +150,13 @@ jobs:
           ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
           export TMPDIR="$vm_work_root/overlays"
           if test "$CANDIDATE_SCOPE" = transition-only; then
-            x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f \
-              -name 'premier-router-core_0.7.11-1_all.ipk' | sed -n '1p')"
+            ./tests/vm/run-preimage-rescue-smoke.sh
           else
             x86_archive="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*x86-64.tar.gz' | sed -n '1p')"
+            test -n "$x86_archive"
+            export X86_IMAGE_ARCHIVE="$x86_archive"
+            ./tests/vm/router-ui-vm-gate.sh
           fi
-          test -n "$x86_archive"
-          export X86_IMAGE_ARCHIVE="$x86_archive"
-          ./tests/vm/router-ui-vm-gate.sh
 
       - name: Finalize diagnostic evidence checksums
         if: always()

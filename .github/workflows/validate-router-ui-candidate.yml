@@ -179,11 +179,8 @@ jobs:
           mkdir -p "$vm_work_root/overlays" "$EVIDENCE_DIR"
           ln -s "$ROUTER_UI_BASELINE_PACK_DIR/bases" "$vm_work_root/bases"
           export TMPDIR="$vm_work_root/overlays"
-          export X86_IMAGE_ARCHIVE="$(find "$RELEASE_DIR" -maxdepth 1 -type f \
-            -name 'premier-router-core_0.7.11-1_all.ipk' | sed -n '1p')"
-          test -n "$X86_IMAGE_ARCHIVE"
           cp "$RUNNER_TEMP/baseline-descriptor.json" "$EVIDENCE_DIR/"
-          ./tests/vm/router-ui-vm-gate.sh
+          ./tests/vm/run-preimage-rescue-smoke.sh
           ./tests/vm/write-candidate-content-descriptor.sh \
             "$RELEASE_DIR" "$SYNTHETIC_DIR" "$EVIDENCE_DIR/candidate-content-descriptor.json"
           (cd "$EVIDENCE_DIR" && sha256sum ./* > evidence-files-sha256sums)
@@ -279,7 +276,7 @@ jobs:
           retention-days: 30
 
   x86-image:
-    needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]
+    needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -294,11 +291,7 @@ jobs:
         with:
           name: candidate-signed-installed-package-set
           path: ${{ runner.temp }}/installed-package-set
-      - uses: actions/download-artifact@v4
-        with:
-          name: candidate-router-image-rd23-stock
-          path: ${{ runner.temp }}/rd23-stock
-      - name: Build x86 with the exact candidate RD23 stock writable extent
+      - name: Build x86 with the verified RD23 stock writable extent
         env:
           TARGET_DIR: x86/64
           PROFILE: generic
@@ -311,12 +304,9 @@ jobs:
           ROOTFS_PARTSIZE: 128
         run: |
           sudo apt-get update && sudo apt-get install -y zstd jq
-          stock_archive="$(find "$RUNNER_TEMP/rd23-stock" -maxdepth 1 -type f -name '*xiaomi-ax3000t-stock.tar.gz' | sed -n '1p')"
-          test -n "$stock_archive"
-          provenance_member="$(tar -tzf "$stock_archive" | awk '/\/image-provenance\.json$/ && !found {print; found=1}')"
-          test -n "$provenance_member"
-          export WRITABLE_BUDGET_KIB="$(tar -xOzf "$stock_archive" "$provenance_member" |
-            jq -er '.rd23_storage_layout.rootfs_data_volume_kib')"
+          export WRITABLE_BUDGET_KIB="$(jq -er \
+            '.storage_profiles["rd23-stock"].writable_backing_kib' \
+            tests/vm/legacy-baseline-lock.json)"
           test "$WRITABLE_BUDGET_KIB" -gt 0
           export SOURCE_COMMIT="$(git rev-parse HEAD)"
           export SOURCE_DIRTY=false

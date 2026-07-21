@@ -14,6 +14,7 @@ ARTIFACT_HELPER="$ROOT_DIR/tests/vm/download-immutable-actions-artifact.sh"
 DIGEST="$ROOT_DIR/tests/vm/baseline-contract-digest.sh"
 CONTENT_DESCRIPTOR="$ROOT_DIR/tests/vm/write-candidate-content-descriptor.sh"
 AGGREGATOR="$ROOT_DIR/tests/vm/aggregate-candidate-evidence.sh"
+PREIMAGE_RESCUE="$ROOT_DIR/tests/vm/run-preimage-rescue-smoke.sh"
 LOCK="$ROOT_DIR/tests/vm/legacy-baseline-lock.json"
 LEGACY_CANDIDATES="$ROOT_DIR/tests/vm/legacy-diagnostic-candidates.json"
 FIXTURE="$ROOT_DIR/tests/vm/fixtures/legacy-nonsecret"
@@ -98,6 +99,27 @@ grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]' "$C
   fail 'image builds do not wait for rescue-0.7.0'
 grep -q 'pretag-router-ui-transition-candidate-' "$CANDIDATE" ||
   fail 'protected workflow does not preserve reusable signed transition bytes'
+for workflow in "$CANDIDATE" "$DIAGNOSTIC"; do
+  grep -q 'run-preimage-rescue-smoke.sh' "$workflow" ||
+    fail "image-free transition diagnostic does not use the scoped smoke wrapper: $workflow"
+done
+[ -x "$PREIMAGE_RESCUE" ] || fail 'pre-image rescue wrapper is not executable'
+grep -q 'diagnostic_geometry_only:true' "$PREIMAGE_RESCUE" ||
+  fail 'pre-image geometry does not identify itself as diagnostic-only'
+grep -q 'ROUTER_UI_VM_CASE:-.*= rescue' "$PREIMAGE_RESCUE" ||
+  fail 'pre-image geometry is not restricted to the rescue selector'
+grep -q 'ROUTER_UI_VM_SOURCE_VERSION:-.*= 0.7.0' "$PREIMAGE_RESCUE" ||
+  fail 'pre-image geometry is not restricted to source 0.7.0'
+grep -q 'mktemp -d "$RUNNER_TEMP/' "$PREIMAGE_RESCUE" ||
+  fail 'pre-image geometry can escape RUNNER_TEMP'
+grep -q 'cp -Rp "$IMMUTABLE_RELEASE_DIR/." "$gate_input/"' "$PREIMAGE_RESCUE" ||
+  fail 'pre-image smoke does not isolate immutable candidate bytes from gate input'
+grep -q 'diagnostic geometry-only archive is not a release image' \
+  "$ROOT_DIR/scripts/validate-staged-release.sh" ||
+  fail 'strict staged-release validation can mistake geometry shims for real images'
+grep -q 'release validation accepted a diagnostic geometry-only image shim' \
+  "$ROOT_DIR/tests/test-router-ui-release-v2.sh" ||
+  fail 'release contract tests do not prove diagnostic geometry shim rejection'
 grep -q 'compare with the tested transition bytes' "$CANDIDATE" ||
   fail 'final assembly does not compare against early tested transition bytes'
 grep -q 'max-parallel: 2' "$CANDIDATE" ||
@@ -114,8 +136,10 @@ grep -q 'aggregate-candidate-evidence.sh' "$CANDIDATE" ||
 grep -q '^  rd23-stock-image:' "$CANDIDATE" &&
   grep -q '^  rd23-ubootmod-image:' "$CANDIDATE" ||
   fail 'RD23 stock and ubootmod are not independent concurrent jobs'
-grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]' "$CANDIDATE" ||
-  fail 'x86 does not start from stock provenance independently of ubootmod completion'
+[ "$(grep -Fc 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]' "$CANDIDATE")" -ge 3 ] ||
+  fail 'all three image jobs do not start in parallel after fail-fast rescue'
+grep -q '.storage_profiles\["rd23-stock"\].writable_backing_kib' "$CANDIDATE" ||
+  fail 'x86 does not derive its exact writable extent from the verified baseline lock'
 grep -q 'max-parallel: 2' "$RELEASE" ||
   fail 'tagged VM shards are not capped at two parallel jobs'
 for shard in legacy protocol-concurrency-storage faults-a faults-b; do
