@@ -1,259 +1,230 @@
-# OpenWrt Router Setup Scripts
+# Premier Router for OpenWrt
 
-Reusable scripts for configuring OpenWrt routers with LuCI, Xray/VLESS Reality,
-transparent routing, direct-route lists, and optional Tailscale/Headscale.
+Premier Router — пакетный продуктовый слой поверх OpenWrt: интерфейс LuCI,
+управление VPN и подключением, безопасные обновления, первичная настройка и
+проверяемые образы для поддерживаемых профилей. Это уже не просто набор
+скриптов установки.
 
-## x86 Router Setup
+> **English summary:** Premier Router is a package-first OpenWrt product layer
+> for VPN, connectivity, signed transactional updates, onboarding, and
+> support-safe diagnostics. The public stable, limited RC, and active
+> development states are intentionally documented separately.
 
-For the x86/64 router-PC setup, use:
+## Обзор
 
-- [README-x86-fin0.md](README-x86-fin0.md)
-- [setup-openwrt-x86-fin0.sh](setup-openwrt-x86-fin0.sh)
+Репозиторий остаётся публичным источником Router UI, OpenWrt-пакетов, профилей
+образов и проверяемой логики обновления. Сопутствующее приложение Factory
+поддерживается отдельно как закрытый операторский инструмент: оно выбирает и
+проверяет подписанный релиз, фиксирует точный provisioning-контекст устройства
+и работает по независимому от Router UI циклу версий.
 
-`openwrt-fin0` is the default example hostname used by that flow. Override it
-with `HOSTNAME` or `TAILSCALE_HOSTNAME` for your own deployment.
+## Статус проекта
 
-### Custom Installation Image
+| Контур | Текущий статус |
+| --- | --- |
+| Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
+| Router UI 0.7.11 RC | Package-first RC локально проверен на уровне пакетов, protocol 2, обновления, перезагрузки и точного отката. Публичный stable 0.7.11 ещё не опубликован; locked-image и аппаратная квалификация описываются отдельно и не считаются завершёнными. |
+| Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
+| Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
+| Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
 
-The custom x86/64 image includes LuCI, Xray, Tailscale, the VPN panel, and the
-dark first-boot setup assistant. It boots its LAN at `10.77.0.1`. The first
-page lets the owner choose the router hostname; the Wi-Fi page configures the
-SSID, WPA mode, password, regulatory country, bands, channels, hidden-network
-state, and client isolation when compatible radios are detected.
+RC 0.7.11 не является опубликованным stable, а 0.8 не является релизом.
+Ни один из этих каналов не устанавливается на клиентский роутер автоматически.
 
-AdGuardHome is optional. If it is absent, the wizard shows current persistent
-storage use plus an approximate installed-size segment and offers an explicit
-install button. Projected storage use from 90% through 95% is warned; projected
-use over 95% is blocked. Skipping it leaves DNS unchanged, and installation
-never runs a global `opkg upgrade`.
+## Основные возможности
 
-Build it on an x86_64 Linux host:
+Метки ниже показывают, где функция существует или проверяется, и не превращают
+development-код в обещание stable-релиза.
 
-```sh
-./scripts/build-openwrt-ipks.sh
-./build-openwrt-x86-fin0-image-linux.sh
-```
+- **Stable 0.7.10:** интерфейс Premier Router в LuCI; управление профилями
+  VPN/VLESS Reality и direct-routing; поверхности статуса Tailscale/Headscale.
+- **0.7.11 RC:** канонические package-first IPK, подписанные release manifests,
+  updater protocol 2, журнал транзакции, восстановление после перезагрузки и
+  точный rollback без глобального обновления OpenWrt.
+- **0.7.11 RC / image workflow:** first-boot setup, owner preparation и
+  installation/support metadata. Реальное RD23-прохождение остаётся отдельным
+  аппаратным gate.
+- **0.8 development:** русско- и англоязычный UI там, где локализация уже
+  реализована; framework post-update onboarding; Support & Feedback phase 1 с
+  allowlist, предварительным просмотром и очищенным экспортом диагностики.
+- **0.7.11 RC и новее:** поверхность совместимости с подписанным Factory
+  release contract. Factory обязан проверить контракт, manifest, ключ, хеши и
+  точный hardware variant; одних GitHub-метаданных недостаточно.
 
-The image script uses the official OpenWrt 24.10.5 ImageBuilder and installs
-the already-built project IPKs into the image. It writes BIOS and EFI ext4
-combined images to `dist/`.
+## Канонические пакеты
 
-Install a release image:
+Package-first поставка состоит из трёх независимо учитываемых IPK:
 
-1. Download the matching `premier-router-*-openwrt-*.tar.gz` archive from the
-   staged or published release directory.
-2. Verify the archive:
+- `premier-router-core` — backend-команды, VPN-конфигурация, metadata,
+  protocol-2 updater, транзакции, recovery и точный rollback;
+- `luci-app-premier-router` — LuCI-страницы Premier Router, VPN, Tailscale,
+  Update и Support & Feedback, RPC ACL и статические UI-ресурсы;
+- `premier-router-setup` — опциональный first-boot wizard и owner-preparation
+  поверхности. Пакет не требуется для core или LuCI на существующем OpenWrt.
 
-   ```sh
-   shasum -a 256 -c SHA256SUMS
-   ```
+Образы собираются из этих же IPK. Образ и ручная установка не должны содержать
+разные копии продуктовых файлов.
 
-3. Extract the archive:
+## Режимы установки
 
-   ```sh
-   tar -xzf premier-router-0.8.0RC2-openwrt-24.10.5-x86-64.tar.gz
-   ```
+| Режим | Состав и поведение | Уровень поддержки |
+| --- | --- | --- |
+| `factory-image` | Core + LuCI + setup и metadata образа. Применяет документированные сетевые defaults только в image-first сценарии. | Полный workflow после квалификации конкретного образа и железа; RD23 пока не квалифицирован физически. |
+| `vanilla-openwrt-panels` | Core + LuCI; setup опционален. Существующие LAN/WAN, firewall и Wi-Fi сохраняются. | Стандартный package-first путь для существующего OpenWrt. |
+| `headless-core` | Только core, без web-панели и first-boot wizard. | Ограниченный advanced/operator путь. |
 
-4. For x86/64 bare metal, write the EFI or BIOS `.img.gz` to the target SSD
-   with a disk imaging tool, then boot the router and open:
+Установка `premier-router-setup` в `vanilla-openwrt-panels` не должна
+перехватывать сеть: мастер остаётся опциональным и может быть пропущен.
 
-   ```text
-   http://10.77.0.1/
-   ```
+## Установка на существующий OpenWrt
 
-5. For VirtualBox testing, create a 64-bit Linux router VM and attach the
-   extracted x86 disk image. Prove the customer path from a disposable client
-   on an isolated VirtualBox LAN by opening `http://10.77.0.1/` or
-   `http://10.77.0.1/setup/`. A NAT HTTP forward may also be used for a manual
-   host-browser trial, but it does not prove customer LAN reachability.
+Существующий OpenWrt можно обновить проверенными IPK или через подписанный
+package feed без перепрошивки. Текущий публичный stable 0.7.10 использует свой
+опубликованный release workflow; package-first команды ниже относятся только к
+явно выданному **limited 0.7.11 RC bundle**, а не к `main` и не к 0.8
+development.
 
-For Xiaomi AX3000T / RD23 builds, choose the archive that matches the router's
-boot layout:
-
-- `xiaomi-ax3000t-openwrt-fin0` for the stock OpenWrt layout.
-- `xiaomi-ax3000t-ubootmod-openwrt-fin0` for routers converted to OpenWrt's
-  U-Boot layout.
-
-RD23 images use the lean `image/openwrt-rd23-packages.txt` profile. They do not
-include AdGuardHome, and first-boot setup hides and rejects that optional step
-for the RD23 hardware profile. Its limited persistent flash is reserved for
-the core router, LuCI, Xray, and update/support tooling. This is source/static
-policy validation only until an RD23 is boot-tested; it is not a hardware claim.
-
-The first-boot administrator account is fixed to OpenWrt's `root` account for
-both SSH and LuCI. The wizard lets the owner set the router hostname, root
-password, and optional root SSH public keys; it does not create non-root users.
-The LuCI AdGuardHome page repeats the wizard's persistent-storage eligibility
-check before offering an optional install. System > Update shows locally
-recorded build and installation provenance, using `unknown` when a staged
-manifest or runtime timestamp was not recorded.
-
-Use LuCI or `sysupgrade` with the extracted factory/sysupgrade image that
-matches the router's current installation method. Do not flash the ubootmod
-image onto a stock-layout router unless it has been converted first.
-
-The maintenance checklist for rebuilding and attaching images is in
-[docs/custom-image-release-guide.md](docs/custom-image-release-guide.md).
-
-### Package-First Updates
-
-Starting with v0.8.0, running routers update through real OpenWrt packages
-installed with `opkg`; release tarballs are legacy compatibility only.
-
-Build local IPKs and an opkg feed:
+На доверенной рабочей станции в неизменяемом каталоге одного RC сначала
+проверьте подпись manifest штатным RC-инсталлятором и затем все SHA-256:
 
 ```sh
-./scripts/build-openwrt-ipks.sh
+sha256sum -c SHA256SUMS
 ```
 
-Stage a complete local release directory without publishing:
+OpenWrt/Dropbear не гарантирует SFTP. Передать три проверенных IPK можно через
+SSH и tar-stream:
 
 ```sh
-./scripts/stage-router-release.sh
+tar -cf - \
+  premier-router-core_0.7.11-1_all.ipk \
+  luci-app-premier-router_0.7.11-1_all.ipk \
+  premier-router-setup_0.7.11-1_all.ipk | \
+ssh root@ROUTER 'umask 077; mkdir -p /tmp/premier-router-0.7.11-rc; tar -xf - -C /tmp/premier-router-0.7.11-rc'
 ```
 
-Manual update on a router:
+Для стандартного режима с панелями установите core и LuCI; setup добавляйте
+только при необходимости:
 
 ```sh
-ROUTER_UI_VERSION=0.8.0RC2 sh install-router-ui-release.sh
+ssh root@ROUTER 'opkg install \
+  /tmp/premier-router-0.7.11-rc/premier-router-core_0.7.11-1_all.ipk \
+  /tmp/premier-router-0.7.11-rc/luci-app-premier-router_0.7.11-1_all.ipk'
 ```
-
-The installer downloads the release manifest, verifies the IPK checksums,
-creates a full OpenWrt backup, migrates old tar.gz-installed files when
-detected, installs only this project's packages, and validates the result. It
-does not run global `opkg upgrade`.
-
-Package installs keep non-secret installation/support metadata in
-`/etc/config/premier_router`. Inspect the public-safe summary with:
 
 ```sh
-vpn-ui router-metadata
-vpn-ui footer-info
+ssh root@ROUTER 'opkg install \
+  /tmp/premier-router-0.7.11-rc/premier-router-setup_0.7.11-1_all.ipk'
 ```
 
-The LuCI Status Overview and VPN page show the Router Scripts version,
-installation method, support level, registration state, and only a shortened
-local router ID. The packages do not replace LuCI theme footer templates.
+Если оператор RC предоставляет подписанный feed, после установки его публичного
+ключа и точной feed-конфигурации из release notes используются только
+`opkg update` и установка пакетов Premier Router. **Не выполняйте глобальный
+`opkg upgrade`**: он смешивает независимые обновления OpenWrt и продукта и
+лишает транзакцию проверяемой границы.
 
-### Owner Preparation Panel
+Raw-branch installers не являются рекомендуемым release-путём. Не загружайте и
+не запускайте установщик непосредственно из mutable-ветки.
 
-The custom image includes a preparation panel that is separate from the
-customer first-boot wizard. Retrieve its temporary token over a trusted SSH or
-local console session:
+## Образы и оборудование
 
-```sh
-router-prep token
-```
+Поддерживаемые build targets:
 
-Then open:
+- **x86/64** — EFI/BIOS образы для router-PC и изолированной VM. В x86-профиле
+  AdGuardHome доступен как опциональный компонент при прохождении проверки
+  постоянного хранилища;
+- **Xiaomi AX3000T / RD23 stock** — профиль для штатной OpenWrt boot layout;
+- **Xiaomi AX3000T / RD23 ubootmod** — другой профиль для устройства, уже
+  переведённого на OpenWrt U-Boot layout.
 
-```text
-http://10.77.0.1/prepare/#token=TOKEN
-```
+Stock и ubootmod — не взаимозаменяемые имена одного файла. Выбор обязан
+совпадать с фактической разметкой загрузчика; ubootmod-образ нельзя прошивать на
+stock-устройство без предварительной конверсии по отдельно проверенной
+процедуре.
 
-The panel provides:
+RD23 использует lean profile
+[`image/openwrt-rd23-packages.txt`](image/openwrt-rd23-packages.txt) и по
+умолчанию **не включает AdGuardHome**: flash зарезервирована под core, LuCI,
+Xray и update/support tooling. Все release-образы должны собираться с
+зафиксированным OpenWrt feed; сборка против mutable feed не является
+воспроизводимой release-квалификацией.
 
-- WAN, DNS, SSH, Xray, AdGuard, and Tailscale health checks
-- simulated 2.4 and 5 GHz radios for previewing the complete Wi-Fi wizard
-- owner Headscale/Tailscale enrollment without exposing the preauth key later
-- customer access policy for VPN, Tailscale, updates, packages, and AdGuard
-- explicit support level and registration/support metadata with no hidden tunnel
-- verified pre-handoff `sysupgrade` backups
-- a seal action that removes preview radios and disables the preparation API
+Static-проверка состава и VM-проверка x86 не доказывают загрузку или безопасную
+прошивку RD23. До физического stock/ubootmod canary аппаратный статус остаётся
+pending.
 
-After sealing, the preparation panel can only be reopened from SSH or the
-local console:
+## Обновления и release-каналы
 
-```sh
-router-prep unseal
-router-prep token
-```
+- **Stable** — опубликованный непререлизный GitHub Release после отдельной
+  авторизации и полного gate;
+- **RC / pre-release** — явно выбранный тестовый GitHub Pre-release для
+  ограниченной проверки;
+- **Development** — локальная или веточная сборка, не предназначенная для
+  клиентского production-устройства.
 
-## LuCI VPN Panel
+0.7.11 — migration bridge к package-first IPK и updater protocol 2. Разработка
+0.8 строится поверх этой основы, но остаётся отдельным development-потоком.
 
-Install the graphical VPN panel onto an already running OpenWrt router:
+Release discovery не равен доверию. Установка должна проверить публичным
+release-ключом подписанные contract/manifest, согласованность версии и канала,
+хеши канонических пакетов и образа, locked-feed identity и hardware target.
+Draft Release и голый Git tag не являются устанавливаемым релизом. RC никогда
+не подменяет stable по умолчанию и не устанавливается автоматически.
 
-```sh
-./install-openwrt-vpn-ui.sh
-```
+Публичный ключ проверки хранится в
+[`release/keys/router-ui-production.pub`](release/keys/router-ui-production.pub).
+Приватного signing key в роутере, release bundle или Factory быть не должно.
 
-By default it connects to the `owrt` SSH alias, creates a full `sysupgrade -b`
-backup, uploads the local panel bundle, runs the router-side installer, and
-validates the rendered Xray config without changing the selected profile.
+## Требования к ресурсам
 
-Use another SSH target:
+Текущие измеренные preflight gates для **0.8 development**:
 
-```sh
-ROUTER_HOST=root@192.168.1.1 ./install-openwrt-vpn-ui.sh
-```
+- свободное постоянное хранилище: **1 641 KiB**;
+- свободное RAM-backed `/tmp`: **1 105 KiB**.
 
-To install the same VPN and Tailscale panels on a friend's already configured
-OpenWrt router:
+Это пороги безопасного updater preflight с резервом на транзакцию и rollback,
+а не полный размер firmware и не обещание вместимости любого hardware profile.
+Перед обновлением оба независимых порога должны быть пройдены.
 
-```sh
-./install-friend-vpn-panel.sh valera-owrt
-```
+## Безопасность и приватность
 
-The friend installer checks prerequisites, creates and downloads a full
-OpenWrt backup, preserves existing VPN state, installs both
-`Network > VPN Panel` and `Network > Tailscale`, adds a top-level `Update`
-menu, and validates the result.
+- Release trust основан на подписанных manifests/contracts и публичных ключах,
+  а не на имени тега или GitHub Release metadata.
+- Приватный release-ключ не хранится на роутере и не требуется Factory для
+  проверки.
+- Package-first update сохраняет конфигурацию, создаёт snapshot и изменяет
+  только проектные пакеты; глобальный `opkg upgrade` запрещён.
+- Transaction journal и recovery различают commit, незавершённое обновление и
+  exact rollback после перезагрузки.
+- Support diagnostics используют allowlist и доступны для preview до экспорта.
+  Raw logs, customer secrets, VPN credentials и полные идентификаторы не
+  загружаются автоматически.
+- Deployment-specific значения должны жить в локальной конфигурации и не
+  попадать в Git, release assets или документацию.
 
-The older raw-branch bootstrap remains available with `PANEL_SOURCE=github`,
-but package-first release installs and updates should use the staged IPKs.
+## Короткий roadmap
 
-The installer also installs Xray geosite data at `/usr/share/xray/geosite.dat`
-when it is missing, so `geosite:*` direct routing rules work by default. It
-does not refresh an existing geosite database unless `UPDATE_GEOSITE=1` is set.
+1. Ограниченная дистрибуция 0.7.11 RC.
+2. Физический RD23 и Factory canary.
+3. Публикация stable 0.7.11 после отдельной авторизации.
+4. Завершение backend Support & Feedback и polish onboarding в 0.8.
+5. Проверка и публикация 0.8 после release gates.
+6. Позднее opt-in развитие Premier Edge.
 
-The panel source and image-overlay notes live in
-[luci-vpn-ui/README.md](luci-vpn-ui/README.md).
+## Разработка
 
-## Xiaomi RD23 VPN AP Setup
+Актуальные публичные правила и методики на `main`:
 
-For Xiaomi RD23 / AX3000T routers already running OpenWrt, use:
+- [правила репозитория и release safety](AGENTS.md);
+- [development workflow и уровни доказательств](docs/development-workflow.md);
+- [методика VM-проверки релизов](docs/vm-release-testing-methodology.md);
+- [границы customer/owner policy](docs/customer-owner-policy.md);
+- [правила владения footer branding](docs/footer-branding.md);
+- [исходники и структура LuCI-панели](luci-vpn-ui/README.md).
 
-- [rd23.env.example](rd23.env.example)
-- [setup-rd23-vpn-ap.sh](setup-rd23-vpn-ap.sh)
+При разработке разделяйте source/static, simulated, VM-validated и
+hardware-validated результаты. Не помещайте реальные VLESS links, auth keys,
+private domains, customer data или локальные адреса устройств в репозиторий.
 
-```sh
-cp rd23.env.example rd23.env
-```
-
-Edit `rd23.env`, especially:
-
-- `WIFI_PASSWORD`
-- `VLESS_URL`
-- `HEADSCALE_URL`, `TAILSCALE_HOSTNAME`, and `TAILSCALE_AUTHKEY` if using
-  Headscale/Tailscale login from the script
-
-Then run:
-
-```sh
-set -a
-source ./rd23.env
-set +a
-./setup-rd23-vpn-ap.sh
-```
-
-## Notes
-
-- Do not commit real VLESS links, auth keys, private domains, or local device
-  addresses.
-- Use `.env`/local config files for deployment-specific values.
-- File transfer to OpenWrt uses `ssh` + `cat` or `ssh` + `tar`, avoiding
-  OpenWrt-incompatible SFTP assumptions.
-
-## Development and Release Safety
-
-Project workflow and release rules are documented in:
-
-- [AGENTS.md](AGENTS.md)
-- [docs/development-workflow.md](docs/development-workflow.md)
-- [docs/custom-image-release-guide.md](docs/custom-image-release-guide.md)
-- [docs/vm-release-testing-methodology.md](docs/vm-release-testing-methodology.md)
-- [docs/customer-owner-policy.md](docs/customer-owner-policy.md)
-- [docs/footer-branding.md](docs/footer-branding.md)
-
-Do not publish a tag, GitHub Release, or release asset unless the current task
-explicitly says `PUBLISH RELEASE <version>`.
+Публикация тега, GitHub Release или release asset всегда требует отдельной
+явной авторизации. Изменение версии или README само по себе такой авторизацией
+не является.
