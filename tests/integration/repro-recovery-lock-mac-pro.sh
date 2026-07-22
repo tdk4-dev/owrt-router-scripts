@@ -421,6 +421,7 @@ run_next_candidate_proof() {
     > "$EVIDENCE_DIR/next-candidate-sha256.log"
   before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
   guest_ssh "
+    export SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem
     export VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT'
     export VPN_UI_DISCOVERY_BASE='https://10.0.2.2:$HTTPS_PORT/candidate'
     export VPN_UI_RELEASE_CHANNEL=candidate
