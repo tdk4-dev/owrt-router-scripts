@@ -531,6 +531,7 @@ run_iteration() {
   " > "$EVIDENCE_DIR/rescue.log" 2>&1
   rescue_rc=$?
   set -e
+  printf 'exit_code=%s\n' "$rescue_rc" > "$EVIDENCE_DIR/rescue-exit-code.txt"
   if [[ "$FAILURE_INJECTION" = 1 ]]; then
     [[ "$rescue_rc" != 0 ]] || fail 'failure injection produced false success'
     transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
@@ -556,12 +557,14 @@ run_iteration() {
   transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
   [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed transaction ID: $transaction"
   guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" > "$EVIDENCE_DIR/pending-state.json"
+  CURRENT_PHASE=record-pending-evidence
+  CURRENT_COMMAND='validate redacted journal token shape and optional pending lock owner'
   guest_ssh "transaction='$transaction';" '
     state_file="/root/premier-router-updates/$transaction/state.json"
     owner=/root/premier-router-updates/update.lock/owner
     token="$(jsonfilter -i "$state_file" -e "@.worker_ownership_token" 2>/dev/null || true)"
     case "$token" in
-      *[!0-9a-f]*|'') shape=invalid ;;
+      *[!0-9a-f]*) shape=invalid ;;
       *) [ "${#token}" = 64 ] && shape=valid-64-hex || shape=invalid ;;
     esac
     [ "$shape" = valid-64-hex ] || exit 1
