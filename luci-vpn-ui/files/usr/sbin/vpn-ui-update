@@ -924,6 +924,8 @@ candidate_validate() {
     return 1
   fi
   validator="$(pr_json_get "$manifest" '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
+  [ -f "$assets/$validator" ] || return 1
+  chmod 700 "$assets/$validator" || return 1
   output="$TXN_DIR/validator-$phase.json"
   PREMIER_ROUTER_UPDATE_LIB="$LIB" \
   PREMIER_ROUTER_ROOT="$ROOT_PREFIX" \

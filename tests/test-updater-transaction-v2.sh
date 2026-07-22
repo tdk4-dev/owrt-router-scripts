@@ -190,6 +190,9 @@ run_supervisor() {
     sh "$TMP_ROOT/release/router-update-supervisor" "$@"
 }
 
+# Real downloads are created with curl's default non-executable mode.  Keep the
+# fixture honest and require the updater to promote only the verified validator.
+chmod 600 "$TMP_ROOT/release/router-candidate-validator"
 reset_source 0.7.0
 legacy_status="$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js"
 legacy_status_sha="$(sha256sum "$legacy_status" | awk '{print $1}')"
@@ -207,6 +210,8 @@ printf '%s\n' "$transaction" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$'
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .worker_ownership_token "$journal" | wc -c | tr -d ' ')" -eq 65 ]
+[ -x "$(find "$FAKE_ROOT/root/premier-router-updates/known-good" -type f \
+  -name router-candidate-validator -print -quit)" ]
 grep -qx '/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js' \
   "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/paths.list"
 run_supervisor rollback "$transaction"
