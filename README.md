@@ -141,10 +141,12 @@ Stock и ubootmod — не взаимозаменяемые имена одно�
 stock-устройство без предварительной конверсии по отдельно проверенной
 процедуре.
 
-RD23 использует lean profile и по умолчанию **не включает AdGuardHome**: flash
-зарезервирована под core, LuCI, Xray и update/support tooling. Все release
-образы должны собираться с зафиксированным OpenWrt feed; сборка против mutable
-feed не является воспроизводимой release-квалификацией.
+RD23 использует lean profile
+[`image/openwrt-rd23-packages.txt`](image/openwrt-rd23-packages.txt) и по
+умолчанию **не включает AdGuardHome**: flash зарезервирована под core, LuCI,
+Xray и update/support tooling. Все release-образы должны собираться с
+зафиксированным OpenWrt feed; сборка против mutable feed не является
+воспроизводимой release-квалификацией.
 
 Static-проверка состава и VM-проверка x86 не доказывают загрузку или безопасную
 прошивку RD23. До физического stock/ubootmod canary аппаратный статус остаётся
