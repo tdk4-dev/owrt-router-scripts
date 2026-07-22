@@ -33,6 +33,49 @@ RC 0.7.11 не является опубликованным stable, а 0.8 не
 
 ## Основные возможности
 
+### Панели и пользовательские сценарии
+
+Перечень описывает текущую package-first линию; поверхности, доступные только
+в 0.8 development, помечены отдельно.
+
+- 🧭 **Status → Overview** — краткая карточка Xray и transparent routing,
+  выбранный VPN-профиль, endpoint, server IP и результат последней проверки
+  соединения.
+- 🔐 **Network → VPN Panel** — включение VPN, VLESS Reality-профили и
+  subscriptions, проверка доступности серверов, автоматическое переключение,
+  direct-routing для доменов/IP и VPN bypass для отдельных устройств.
+- 🌐 **Network → Tailscale** — подключение к Tailscale или Headscale,
+  start/stop/restart/logout, список tailnet-устройств, direct/DERP path и
+  Tailscale ping. Preauth key передаётся сервису и не сохраняется панелью.
+- 🛡️ **Network → AdGuardHome** — состояние DNS-фильтрации, количество фильтров,
+  переход в AdGuardHome и контролируемая установка после storage preflight.
+  Для RD23 установка скрыта и запрещена политикой hardware profile.
+- 🔄 **Update** — установленная сборка, проверка релиза и changelog,
+  storage preflight, backup, подписанное package-first обновление, журнал
+  транзакции, recovery и точный rollback; автоматический stable-канал
+  опционален и выключен по умолчанию.
+- ♻️ **System → Reset** — только для совместимого `factory-image`: явное
+  подтверждение, очистка writable-конфигурации и перезагрузка обратно в
+  first-boot setup.
+- ⚙️ **Premier Router → Settings** — выбор русского или английского языка
+  интерфейса (**0.8 development**).
+- ✨ **System → What’s New** — post-update onboarding с обзором изменений
+  после релевантного обновления (**0.8 development**).
+- 🧰 **System → Router Setup** — вход в опциональный setup для
+  `vanilla-openwrt-panels` и указатель на reset/re-run для factory image
+  (**0.8 development**).
+- 💬 **System → Support & Feedback** — тип и категория обращения, preview
+  allowlisted diagnostics и локальный очищенный JSON-export; автоматическая
+  отправка пока недоступна (**0.8 development, phase 1**).
+- 🚀 **First-boot setup** — отдельный image workflow для hostname/root account,
+  LAN и Wi-Fi, VPN, опционального AdGuardHome и Tailscale/Headscale с review
+  перед применением.
+- 📦 **Owner preparation** — отдельная pre-handoff панель для health checks,
+  customer policy, проверенного backup и seal; после seal повторное открытие
+  требует доверенного SSH или local console.
+
+### Доступность по release-каналам
+
 Метки ниже показывают, где функция существует или проверяется, и не превращают
 development-код в обещание stable-релиза.
 
