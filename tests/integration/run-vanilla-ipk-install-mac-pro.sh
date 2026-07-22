@@ -184,7 +184,13 @@ run_path() {
   guest_ssh 'grep -q "DISTRIB_RELEASE=.24.10.5." /etc/openwrt_release; [ ! -e /usr/share/vpn-ui/version ]; ! opkg status premier-router-core 2>/dev/null | grep -q installed'
   guest_ssh 'printf "config fixture main\n\toption marker synthetic-preserved\n" > /etc/config/router-ui-vanilla-fixture'
   before_config="$(guest_ssh sha256sum /etc/config/router-ui-vanilla-fixture | awk '{print $1}')"
-  guest_ssh 'umask 077; cat > /etc/ssl/certs/router-ui-vanilla-ca.pem' < "$RUN_ROOT/tls/ca.crt"
+  guest_ssh 'umask 077; cat > /tmp/router-ui-vanilla-ca.pem' < "$RUN_ROOT/tls/ca.crt"
+  guest_ssh '
+    set -e
+    [ -s /etc/ssl/certs/ca-certificates.crt ]
+    cat /tmp/router-ui-vanilla-ca.pem >> /etc/ssl/certs/ca-certificates.crt
+    rm -f /tmp/router-ui-vanilla-ca.pem
+  '
   before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
   if [[ "$path" = A ]]; then
     for file in production-2026-07.pub SHA256SUMS SHA256SUMS.sig \
@@ -200,8 +206,8 @@ run_path() {
         [ -n "$expected" ]
         [ "$(sha256sum "/tmp/$file" | awk "{print \$1}")" = "$expected" ]
       done
-      SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg update
-      SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg install \
+      opkg update
+      opkg install \
         /tmp/premier-router-core_0.7.11-1_all.ipk \
         /tmp/luci-app-premier-router_0.7.11-1_all.ipk \
         /tmp/premier-router-setup_0.7.11-1_all.ipk
@@ -210,8 +216,8 @@ run_path() {
     guest_ssh "umask 077; cat > '/etc/opkg/keys/$EXPECTED_FINGERPRINT'" < "$PUBLIC_KEY"
     guest_ssh "set -e
       printf '%s\n' 'src/gz premier_router https://$HOST_ADDRESS:$HTTPS_PORT/feed' > /etc/opkg/customfeeds.conf
-      SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg update
-      SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg install \
+      opkg update
+      opkg install \
         premier-router-core luci-app-premier-router premier-router-setup" \
       > "$evidence/install.log" 2>&1
   fi

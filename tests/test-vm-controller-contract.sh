@@ -22,6 +22,9 @@ grep -Fq 'expected="$(grep -F "  $file" /tmp/SHA256SUMS | cut -d " " -f 1)"' \
   "$VANILLA_CONTROLLER"
 grep -Fq '> /etc/opkg/customfeeds.conf' "$VANILLA_CONTROLLER"
 ! grep -Fq '/etc/opkg/customfeeds.conf.d/' "$VANILLA_CONTROLLER"
+grep -Fq 'cat /tmp/router-ui-vanilla-ca.pem >> /etc/ssl/certs/ca-certificates.crt' \
+  "$VANILLA_CONTROLLER"
+! grep -Fq -- '--no-check-certificate' "$VANILLA_CONTROLLER"
 grep -Fq 'guest_ssh '\''
     set -e' "$VANILLA_CONTROLLER"
 
