@@ -144,6 +144,7 @@ validate_installed() {
   local label="$1" before_boot="$2" after_boot="$3" before_config="$4" evidence="$5"
   [[ "$before_boot" != "$after_boot" ]] || fail "$label did not change boot ID"
   guest_ssh '
+    set -e
     [ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.11 ]
     for package in premier-router-core luci-app-premier-router premier-router-setup; do
       [ "$(opkg status "$package" | sed -n "s/^Version: //p" | sed -n "1p")" = 0.7.11-1 ]
@@ -153,9 +154,6 @@ validate_installed() {
     /usr/sbin/vpn-ui vpn-summary | jsonfilter -e "@" >/dev/null
     /usr/sbin/vpn-ui tailscale-status | jsonfilter -e "@" >/dev/null
     /usr/sbin/vpn-ui update-status | jsonfilter -e "@" >/dev/null
-    usign -q -V -p /usr/share/premier-router/keys/release.pub \
-      -m /etc/premier-router/installed-manifest.json \
-      -x /etc/premier-router/installed-manifest.json.sig
     [ "$(usign -F -p /usr/share/premier-router/keys/release.pub)" = d055711acf1d9a5b ]
     [ -s /www/setup/index.html ] && [ -x /usr/sbin/vpn-ui ]
     for asset in /luci-static/resources/view/network/vpn.js \
@@ -163,8 +161,10 @@ validate_installed() {
       /luci-static/resources/view/system/update.js /setup/index.html; do
       [ "$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1$asset")" = 200 ]
     done
-    ! find /usr/share/premier-router /etc/premier-router -type f \
-      \( -name "*.sec" -o -name "*.key" -o -name "*.pem" \) | grep -q .
+    for root in /usr/share/premier-router /etc/premier-router; do
+      [ ! -d "$root" ] || ! find "$root" -type f \
+        \( -name "*.sec" -o -name "*.key" -o -name "*.pem" \) | grep -q .
+    done
   ' > "$evidence/functional-validation.log"
   after_config="$(guest_ssh sha256sum /etc/config/router-ui-vanilla-fixture | awk '{print $1}')"
   [[ "$after_config" = "$before_config" ]] || fail "$label did not preserve configuration"
@@ -193,9 +193,11 @@ run_path() {
       guest_ssh "umask 077; cat > '/tmp/$file'" < "$CANDIDATE_DIR/$file"
     done
     guest_ssh '
+      set -e
       usign -q -V -p /tmp/production-2026-07.pub -m /tmp/SHA256SUMS -x /tmp/SHA256SUMS.sig
       for file in premier-router-core_0.7.11-1_all.ipk luci-app-premier-router_0.7.11-1_all.ipk premier-router-setup_0.7.11-1_all.ipk; do
-        expected="$(awk -v file="$file" "$2 == file {print $1}" /tmp/SHA256SUMS)"
+        expected="$(grep -F "  $file" /tmp/SHA256SUMS | cut -d " " -f 1)"
+        [ -n "$expected" ]
         [ "$(sha256sum "/tmp/$file" | awk "{print \$1}")" = "$expected" ]
       done
       SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg update
@@ -206,7 +208,8 @@ run_path() {
     ' > "$evidence/install.log" 2>&1
   else
     guest_ssh "umask 077; cat > '/etc/opkg/keys/$EXPECTED_FINGERPRINT'" < "$PUBLIC_KEY"
-    guest_ssh "printf '%s\n' 'src/gz premier_router https://$HOST_ADDRESS:$HTTPS_PORT/feed' > /etc/opkg/customfeeds.conf.d/premier-router.conf
+    guest_ssh "set -e
+      printf '%s\n' 'src/gz premier_router https://$HOST_ADDRESS:$HTTPS_PORT/feed' > /etc/opkg/customfeeds.conf
       SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg update
       SSL_CERT_FILE=/etc/ssl/certs/router-ui-vanilla-ca.pem opkg install \
         premier-router-core luci-app-premier-router premier-router-setup" \

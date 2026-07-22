@@ -17,4 +17,12 @@ awk '
   END { exit !staged }
 ' "$CONTROLLER"
 
+VANILLA_CONTROLLER="$ROOT_DIR/tests/integration/run-vanilla-ipk-install-mac-pro.sh"
+grep -Fq 'expected="$(grep -F "  $file" /tmp/SHA256SUMS | cut -d " " -f 1)"' \
+  "$VANILLA_CONTROLLER"
+grep -Fq '> /etc/opkg/customfeeds.conf' "$VANILLA_CONTROLLER"
+! grep -Fq '/etc/opkg/customfeeds.conf.d/' "$VANILLA_CONTROLLER"
+grep -Fq 'guest_ssh '\''
+    set -e' "$VANILLA_CONTROLLER"
+
 printf 'Mac Pro VM controller contract passed\n'
