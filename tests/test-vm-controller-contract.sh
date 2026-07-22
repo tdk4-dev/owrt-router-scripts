@@ -10,5 +10,11 @@ grep -Fq 'journal_token_shape=%s' "$CONTROLLER"
 grep -Fq 'lock_owner=absent' "$CONTROLLER"
 grep -Fq 'normalize-listeners.awk' "$CONTROLLER"
 ! grep -Fq 'printf "%s\n" "$token"' "$CONTROLLER"
+awk '
+  /wait_for_terminal_and_unlock .*next-recovery-observations.tsv/ { after_next_reboot = 1; next }
+  after_next_reboot && /stage_guest_runtime/ { staged = 1; exit }
+  after_next_reboot && /next-committed-validation.log/ { exit }
+  END { exit !staged }
+' "$CONTROLLER"
 
 printf 'Mac Pro VM controller contract passed\n'

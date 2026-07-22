@@ -440,6 +440,7 @@ run_next_candidate_proof() {
   printf 'pre_update=%s\npost_update=%s\ntransaction_id=%s\n' "$before_boot" "$after_boot" "$transaction" \
     > "$EVIDENCE_DIR/next-reboot-identity.txt"
   wait_for_terminal_and_unlock "$transaction" next-recovery-observations.tsv
+  stage_guest_runtime
   guest_ssh '
     [ "$(sed -n "1p" /usr/share/vpn-ui/version)" = 0.7.12-test1 ]
     for package in premier-router-core luci-app-premier-router premier-router-setup; do
