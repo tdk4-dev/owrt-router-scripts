@@ -275,6 +275,13 @@ stage_guest_runtime() {
     < "$REMOTE_ROOT/runtime/router-ui-vm-guest.sh"
 }
 
+capture_listener_evidence() {
+  local raw_file="$1" normalized_file="$2"
+  guest_ssh 'netstat -lnt 2>/dev/null | tail -n +2 | sort' > "$raw_file"
+  awk -f "$ROOT_DIR/tests/vm/normalize-listeners.awk" "$raw_file" |
+    LC_ALL=C sort > "$normalized_file"
+}
+
 lock_observation() {
   guest_ssh "txn='$1';" '
     state="$(jsonfilter -i "/root/premier-router-updates/$txn/state.json" -e "@.state" 2>/dev/null || true)"
@@ -397,8 +404,10 @@ verify_candidate_state() {
       printf "%s %s\n" "$code" "$route"
     done
   ' > "$EVIDENCE_DIR/ui-health.txt"
-  guest_ssh 'netstat -lnt 2>/dev/null | tail -n +2 | sort' > "$EVIDENCE_DIR/listeners-after.txt"
-  cmp -s "$EVIDENCE_DIR/listeners-before.txt" "$EVIDENCE_DIR/listeners-after.txt" ||
+  capture_listener_evidence "$EVIDENCE_DIR/listeners-after.txt" \
+    "$EVIDENCE_DIR/listeners-after.normalized.txt"
+  cmp -s "$EVIDENCE_DIR/listeners-before.normalized.txt" \
+    "$EVIDENCE_DIR/listeners-after.normalized.txt" ||
     fail 'panel installation introduced or removed a TCP listener'
   guest_ssh '/etc/init.d/premier-router-update-recovery enabled'
   assert_no_recovery_process_or_lock
@@ -513,7 +522,8 @@ run_iteration() {
   guest_ssh "/tmp/router-ui-vm-guest.sh measure rd23-stock $STOCK_WRITABLE_BACKING_KIB $STOCK_EXPECTED_DF_KIB" \
     > "$EVIDENCE_DIR/source-measurement.json"
   before_protected="$(guest_ssh /tmp/router-ui-vm-guest.sh protected-hash)"
-  guest_ssh 'netstat -lnt 2>/dev/null | tail -n +2 | sort' > "$EVIDENCE_DIR/listeners-before.txt"
+  capture_listener_evidence "$EVIDENCE_DIR/listeners-before.txt" \
+    "$EVIDENCE_DIR/listeners-before.normalized.txt"
   before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
   guest_ssh 'umask 077; cat > /tmp/router-ui-local-ca.pem' < "$RUN_DIR/tls/ca.crt"
 
