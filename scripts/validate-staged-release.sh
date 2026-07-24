@@ -88,6 +88,45 @@ cmp -s "$RELEASE_PUBLIC_KEY" "$RELEASE_DIR/$EXPECTED_RELEASE_KEY_ID.pub" || fail
 "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" -m "$RELEASE_DIR/installed-manifest.json" \
   -x "$RELEASE_DIR/installed-manifest.json.sig" || fail "installed manifest signature invalid"
 
+if [ -n "${FACTORY_PRODUCT_VERSION:-}" ]; then
+  for file in factory-release-contract.json factory-release-contract.json.sig \
+    factory-router-release-manifest.json factory-router-release-manifest.json.sig \
+    image-package-manifest.json
+  do
+    [ -s "$RELEASE_DIR/$file" ] || fail "missing Factory schema-2 asset: $file"
+  done
+  "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" \
+    -m "$RELEASE_DIR/factory-release-contract.json" \
+    -x "$RELEASE_DIR/factory-release-contract.json.sig" ||
+    fail "Factory contract signature invalid"
+  "$USIGN_BIN" -q -V -p "$RELEASE_PUBLIC_KEY" \
+    -m "$RELEASE_DIR/factory-router-release-manifest.json" \
+    -x "$RELEASE_DIR/factory-router-release-manifest.json.sig" ||
+    fail "Factory release manifest signature invalid"
+  jq -e --arg version "$FACTORY_PRODUCT_VERSION" \
+    --arg commit "$(jq -er .source_commit "$MANIFEST")" \
+    --arg manifest_sha "$(sha256sum "$RELEASE_DIR/factory-router-release-manifest.json" |
+      awk '{print $1}')" '
+    .schema_version == 2 and .semantic_version == $version and
+    .product_version == $version and .package_release == "0.7.11-1" and
+    .source_commit == $commit and .release_channel == "rc" and
+    .prerelease == true and .release_manifest_sha256 == $manifest_sha and
+    (.artifacts | length == 1) and
+    .artifacts[0].hardware_target == "x86/64" and
+    .artifacts[0].image_profile == "generic" and
+    .artifacts[0].variant == "virtualbox"
+  ' "$RELEASE_DIR/factory-release-contract.json" >/dev/null ||
+    fail "Factory schema-2 contract authority fields mismatch"
+  jq -e --arg version "$FACTORY_PRODUCT_VERSION" \
+    --arg commit "$(jq -er .source_commit "$MANIFEST")" '
+    .schema_version == 2 and .app_version == $version and
+    .package_version == "0.7.11-1" and .source_commit == $commit and
+    .channel == "candidate" and .prerelease == true and
+    (.images | length == 1) and .images[0].target == "x86/64"
+  ' "$RELEASE_DIR/factory-router-release-manifest.json" >/dev/null ||
+    fail "Factory schema-2 manifest authority fields mismatch"
+fi
+
 printf "DISTRIB_RELEASE='%s'\nDISTRIB_TARGET='x86/64'\n" "$OPENWRT_VERSION" > "$WORK/openwrt_release"
 PREMIER_ROUTER_HOST_TEST=1 PR_USIGN_BIN="$USIGN_BIN" \
   PR_OPENWRT_RELEASE_FILE="$WORK/openwrt_release" \
