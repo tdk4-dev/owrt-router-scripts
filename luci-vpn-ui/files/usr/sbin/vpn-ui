@@ -627,6 +627,10 @@ init_state() {
   fi
 }
 
+read_state() {
+  detect_xray_paths
+}
+
 file_bytes() {
   [ -f "$1" ] || {
     printf '0'
@@ -1362,11 +1366,13 @@ auto_json() {
     "$([ "$AUTO_PERIODIC" = "1" ] && printf true || printf false)" \
     "${AUTO_PERIODIC_HOURS:-12}" "${AUTO_FAILURE_LIMIT:-3}"
   first=1
-  while IFS= read -r id || [ -n "$id" ]; do
-    [ -n "$id" ] || continue
-    if [ "$first" = "1" ]; then first=0; else printf ','; fi
-    json_string "$id"
-  done < "$AUTO_POOL_FILE"
+  if [ -f "$AUTO_POOL_FILE" ]; then
+    while IFS= read -r id || [ -n "$id" ]; do
+      [ -n "$id" ] || continue
+      if [ "$first" = "1" ]; then first=0; else printf ','; fi
+      json_string "$id"
+    done < "$AUTO_POOL_FILE"
+  fi
   printf ']}'
 }
 
@@ -1608,7 +1614,7 @@ cmd_test_domain() {
   local raw="$1"
   local domain route selected direct_ip proxy_ip
 
-  init_state
+  read_state
   ensure_domain_rule_data "$DOMAINS_FILE"
 
   domain="$(normalize_domain_input "$raw")"
@@ -1717,7 +1723,6 @@ json_array_from_file() {
 dhcp_devices_json() {
   local now first expiry mac ip host rest disabled remaining label
 
-  ensure_device_bypass_nft
   now="$(date +%s)"
   first=1
   printf '['
@@ -1768,7 +1773,7 @@ dhcp_devices_json() {
 status_json() {
   local selected first f id active ping protocol in_pool
 
-  init_state
+  read_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
 
   printf '{"ok":true,'
@@ -1828,7 +1833,7 @@ status_json() {
 vpn_summary_json() {
   local selected file domain_count ping xray_state transparent_state vpn_enabled
 
-  init_state
+  read_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   file="$PROFILE_DIR/$selected.conf"
   xray_state="stopped"

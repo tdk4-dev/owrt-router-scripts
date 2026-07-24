@@ -5,6 +5,7 @@
 'require dom';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
 var isReadonlyView = !L.hasViewPermission() || null;
 
 var css = '\
@@ -101,7 +102,12 @@ function upperLabel(value) {
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		var command = args && args[0];
+		var readCommand = command === 'status' || command === 'vpn-summary' ||
+			command === 'tailscale-status' || command === 'tailscale-ping' ||
+			command === 'update-status' || command === 'test-domain';
+
+		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	clearNotifications: function() {

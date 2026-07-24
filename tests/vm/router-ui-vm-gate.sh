@@ -14,6 +14,7 @@ EVIDENCE_DIR="${EVIDENCE_DIR:?EVIDENCE_DIR is required}"
 VM_CASE="${ROUTER_UI_VM_CASE:-${ROUTER_UI_VM_DIAGNOSTIC_CASE:-full}}"
 DIAGNOSTIC_CASE="$VM_CASE"
 DIAGNOSTIC_RUN="${ROUTER_UI_VM_DIAGNOSTIC:-0}"
+VM_ONLY="${ROUTER_UI_VM_ONLY:-0}"
 HARNESS_SOURCE_SHA="${ROUTER_UI_VM_HARNESS_SHA:-}"
 VM_SOURCE_VERSION="${ROUTER_UI_VM_SOURCE_VERSION:-}"
 VM_ACTIVE_VERSION=""
@@ -96,6 +97,10 @@ case "$VM_CASE" in
   *) fail "unsupported VM gate case selector: $VM_CASE" ;;
 esac
 case "$DIAGNOSTIC_RUN" in 0|1) ;; *) fail "ROUTER_UI_VM_DIAGNOSTIC must be 0 or 1" ;; esac
+case "$VM_ONLY" in 0|1) ;; *) fail "ROUTER_UI_VM_ONLY must be 0 or 1" ;; esac
+if [[ "$VM_ONLY" = 1 && "$VM_MODE" != candidate ]]; then
+  fail "ROUTER_UI_VM_ONLY is valid only for candidate validation"
+fi
 if [[ "$VM_MODE" = candidate ]]; then
   [[ -d "$RELEASE_DIR" ]] || fail "RELEASE_DIR is required in candidate mode"
   [[ -f "$X86_IMAGE_ARCHIVE" ]] || fail "X86_IMAGE_ARCHIVE is required in candidate mode"
@@ -139,7 +144,7 @@ record_result() {
 
 load_storage_profiles() {
   local profile pattern archive member provenance
-  if [[ "$VM_MODE" = baseline-pack ]]; then
+  if [[ "$VM_MODE" = baseline-pack || "$VM_ONLY" = 1 ]]; then
     STOCK_WRITABLE_KIB="$(jq -r '.storage_profiles["rd23-stock"].writable_backing_kib' "$BASELINE_LOCK")"
     STOCK_UBIFS_DF_KIB="$(jq -r '.storage_profiles["rd23-stock"].expected_ubifs_df_total_kib' "$BASELINE_LOCK")"
     UBOOTMOD_WRITABLE_KIB="$(jq -r '.storage_profiles["rd23-ubootmod"].writable_backing_kib' "$BASELINE_LOCK")"
@@ -1207,20 +1212,25 @@ finalize_evidence() {
     --arg harness_source_sha "$harness_source" \
     --arg diagnostic_case "$DIAGNOSTIC_CASE" \
     --arg diagnostic_run "$DIAGNOSTIC_RUN" \
+    --arg vm_only "$VM_ONLY" \
     --arg baseline_pack_digest "$BASELINE_PACK_DIGEST" \
     --argjson recovery_timeout_seconds "$VM_RECOVERY_TIMEOUT_SECONDS" \
     --arg key_fingerprint "$(jq -er .signing_key_fingerprint "$RELEASE_DIR/router-release-manifest.json")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
       harness_source_sha:$harness_source_sha,diagnostic_case:$diagnostic_case,
       baseline_pack_digest:$baseline_pack_digest,
-      diagnostic:($diagnostic_run == "1"),release_evidence:($diagnostic_run != "1"),
+      diagnostic:($diagnostic_run == "1" or $vm_only == "1"),
+      release_evidence:($diagnostic_run != "1" and $vm_only != "1"),
+      vm_only:($vm_only == "1"),
       configured_ram_mib:$configured,vm_execution_mode:"strictly-serial-exact-child-pid",
       recovery_timeout_seconds:$recovery_timeout_seconds,
       storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
         expected_ubifs_df_total_kib:$stock_ubifs_df},
         "rd23-ubootmod":{writable_backing_kib:$ubootmod_backing,
         expected_ubifs_df_total_kib:$ubootmod_ubifs_df}},
-      storage_basis:"OpenWrt-v24.10.5-DTS-plus-exact-candidate-payload",
+      storage_basis:(if $vm_only == "1" then
+        "locked-RD23-storage-profile-applied-to-x86-QEMU-only"
+        else "OpenWrt-v24.10.5-DTS-plus-exact-candidate-payload" end),
       physical_rd23_test:"pending-not-authorized"}' \
     > "$EVIDENCE_DIR/summary.json"
   (cd "$EVIDENCE_DIR" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print | sort | sed 's#^./##' |

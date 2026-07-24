@@ -264,6 +264,7 @@ create_tar_gz() {
 CORE_ROOT="$BUILD_DIR/premier-router-core/root"
 CORE_CONTROL="$BUILD_DIR/premier-router-core/control"
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" "$CORE_ROOT/usr/sbin/vpn-ui" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-readonly" "$CORE_ROOT/usr/sbin/vpn-ui-readonly" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" "$CORE_ROOT/usr/sbin/vpn-ui-update" 755
 mkdir -p "$CORE_ROOT/usr/sbin"
 render_trust_script "$ROOT_DIR/install-router-ui-release.sh" \

@@ -41,6 +41,11 @@ OVERLAY="$WORK_DIR/overlay-$IB_TARGET_NAME-$PROFILE"
 PROFILE_INFO="$WORK_DIR/profile-info-$IB_TARGET_NAME-$PROFILE.txt"
 BUILD_LOG="$OUT_DIR/$ARTIFACT_PREFIX.build.log"
 HOST_TOOLS_ROOT="${HOST_TOOLS_ROOT:-$ROOT_DIR/.host-tools/root}"
+IMAGEBUILDER_LOCAL_KEY_DIR="${IMAGEBUILDER_LOCAL_KEY_DIR:-}"
+REQUIRE_PINNED_IMAGEBUILDER_KEY="${REQUIRE_PINNED_IMAGEBUILDER_KEY:-0}"
+IMAGEBUILDER_LOCAL_KEY_MODE=generated
+IMAGEBUILDER_LOCAL_KEY_FINGERPRINT=
+PINNED_IMAGEBUILDER_PRIVATE_KEY=
 
 if [ -x "$HOST_TOOLS_ROOT/usr/bin/gawk" ]; then
   mkdir -p "$HOST_TOOLS_ROOT/bin"
@@ -59,7 +64,7 @@ need() {
   }
 }
 
-for tool in curl tar zstd make sha256sum awk find sort tee jq stat; do
+for tool in curl tar zstd make sha256sum awk find sort tee jq stat date; do
   need "$tool"
 done
 
@@ -110,6 +115,46 @@ if [ ! -d "$IB_DIR" ]; then
     printf 'Using preloaded ImageBuilder archive: %s\n' "$WORK_DIR/$IB_ARCHIVE"
   fi
   tar --use-compress-program=unzstd -xf "$WORK_DIR/$IB_ARCHIVE" -C "$WORK_DIR"
+fi
+
+cleanup_pinned_imagebuilder_private_key() {
+  if [ -n "$PINNED_IMAGEBUILDER_PRIVATE_KEY" ]; then
+    rm -f "$PINNED_IMAGEBUILDER_PRIVATE_KEY"
+  fi
+}
+
+if [ -n "$IMAGEBUILDER_LOCAL_KEY_DIR" ]; then
+  for key_file in key-build key-build.pub key-build.ucert key-build.ucert.revoke; do
+    [ -s "$IMAGEBUILDER_LOCAL_KEY_DIR/$key_file" ] || {
+      printf 'Pinned ImageBuilder local key input is missing: %s\n' "$key_file" >&2
+      exit 1
+    }
+  done
+  cp "$IMAGEBUILDER_LOCAL_KEY_DIR/key-build" "$IB_DIR/key-build"
+  cp "$IMAGEBUILDER_LOCAL_KEY_DIR/key-build.pub" "$IB_DIR/key-build.pub"
+  cp "$IMAGEBUILDER_LOCAL_KEY_DIR/key-build.ucert" "$IB_DIR/key-build.ucert"
+  cp "$IMAGEBUILDER_LOCAL_KEY_DIR/key-build.ucert.revoke" "$IB_DIR/key-build.ucert.revoke"
+  chmod 600 "$IB_DIR/key-build"
+  chmod 644 "$IB_DIR/key-build.pub" "$IB_DIR/key-build.ucert" \
+    "$IB_DIR/key-build.ucert.revoke"
+  IMAGEBUILDER_LOCAL_KEY_FINGERPRINT="$(
+    "$IB_DIR/staging_dir/host/bin/usign" -F -p "$IB_DIR/key-build.pub"
+  )"
+  printf '%s\n' "$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT" |
+    grep -Eq '^[0-9a-f]{16}$' || {
+      printf 'Could not determine the pinned ImageBuilder local public-key fingerprint\n' >&2
+      exit 1
+    }
+  mkdir -p "$IB_DIR/keys"
+  cp "$IB_DIR/key-build.pub" \
+    "$IB_DIR/keys/$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT"
+  chmod 644 "$IB_DIR/keys/$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT"
+  PINNED_IMAGEBUILDER_PRIVATE_KEY="$IB_DIR/key-build"
+  trap cleanup_pinned_imagebuilder_private_key EXIT HUP INT TERM
+  IMAGEBUILDER_LOCAL_KEY_MODE=locked
+elif [ "$REQUIRE_PINNED_IMAGEBUILDER_KEY" = 1 ]; then
+  printf 'A pinned ImageBuilder local key directory is required for a reproducible image\n' >&2
+  exit 1
 fi
 
 if [ "$TARGET_DIR" = "x86/64" ] && [ "$WRITABLE_BUDGET_KIB" -gt 0 ]; then
@@ -243,6 +288,45 @@ else
 fi
 cat "$BUILD_LOG"
 
+if [ -z "$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT" ]; then
+  IMAGEBUILDER_LOCAL_KEY_FINGERPRINT="$(
+    "$IB_DIR/staging_dir/host/bin/usign" -F -p "$IB_DIR/key-build.pub"
+  )"
+fi
+printf '%s\n' "$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT" |
+  grep -Eq '^[0-9a-f]{16}$' || {
+    printf 'Could not determine the ImageBuilder local public-key fingerprint\n' >&2
+    exit 1
+  }
+
+# ImageBuilder's CycloneDX generator adds a random serial UUID, wall-clock
+# timestamp, and filesystem-order components. Normalize only that metadata;
+# package and image payload bytes remain untouched and separately hashed.
+BOM_SERIAL_SEED="$(printf '%s' "$SOURCE_COMMIT" | sha256sum | awk '{print $1}')"
+BOM_SERIAL_UUID="$(printf '%s\n' "$BOM_SERIAL_SEED" |
+  awk '{print substr($0,1,8) "-" substr($0,9,4) "-" substr($0,13,4) "-" substr($0,17,4) "-" substr($0,21,12)}')"
+BOM_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')"
+find "$TARGET_OUT" -maxdepth 1 -type f -name '*.bom.cdx.json' -print |
+  LC_ALL=C sort |
+  while IFS= read -r bom_file; do
+    normalized_bom="$bom_file.normalized"
+    jq -S --arg serial "urn:uuid:$BOM_SERIAL_UUID" --arg timestamp "$BOM_TIMESTAMP" '
+      .serialNumber = $serial |
+      .metadata.timestamp = $timestamp |
+      if (.components | type) == "array" then
+        .components |= sort_by(
+          .type // "",
+          .name // "",
+          .version // "",
+          .["bom-ref"] // ""
+        )
+      else
+        .
+      end
+    ' "$bom_file" > "$normalized_bom"
+    mv "$normalized_bom" "$bom_file"
+  done
+
 RD23_STORAGE_LAYOUT=null
 STORAGE_PROFILE=none
 EXPECTED_UBIFS_DF_TOTAL_KIB=0
@@ -365,7 +449,6 @@ find "$OVERLAY" \( -type f -o -type l \) -print | sed "s#^$OVERLAY/##" |
   cd "$PROJECT_PACKAGE_DIR"
   sha256sum ./*.ipk | sed 's#  \./#  #'
 ) > "$PROFILE_ARTIFACT_DIR/project-ipk-sha256sums"
-cp "$BUILD_LOG" "$PROFILE_ARTIFACT_DIR/build.log"
 cp "$ROOT_DIR/release/rd23-storage-geometry.json" \
   "$PROFILE_ARTIFACT_DIR/rd23-storage-geometry.json"
 rm -rf "$PAYLOAD_WORK"
@@ -380,6 +463,8 @@ cat > "$PROFILE_ARTIFACT_DIR/image-provenance.json" <<EOF
   "source_commit": "$SOURCE_COMMIT",
   "source_dirty": $SOURCE_DIRTY,
   "source_date_epoch": $SOURCE_DATE_EPOCH,
+  "imagebuilder_local_key_mode": "$IMAGEBUILDER_LOCAL_KEY_MODE",
+  "imagebuilder_local_key_fingerprint": "$IMAGEBUILDER_LOCAL_KEY_FINGERPRINT",
   "updater_protocol": 2,
   "storage_profile": "$STORAGE_PROFILE",
   "writable_budget_kib": $WRITABLE_BUDGET_KIB,

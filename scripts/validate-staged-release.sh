@@ -283,8 +283,17 @@ find "$RELEASE_DIR" -maxdepth 1 -type f -name "premier-router-$APP_VERSION-openw
     tar -xOzf "$archive" "$provenance_member" > "$WORK/image.provenance"
     jq -e --arg commit "$MANIFEST_COMMIT" --arg version "$OPENWRT_VERSION" '
       .source_commit == $commit and .source_dirty == false and
-      .openwrt_version == $version and .updater_protocol == 2
+      .openwrt_version == $version and .updater_protocol == 2 and
+      (.imagebuilder_local_key_mode == "locked" or
+        .imagebuilder_local_key_mode == "generated") and
+      (.imagebuilder_local_key_fingerprint |
+        type == "string" and test("^[0-9a-f]{16}$"))
     ' "$WORK/image.provenance" >/dev/null || fail "image provenance mismatch"
+    if [ "${REQUIRE_PINNED_IMAGEBUILDER_KEY:-0}" = 1 ]; then
+      jq -e '.imagebuilder_local_key_mode == "locked"' \
+        "$WORK/image.provenance" >/dev/null ||
+        fail "image was not built with a pinned reproducibility key"
+    fi
     case "$(jq -r .profile "$WORK/image.provenance")" in
       generic)
         jq -e '.storage_profile == "rd23-stock" and

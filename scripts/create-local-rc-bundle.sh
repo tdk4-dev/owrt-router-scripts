@@ -9,9 +9,14 @@ REPORT_DIR="${REPORT_DIR:?REPORT_DIR is required}"
 OUTPUT_ROOT="${OUTPUT_ROOT:?OUTPUT_ROOT is required}"
 USIGN_BIN="${USIGN_BIN:?USIGN_BIN is required}"
 EXPECTED_KEY_ID="${ROUTER_UI_SIGNING_KEY_ID:?ROUTER_UI_SIGNING_KEY_ID is required}"
+RC_NUMBER="${RC_NUMBER:?RC_NUMBER is required}"
 SHORT_SHA="${SOURCE_COMMIT:0:8}"
 UTC_TIMESTAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
-NAME="Premier-Router-0.7.11-rc1-$SHORT_SHA-$UTC_TIMESTAMP"
+[[ "$RC_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+  printf 'RC-BUNDLE-ERROR: RC_NUMBER must be a positive integer\n' >&2
+  exit 1
+}
+NAME="Premier-Router-0.7.11-rc$RC_NUMBER-$SHORT_SHA-$UTC_TIMESTAMP"
 RC_DIR="$OUTPUT_ROOT/$NAME"
 ARCHIVE="$OUTPUT_ROOT/$NAME.tar.gz"
 VERIFY_ROOT="$(mktemp -d "$OUTPUT_ROOT/.verify-$NAME.XXXXXX")"

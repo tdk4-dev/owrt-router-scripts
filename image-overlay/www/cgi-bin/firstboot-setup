@@ -6,6 +6,7 @@ LAN_CIDR="10.77.0.0/24"
 HOSTNAME="openwrt-fin0"
 STATE_DIR="/etc/firstboot-wizard"
 COMPLETE_FILE="$STATE_DIR/complete"
+APPLY_LOCK="$STATE_DIR/apply.lock"
 PAYLOAD="/tmp/firstboot-setup.$$.json"
 FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
 
@@ -401,6 +402,15 @@ configure_tailscale() {
 apply_setup() {
   local login password confirm keys vpn_enabled vless selected tailscale_enabled tailscale_url tailscale_key now
 
+  mkdir -p "$STATE_DIR" || fail "Could not initialize first-boot setup state."
+  [ ! -f "$COMPLETE_FILE" ] ||
+    fail "Initial setup is already complete. Sign in to LuCI to make changes."
+  mkdir "$APPLY_LOCK" 2>/dev/null ||
+    fail "Initial setup is already complete or another setup request is in progress."
+  trap 'rm -f "$PAYLOAD" "$FILTERS_FILE"; rmdir "$APPLY_LOCK" 2>/dev/null || true' EXIT
+  [ ! -f "$COMPLETE_FILE" ] ||
+    fail "Initial setup is already complete. Sign in to LuCI to make changes."
+
   read_body > "$PAYLOAD"
   login="$(json_get '@.account.login')"
   password="$(json_get '@.account.password')"
@@ -413,7 +423,6 @@ apply_setup() {
   tailscale_url="$(json_get '@.tailscale.loginServer')"
   tailscale_key="$(json_get '@.tailscale.authKey')"
 
-  mkdir -p "$STATE_DIR"
   configure_account "$login" "$password" "$confirm" "$keys"
   configure_network
   configure_adguard "$login" "$password" "$selected"

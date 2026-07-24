@@ -5,6 +5,7 @@
 'require dom';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
 var isReadonlyView = !L.hasViewPermission() || null;
 
 var css = '\
@@ -43,7 +44,10 @@ function parseResponse(res) {
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		var command = args && args[0];
+		var readCommand = command === 'tailscale-status' || command === 'tailscale-ping';
+
+		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {

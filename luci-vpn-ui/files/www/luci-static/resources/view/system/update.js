@@ -5,6 +5,8 @@
 'require dom';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
+var isReadonlyView = !L.hasViewPermission() || null;
 var css = '\
 .router-update .update-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; }\
 .router-update .update-subtitle { opacity:.7; max-width:48rem; margin:.25rem 0 0; }\
@@ -38,7 +40,7 @@ function parseResponse(res) {
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		return fs.exec(args && args[0] === 'update-status' ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {
@@ -149,20 +151,20 @@ return view.extend({
 					E('a', {
 						'class': 'cbi-button cbi-button-action',
 						'href': '#',
-						'aria-disabled': busy ? 'true' : 'false',
+						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy)
+							if (!busy && !isReadonlyView)
 								return this.refresh();
 						}, this)
 					}, _('Check again')),
 					E('a', {
 						'class': 'cbi-button cbi-button-positive',
 						'href': '#',
-						'aria-disabled': busy || !data.available ? 'true' : 'false',
+						'aria-disabled': busy || !data.available || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy && data.available)
+							if (!busy && data.available && !isReadonlyView)
 								return this.install();
 						}, this)
 					}, data.available ? _('Download and install') : _('Up to date'))
@@ -196,10 +198,10 @@ return view.extend({
 					E('a', {
 						'class': 'cbi-button ' + (data.auto_update ? 'cbi-button-positive' : 'cbi-button-neutral'),
 						'href': '#',
-						'aria-disabled': busy ? 'true' : 'false',
+						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy)
+							if (!busy && !isReadonlyView)
 								return this.setAutoUpdate(!data.auto_update);
 						}, this)
 					}, data.auto_update ? _('Weekly updates enabled') : _('Enable weekly updates')),
@@ -219,7 +221,7 @@ return view.extend({
 
 	render: function(data) {
 		this.data = data;
-		if (!data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
+		if (!isReadonlyView && !data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
 			window.setTimeout(L.bind(function() { this.refresh(); }, this), 250);
 		return E('div', { 'class': 'cbi-map router-update' }, [
 			E('style', {}, css),

@@ -248,6 +248,14 @@ contract_digest="$(sh "$DIGEST")"
 printf '%s' "$contract_digest" | grep -Eq '^[0-9a-f]{64}$' || fail 'baseline content digest is malformed'
 grep -q 'baseline_contract_digest' "$GATE" || fail 'baseline manifest omits content compatibility digest'
 grep -q 'builder_commit' "$GATE" || fail 'baseline builder commit provenance is missing'
+grep -q 'ROUTER_UI_VM_ONLY' "$GATE" ||
+  fail 'VM-only candidate validation mode is missing'
+grep -Fq 'locked-RD23-storage-profile-applied-to-x86-QEMU-only' "$GATE" ||
+  fail 'VM-only evidence does not identify its non-hardware storage basis'
+grep -Fq 'release_evidence:($diagnostic_run != "1" and $vm_only != "1")' "$GATE" ||
+  fail 'VM-only evidence can be mistaken for a hardware release gate'
+grep -Fq 'if [[ "$VM_MODE" = baseline-pack || "$VM_ONLY" = 1 ]]' "$GATE" ||
+  fail 'VM-only mode does not use the immutable storage lock'
 grep -q 'xray-ipk/xray' "$GATE" || fail 'expected Xray binary hash is not derived from the locked IPK'
 grep -q 'installed Xray binary differs from the exact locked IPK' "$ROOT_DIR/tests/vm/router-ui-vm-guest.sh" ||
   fail 'guest does not enforce the derived Xray binary hash'

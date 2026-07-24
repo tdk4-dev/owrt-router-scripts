@@ -113,12 +113,15 @@ ensure_config() {
     printf "AUTO_SCHEDULE='Sunday 04:17'\n"
   } | atomic_from_stdin "$CONFIG_FILE"
 }
-load_config() {
-  ensure_config
+load_config_readonly() {
   AUTO_UPDATE="$(read_config_value AUTO_UPDATE "$CONFIG_FILE")"
   AUTO_SCHEDULE="$(read_config_value AUTO_SCHEDULE "$CONFIG_FILE")"
   case "$AUTO_UPDATE" in 0|1) ;; *) AUTO_UPDATE=0 ;; esac
   [ -n "$AUTO_SCHEDULE" ] || AUTO_SCHEDULE='Sunday 04:17'
+}
+load_config() {
+  ensure_config
+  load_config_readonly
 }
 configure_cron() {
   local tmp="$CRON_FILE.new.$$"
@@ -379,7 +382,7 @@ latest_journal() {
 }
 status_json() {
   local current latest checked state job_status message target rollback quarantine needs_reboot
-  load_config
+  load_config_readonly
   current="$(current_version)"
   latest="$current"
   checked="$(pr_read_first "$CACHE_DIR/checked-at")"

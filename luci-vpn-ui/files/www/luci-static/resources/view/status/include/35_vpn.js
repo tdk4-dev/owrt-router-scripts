@@ -2,7 +2,7 @@
 'require baseclass';
 'require fs';
 
-var helper = '/usr/sbin/vpn-ui';
+var helper = '/usr/sbin/vpn-ui-readonly';
 
 function parseResponse(res) {
 	var output = (res && res.stdout) ? res.stdout.trim() : '';
