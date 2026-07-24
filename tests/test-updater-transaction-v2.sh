@@ -190,6 +190,68 @@ run_supervisor() {
     sh "$TMP_ROOT/release/router-update-supervisor" "$@"
 }
 
+probe_exact_space_requirements() {
+  reset_source 0.7.10
+  if run_update manual VPN_UI_TEST_PERSISTENT_FREE_BYTES=0 VPN_UI_TEST_TMP_FREE_BYTES=0 \
+    > "$TMP_ROOT/space-probe.log" 2> "$TMP_ROOT/space-probe.err"; then
+    printf 'zero-byte storage probe unexpectedly succeeded\n' >&2
+    exit 1
+  fi
+  transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+  reservation="$FAKE_ROOT/root/premier-router-updates/$transaction/reservation.json"
+  PERSISTENT_REQUIRED_BYTES="$(jq -er .persistent_required_bytes "$reservation")"
+  TMP_REQUIRED_BYTES="$(jq -er .temporary_required_bytes "$reservation")"
+  export PERSISTENT_REQUIRED_BYTES TMP_REQUIRED_BYTES
+  [ "$PERSISTENT_REQUIRED_BYTES" -ge 1680384 ]
+  [ "$TMP_REQUIRED_BYTES" -ge 1131520 ]
+  [ "$(jq -r .persistent_free_bytes "$reservation")" -eq 0 ]
+  [ "$(jq -r .temporary_free_bytes "$reservation")" -eq 0 ]
+  [ "$(jq -r .state "$FAKE_ROOT/root/premier-router-updates/$transaction/state.json")" = failed_before_mutation ]
+  [ "$(jq -r .mutation_started "$FAKE_ROOT/root/premier-router-updates/$transaction/state.json")" = false ]
+  [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
+}
+
+run_exact_space_case() {
+  label="$1"
+  persistent_free="$2"
+  temporary_free="$3"
+  expected="$4"
+  reset_source 0.7.10
+  if run_update manual \
+    "VPN_UI_TEST_PERSISTENT_FREE_BYTES=$persistent_free" \
+    "VPN_UI_TEST_TMP_FREE_BYTES=$temporary_free" \
+    > "$TMP_ROOT/space-$label.log" 2> "$TMP_ROOT/space-$label.err"; then
+    actual=pass
+  else
+    actual=fail
+  fi
+  [ "$actual" = "$expected" ] || {
+    printf 'exact storage boundary %s: expected %s, got %s\n' "$label" "$expected" "$actual" >&2
+    cat "$TMP_ROOT/space-$label.err" >&2
+    exit 1
+  }
+  transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+  reservation="$FAKE_ROOT/root/premier-router-updates/$transaction/reservation.json"
+  [ "$(jq -r .persistent_free_bytes "$reservation")" -eq "$persistent_free" ]
+  [ "$(jq -r .temporary_free_bytes "$reservation")" -eq "$temporary_free" ]
+  if [ "$expected" = pass ]; then
+    [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11 ]
+  else
+    journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+    [ "$(jq -r .state "$journal")" = failed_before_mutation ]
+    [ "$(jq -r .mutation_started "$journal")" = false ]
+    [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
+  fi
+}
+
+probe_exact_space_requirements
+run_exact_space_case persistent-below "$((PERSISTENT_REQUIRED_BYTES - 1))" "$TMP_REQUIRED_BYTES" fail
+run_exact_space_case exact-both "$PERSISTENT_REQUIRED_BYTES" "$TMP_REQUIRED_BYTES" pass
+run_exact_space_case persistent-above "$((PERSISTENT_REQUIRED_BYTES + 1))" "$TMP_REQUIRED_BYTES" pass
+run_exact_space_case temporary-below "$PERSISTENT_REQUIRED_BYTES" "$((TMP_REQUIRED_BYTES - 1))" fail
+run_exact_space_case temporary-above "$PERSISTENT_REQUIRED_BYTES" "$((TMP_REQUIRED_BYTES + 1))" pass
+stage exact-byte-storage-boundaries
+
 # Real downloads are created with curl's default non-executable mode.  Keep the
 # fixture honest and require the updater to promote only the verified validator.
 chmod 600 "$TMP_ROOT/release/router-candidate-validator"

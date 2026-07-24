@@ -696,6 +696,19 @@ create_config_recovery() {
 }
 
 bytes_to_kib() { awk -v bytes="${1:-0}" 'BEGIN { print int((bytes + 1023) / 1024) }'; }
+filesystem_free_bytes() {
+  local path="$1" blocks
+  blocks="$(df -Pk "$path" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+  case "$blocks" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' $((blocks * 1024))
+}
+
+space_test_override() {
+  local configured="$1"
+  [ -f "$TEST_MARKER" ] || return 1
+  case "$configured" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$configured"
+}
 
 candidate_existing_bytes() {
   local list="$1" path actual
@@ -733,8 +746,11 @@ candidate_extraction_bytes() {
 
 space_preflight() {
   local assets="$1" manifest="$2" asset_bytes extraction_bytes rollback_bytes config_bytes
-  local asset_kib extraction_kib rollback_kib config_kib metadata_kib evidence_kib subtotal safety required
-  local persistent_free temporary_free temporary_required reservation="$TXN_DIR/reservation.json"
+  local subtotal_kib safety_kib safety_bytes required_bytes
+  local temporary_required_bytes persistent_free_bytes temporary_free_bytes
+  local asset_kib extraction_kib rollback_kib config_kib metadata_kib evidence_kib
+  local required_kib persistent_free_kib temporary_required_kib temporary_free_kib
+  local reservation="$TXN_DIR/reservation.json"
   derive_candidate_owned_paths "$assets" "$manifest" "$TXN_DIR/candidate.paths.list" \
     "$TXN_DIR/candidate.dirs.list" || return 1
   asset_bytes="$(find "$assets" -type f -exec wc -c {} \; 2>/dev/null |
@@ -754,23 +770,40 @@ space_preflight() {
   config_kib="$(bytes_to_kib "$config_bytes")"
   metadata_kib=2048
   evidence_kib=4096
-  subtotal=$((asset_kib + extraction_kib + rollback_kib + config_kib + metadata_kib + evidence_kib))
-  safety=$((subtotal / 5))
-  [ "$safety" -ge 8192 ] || safety=8192
-  required=$((subtotal + safety))
-  persistent_free="$(df -Pk "$PERSIST_ROOT" 2>/dev/null | awk 'NR == 2 { print $4 }')"
-  temporary_free="$(df -Pk "${ROOT_PREFIX}/tmp" 2>/dev/null | awk 'NR == 2 { print $4 }')"
-  temporary_required=$((asset_kib + rollback_kib + config_kib + 4096))
+  subtotal_kib=$((asset_kib + extraction_kib + rollback_kib + config_kib +
+    metadata_kib + evidence_kib))
+  safety_kib=$((subtotal_kib / 5))
+  [ "$safety_kib" -ge 8192 ] || safety_kib=8192
+  safety_bytes=$((safety_kib * 1024))
+  required_bytes=$(((subtotal_kib + safety_kib) * 1024))
+  temporary_required_bytes=$(((asset_kib + rollback_kib + config_kib + evidence_kib) * 1024))
+  persistent_free_bytes="$(space_test_override "${VPN_UI_TEST_PERSISTENT_FREE_BYTES:-}" ||
+    filesystem_free_bytes "$PERSIST_ROOT" || true)"
+  temporary_free_bytes="$(space_test_override "${VPN_UI_TEST_TMP_FREE_BYTES:-}" ||
+    filesystem_free_bytes "${ROOT_PREFIX}/tmp" || true)"
+  required_kib="$(bytes_to_kib "$required_bytes")"
+  persistent_free_kib=$((${persistent_free_bytes:-0} / 1024))
+  temporary_required_kib="$(bytes_to_kib "$temporary_required_bytes")"
+  temporary_free_kib=$((${temporary_free_bytes:-0} / 1024))
   {
-    printf '{"persistent_required_kib":%s,"persistent_free_kib":%s,' "$required" "${persistent_free:-0}"
-    printf '"temporary_required_kib":%s,"temporary_free_kib":%s,' "$temporary_required" "${temporary_free:-0}"
+    printf '{"persistent_required_bytes":%s,"persistent_free_bytes":%s,' \
+      "$required_bytes" "${persistent_free_bytes:-0}"
+    printf '"temporary_required_bytes":%s,"temporary_free_bytes":%s,' \
+      "$temporary_required_bytes" "${temporary_free_bytes:-0}"
+    printf '"persistent_required_kib":%s,"persistent_free_kib":%s,' \
+      "$required_kib" "$persistent_free_kib"
+    printf '"temporary_required_kib":%s,"temporary_free_kib":%s,' \
+      "$temporary_required_kib" "$temporary_free_kib"
     printf '"target_assets_kib":%s,"source_rollback_kib":%s,' "$asset_kib" "$rollback_kib"
     printf '"configuration_recovery_kib":%s,"candidate_extraction_kib":%s,' "$config_kib" "$extraction_kib"
     printf '"metadata_and_manifests_kib":%s,"journal_and_evidence_kib":%s,' "$metadata_kib" "$evidence_kib"
-    printf '"safety_margin_kib":%s}\n' "$safety"
+    printf '"safety_margin_bytes":%s,"safety_margin_kib":%s}\n' \
+      "$safety_bytes" "$safety_kib"
   } | atomic_from_stdin "$reservation"
-  [ -n "$persistent_free" ] && [ "$persistent_free" -ge "$required" ] || return 1
-  [ -n "$temporary_free" ] && [ "$temporary_free" -ge "$temporary_required" ]
+  [ -n "$persistent_free_bytes" ] &&
+    [ "$persistent_free_bytes" -ge "$required_bytes" ] || return 1
+  [ -n "$temporary_free_bytes" ] &&
+    [ "$temporary_free_bytes" -ge "$temporary_required_bytes" ]
 }
 
 validate_asset_set() {
