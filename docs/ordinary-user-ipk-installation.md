@@ -1,0 +1,163 @@
+# Installing Router UI 0.7.11 RC5 on an existing RD23
+
+This is the preferred path for a Xiaomi RD23 that already runs clean OpenWrt
+installed with XMiR. It installs three hardware-independent packages and does
+not replace the router firmware or boot layout.
+
+The signed bootstrap accepts OpenWrt `24.10.0` through `24.10.99` on
+`mediatek/filogic` (RD23) or `x86/64`. It refuses other releases and targets
+before changing packages.
+
+Router UI RC5 is prerelease software. LuCI displays `0.7.11-rc.5` and a
+**Release candidate** warning. The OpenWrt packages use
+`0.7.11~rc5-1`; that ordering lets the signed updater offer the later stable
+`0.7.11` release as an upgrade.
+
+Do this over Ethernet from the LAN side. Do not perform the installation over
+the VPN, Tailscale, or Wi-Fi path that you are changing.
+
+## 1. Record the router state and make an off-router backup
+
+Run these commands from the administrator's workstation. Replace
+`ROUTER_ADDRESS` with the router's LAN address:
+
+```sh
+ssh root@ROUTER_ADDRESS 'ubus call system board; free -m; df -h /overlay /tmp; \
+  opkg status xray-core tailscale 2>/dev/null; \
+  /etc/init.d/xray enabled 2>/dev/null && echo xray_enabled=yes || true; \
+  /etc/init.d/tailscale enabled 2>/dev/null && echo tailscale_enabled=yes || true; \
+  logread | tail -n 120'
+
+ssh root@ROUTER_ADDRESS \
+  'sysupgrade -b /tmp/router-before-0.7.11-rc5.tar.gz'
+ssh root@ROUTER_ADDRESS \
+  'cat /tmp/router-before-0.7.11-rc5.tar.gz' \
+  > router-before-0.7.11-rc5.tar.gz
+test -s router-before-0.7.11-rc5.tar.gz
+```
+
+Keep that backup private: it can contain network and VPN credentials. Stop and
+ask for help if `/overlay` is nearly full, `/tmp` cannot hold the downloaded
+files, or the log contains recent out-of-memory kills. Do not flash an image to
+work around those symptoms.
+
+## 2. Copy the signed RC5 package set and first-install bootstrap
+
+Place these ten release files in one directory on the workstation:
+
+```text
+production-2026-07.pub
+SHA256SUMS
+SHA256SUMS.sig
+premier-router-core_0.7.11~rc5-1_all.ipk
+luci-app-premier-router_0.7.11~rc5-1_all.ipk
+premier-router-setup_0.7.11~rc5-1_all.ipk
+installed-manifest.json
+installed-manifest.json.sig
+router-candidate-validator
+bootstrap-router-ui-ipk-install.sh
+```
+
+Copy them using a method compatible with the router's Dropbear SSH server:
+
+```sh
+for file in \
+  production-2026-07.pub SHA256SUMS SHA256SUMS.sig \
+  premier-router-core_0.7.11~rc5-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc5-1_all.ipk \
+  premier-router-setup_0.7.11~rc5-1_all.ipk \
+  installed-manifest.json installed-manifest.json.sig \
+  router-candidate-validator bootstrap-router-ui-ipk-install.sh
+do
+  ssh root@ROUTER_ADDRESS "umask 077; cat > '/tmp/$file'" < "./$file"
+done
+```
+
+## 3. Verify before installing
+
+Run on the router:
+
+```sh
+test "$(usign -F -p /tmp/production-2026-07.pub)" = d055711acf1d9a5b
+usign -q -V \
+  -p /tmp/production-2026-07.pub \
+  -m /tmp/SHA256SUMS \
+  -x /tmp/SHA256SUMS.sig
+
+for file in \
+  premier-router-core_0.7.11~rc5-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc5-1_all.ipk \
+  premier-router-setup_0.7.11~rc5-1_all.ipk \
+  installed-manifest.json installed-manifest.json.sig \
+  router-candidate-validator bootstrap-router-ui-ipk-install.sh
+do
+  expected="$(awk -v file="$file" '$2 == file {print $1}' /tmp/SHA256SUMS)"
+  test -n "$expected"
+  test "$(sha256sum "/tmp/$file" | awk '{print $1}')" = "$expected"
+done
+```
+
+Every command must finish successfully. A missing hash, key-fingerprint
+mismatch, or bad signature is a hard stop.
+
+## 4. Install and seed the signed rollback set
+
+Run on the router:
+
+```sh
+chmod 700 /tmp/bootstrap-router-ui-ipk-install.sh
+ROUTER_UI_ASSET_DIR=/tmp /tmp/bootstrap-router-ui-ipk-install.sh
+sync
+reboot
+```
+
+The bootstrap verifies the target and OpenWrt range, enforces persistent and
+`/tmp` space reserves, verifies the signed installed-package manifest, creates
+an OpenWrt configuration backup, and places a verified recovery seed on
+persistent storage before asking `opkg` to change packages. It then installs
+all three IPKs, validates the result, and preserves the exact IPK bytes as the
+rollback source for the later stable update.
+
+The bootstrap refuses an already managed installation or any Router UI package
+with a different version. If power loss or an `opkg` interruption leaves only a
+subset of the exact RC5 packages, rerunning the same verified bootstrap and
+asset set resumes the installation. For any other failure, stop and send the
+preflight output for review; do not use `--force-depends`, `--force-overwrite`,
+a blanket `opkg upgrade`, or manual file deletion.
+
+## 5. Verify after the reboot
+
+Reconnect by the router's LAN address and run:
+
+```sh
+opkg status premier-router-core luci-app-premier-router premier-router-setup |
+  sed -n '/^Package:/p;/^Version:/p;/^Status:/p'
+cat /usr/share/vpn-ui/version
+cat /usr/share/premier-router/build-info
+/usr/sbin/vpn-ui check
+/usr/sbin/vpn-ui vpn-summary
+/usr/sbin/vpn-ui tailscale-status
+/usr/sbin/vpn-ui update-status
+free -m
+logread | tail -n 160
+dmesg | tail -n 100
+```
+
+Expected identity:
+
+- all three package versions: `0.7.11~rc5-1`;
+- displayed Router UI version: `0.7.11-rc.5`;
+- release channel: `candidate` in build metadata and in Update-page status;
+- both Xray and Tailscale remain healthy if they were configured before the
+  installation;
+- no out-of-memory kill, reboot loop, or loss of LAN management.
+
+Open LuCI from the LAN. The Update page must show the orange release-candidate
+notice. Leave the updater on its default stable channel: when signed stable
+`0.7.11` metadata is published, the page will recognize it as newer than RC5.
+
+If the router reboots unexpectedly or either daemon repeatedly dies, do not
+repeat the installation. Keep it on LAN, capture `logread`, `dmesg`, `free -m`,
+`df -h /overlay /tmp`, and the three `opkg status` results, then send those
+redacted diagnostics with the router model and OpenWrt version. Do not include
+VPN URLs, keys, passwords, or the backup archive.

@@ -13,21 +13,12 @@ AUTO_CONFIG="/etc/xray/vpn-ui-auto.conf"
 AUTO_POOL_FILE="/etc/xray/vpn-ui-auto-pool.txt"
 AUTO_STATE="/tmp/vpn-ui-auto-state"
 PING_DIR="/tmp/vpn-ui-pings"
-VERSION_FILE="${VPN_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
-METADATA_CONFIG="${VPN_UI_METADATA_CONFIG:-premier_router}"
-UCI_BIN="${VPN_UI_UCI_BIN:-uci}"
+VERSION_FILE="/usr/share/vpn-ui/version"
 DHCP_LEASES_FILE="/tmp/dhcp.leases"
 NFT_FAMILY="inet"
 NFT_TABLE="xray_transparent"
 NFT_DEVICE_BYPASS_SET="vpn_ui_device_bypass4"
 DEFAULT_XRAY_DATADIR="/usr/share/xray"
-FIRSTBOOT_STATE_DIR="${FIRSTBOOT_STATE_DIR:-/etc/firstboot-wizard}"
-FIRSTBOOT_COMPLETE_FILE="$FIRSTBOOT_STATE_DIR/complete"
-FIRSTBOOT_SETUP_CGI="${FIRSTBOOT_SETUP_CGI:-/www/cgi-bin/firstboot-setup}"
-FIRSTBOOT_SETUP_INDEX="${FIRSTBOOT_SETUP_INDEX:-/www/setup/index.html}"
-ROUTER_RESET_LOG="${ROUTER_RESET_LOG:-/tmp/router-reset-to-setup.log}"
-ROUTER_RESET_SCRIPT="${ROUTER_RESET_SCRIPT:-/tmp/router-reset-to-setup.sh}"
-ROUTER_RESET_STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
 XRAY_ACCESS_LOG="/tmp/xray-access.log"
 XRAY_ERROR_LOG="/tmp/xray-error.log"
 XRAY_ACCESS_LOG_MAX_BYTES=1048576
@@ -36,17 +27,6 @@ XRAY_ERROR_LOG_MAX_BYTES=262144
 XRAY_ERROR_LOG_KEEP_BYTES=65536
 ADGUARD_CONFIG="/etc/adguardhome.yaml"
 ADGUARD_QUERYLOG="/tmp/lib/adguardhome/data/querylog.json"
-ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
-ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
-ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/vpn-ui-adguard-install.lock}"
-VPN_UI_HARDWARE_PROFILE="${VPN_UI_HARDWARE_PROFILE:-}"
-DF_BIN="${VPN_UI_DF_BIN:-df}"
-OPKG_BIN="${VPN_UI_OPKG_BIN:-opkg}"
-UBUS_BIN="${VPN_UI_UBUS_BIN:-ubus}"
-JSONFILTER_BIN="${VPN_UI_JSONFILTER_BIN:-jsonfilter}"
-BUILD_INFO_FILE="${VPN_UI_BUILD_INFO_FILE:-/usr/share/vpn-ui/build-info}"
-INSTALLED_MANIFEST_FILE="${VPN_UI_INSTALLED_MANIFEST_FILE:-/etc/premier_router/installed-manifest.json}"
-OPENWRT_RELEASE_FILE="${VPN_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 
 XRAY_SERVICE=""
 XRAY_BIN=""
@@ -60,229 +40,6 @@ json_escape() {
 
 json_string() {
   printf '"%s"' "$(json_escape "$1")"
-}
-
-metadata_uci_available() {
-  command -v "$UCI_BIN" >/dev/null 2>&1
-}
-
-metadata_get() {
-  "$UCI_BIN" -q get "$METADATA_CONFIG.router.$1" 2>/dev/null || true
-}
-
-metadata_set_option() {
-  "$UCI_BIN" set "$METADATA_CONFIG.router.$1=$2" >/dev/null
-  METADATA_DIRTY=1
-}
-
-metadata_valid_install_method() {
-  case "$1" in
-    owner-prepared-managed|owner-prepared-standard|self-managed-image|manual-ipk-install|legacy-migrated|dev-vm|unknown) return 0 ;;
-  esac
-  return 1
-}
-
-metadata_valid_support_level() {
-  case "$1" in
-    none|self-managed|standard|managed|priority|developer) return 0 ;;
-  esac
-  return 1
-}
-
-metadata_valid_registration_state() {
-  case "$1" in
-    unregistered|local-only|support-registered|support-enabled|support-disabled|unknown) return 0 ;;
-  esac
-  return 1
-}
-
-metadata_valid_bool() {
-  case "$1" in 0|1) return 0 ;; esac
-  return 1
-}
-
-metadata_valid_footer_mode() {
-  case "$1" in compact|full) return 0 ;; esac
-  return 1
-}
-
-metadata_valid_direct_rules_channel() {
-  case "$1" in stable|beta|custom|unknown) return 0 ;; esac
-  return 1
-}
-
-metadata_valid_install_source() {
-  case "$1" in package-first-local-ipk|package-first-staged|custom-image|legacy-migrated|unknown) return 0 ;; esac
-  return 1
-}
-
-metadata_random_id() {
-  local value
-  value=""
-  if [ -r /proc/sys/kernel/random/uuid ]; then
-    value="$(sed -n '1p' /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-\r\n')"
-  fi
-  if [ -z "$value" ]; then
-    value="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null || true)"
-  fi
-  if [ -z "$value" ]; then
-    value="$(printf '%s:%s' "$(date +%s)" "$$" | sha256sum | awk '{ print $1 }')"
-  fi
-  printf 'pr-%s' "$(printf '%s' "$value" | cut -c 1-32)"
-}
-
-metadata_ensure_value() {
-  local key="$1" default="$2" validator="$3" value
-  value="$(metadata_get "$key")"
-  if ! "$validator" "$value"; then
-    metadata_set_option "$key" "$default"
-  fi
-}
-
-ensure_router_metadata() {
-  local router_id
-  metadata_uci_available || return 1
-  METADATA_DIRTY=0
-
-  if ! "$UCI_BIN" -q get "$METADATA_CONFIG.router" >/dev/null 2>&1; then
-    "$UCI_BIN" set "$METADATA_CONFIG.router=metadata" >/dev/null
-    METADATA_DIRTY=1
-  fi
-
-  router_id="$(metadata_get router_id)"
-  if [ -z "$router_id" ]; then
-    metadata_set_option router_id "$(metadata_random_id)"
-  fi
-  metadata_ensure_value install_method manual-ipk-install metadata_valid_install_method
-  metadata_ensure_value support_level self-managed metadata_valid_support_level
-  metadata_ensure_value registration_state local-only metadata_valid_registration_state
-  metadata_ensure_value direct_rules_channel stable metadata_valid_direct_rules_channel
-  metadata_ensure_value install_source package-first-local-ipk metadata_valid_install_source
-  metadata_ensure_value support_visible 1 metadata_valid_bool
-  metadata_ensure_value support_tailnet_enabled 0 metadata_valid_bool
-  metadata_ensure_value footer_enabled 1 metadata_valid_bool
-  metadata_ensure_value footer_mode compact metadata_valid_footer_mode
-  metadata_ensure_value prepared_by_owner 0 metadata_valid_bool
-  metadata_ensure_value sealed 0 metadata_valid_bool
-
-  if [ "$METADATA_DIRTY" = "1" ]; then
-    "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
-  fi
-}
-
-router_metadata_json_members() {
-  local version install install_source installed_at support registration direct_rules router_id router_id_short footer_label support_access_state
-  local support_visible support_tailnet footer_enabled footer_mode prepared sealed
-
-  version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
-  [ -n "$version" ] || version="unknown"
-  if ensure_router_metadata; then
-    install="$(metadata_get install_method)"
-    install_source="$(metadata_get install_source)"
-    installed_at="$(metadata_get installed_at)"
-    support="$(metadata_get support_level)"
-    registration="$(metadata_get registration_state)"
-    direct_rules="$(metadata_get direct_rules_channel)"
-    router_id="$(metadata_get router_id)"
-    support_visible="$(metadata_get support_visible)"
-    support_tailnet="$(metadata_get support_tailnet_enabled)"
-    footer_enabled="$(metadata_get footer_enabled)"
-    footer_mode="$(metadata_get footer_mode)"
-    prepared="$(metadata_get prepared_by_owner)"
-    sealed="$(metadata_get sealed)"
-  else
-    install="unknown"
-    install_source="unknown"
-    installed_at=""
-    support="none"
-    registration="unknown"
-    direct_rules="unknown"
-    router_id=""
-    support_visible="1"
-    support_tailnet="0"
-    footer_enabled="1"
-    footer_mode="compact"
-    prepared="0"
-    sealed="0"
-  fi
-  router_id_short="$(printf '%s' "$router_id" | cut -c 1-11)"
-  [ "$support_tailnet" = "1" ] && support_access_state=enabled || support_access_state=disabled
-  footer_label="Router Scripts v$version ($install, support: $support, registration: $registration, support access: $support_access_state)"
-
-  printf '"version":'
-  json_string "$version"
-  printf ',"install_method":'
-  json_string "$install"
-  printf ',"install_source":'
-  json_string "$install_source"
-  printf ',"installed_at":'
-  json_string "$installed_at"
-  printf ',"support_level":'
-  json_string "$support"
-  printf ',"registration_state":'
-  json_string "$registration"
-  printf ',"direct_rules_channel":'
-  json_string "$direct_rules"
-  printf ',"router_id_short":'
-  json_string "$router_id_short"
-  printf ',"footer_label":'
-  json_string "$footer_label"
-  printf ',"support_visible":%s' "$([ "$support_visible" = "1" ] && printf true || printf false)"
-  printf ',"support_tailnet_enabled":%s' "$([ "$support_tailnet" = "1" ] && printf true || printf false)"
-  printf ',"support_access_state":'
-  json_string "$support_access_state"
-  printf ',"footer_enabled":%s' "$([ "$footer_enabled" = "1" ] && printf true || printf false)"
-  printf ',"footer_mode":'
-  json_string "$footer_mode"
-  printf ',"prepared_by_owner":%s' "$([ "$prepared" = "1" ] && printf true || printf false)"
-  printf ',"sealed":%s' "$([ "$sealed" = "1" ] && printf true || printf false)"
-}
-
-cmd_router_metadata() {
-  printf '{"ok":true,'
-  router_metadata_json_members
-  printf '}\n'
-}
-
-cmd_metadata_set() {
-  local install="${1:-}" support="${2:-}" registration="${3:-}"
-  local prepared="${4:-}" support_tailnet="${5:-}"
-  metadata_valid_install_method "$install" || die_json "invalid install method"
-  metadata_valid_support_level "$support" || die_json "invalid support level"
-  metadata_valid_registration_state "$registration" || die_json "invalid registration state"
-  [ -z "$prepared" ] || metadata_valid_bool "$prepared" || die_json "prepared_by_owner must be 0 or 1"
-  [ -z "$support_tailnet" ] || metadata_valid_bool "$support_tailnet" || die_json "support_tailnet_enabled must be 0 or 1"
-  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
-  METADATA_DIRTY=0
-  metadata_set_option install_method "$install"
-  metadata_set_option support_level "$support"
-  metadata_set_option registration_state "$registration"
-  [ -z "$prepared" ] || metadata_set_option prepared_by_owner "$prepared"
-  [ -z "$support_tailnet" ] || metadata_set_option support_tailnet_enabled "$support_tailnet"
-  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
-  cmd_router_metadata
-}
-
-cmd_metadata_installed() {
-  local source="${1:-package-first-local-ipk}" installed_at
-  metadata_valid_install_source "$source" || die_json "invalid install source"
-  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
-  installed_at="$(metadata_get installed_at)"
-  METADATA_DIRTY=0
-  [ -n "$installed_at" ] || metadata_set_option installed_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  metadata_set_option install_source "$source"
-  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
-  cmd_router_metadata
-}
-
-cmd_metadata_sealed() {
-  local sealed="${1:-}"
-  metadata_valid_bool "$sealed" || die_json "sealed must be 0 or 1"
-  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
-  METADATA_DIRTY=0
-  metadata_set_option sealed "$sealed"
-  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
-  cmd_router_metadata
 }
 
 one_line() {
@@ -778,7 +535,7 @@ import_current_profile() {
   P_SPIDERX="$(json_string_value spiderX "$XRAY_CONFIG")"
   P_NETWORK="tcp"
   P_SECURITY="reality"
-  P_FLOW="xtls-rprx-vision"
+  P_FLOW="$(json_string_value flow "$XRAY_CONFIG")"
   P_VPS_IP="$(detect_vps_ip_from_transparent)"
   [ -n "$P_VPS_IP" ] || P_VPS_IP="$(resolve_vps_ip "$P_HOST")"
   [ -n "$P_FINGERPRINT" ] || P_FINGERPRINT="firefox"
@@ -868,6 +625,10 @@ init_state() {
   elif [ ! -s "$SELECTED_FILE" ]; then
     basename "$first" .conf > "$SELECTED_FILE"
   fi
+}
+
+read_state() {
+  detect_xray_paths
 }
 
 file_bytes() {
@@ -1125,7 +886,7 @@ render_xray_config() {
   local domains_src="$2"
   local ips_src="$3"
   local host_json sni_json fp_json pbk_json sid_json spx_json uuid_json
-  local extra_direct_ip_json direct_domain_json direct_domain_rule flow_json
+  local extra_direct_ip_json direct_domain_json direct_domain_rule_json flow_json
 
   host_json="$(json_config_escape "$P_HOST")"
   sni_json="$(json_config_escape "$P_SNI")"
@@ -1136,19 +897,18 @@ render_xray_config() {
   uuid_json="$(json_config_escape "$P_UUID")"
   extra_direct_ip_json="$(json_tail_from_file "$ips_src")"
   direct_domain_json="$(json_list_from_file "$domains_src")"
-  direct_domain_rule=""
+  direct_domain_rule_json=""
   if [ -n "$direct_domain_json" ]; then
-    direct_domain_rule="$(
-      cat <<EOF_RULE
-      ,
+    direct_domain_rule_json="$(cat <<EOF
+,
       {
         "type": "field",
         "domain": [$direct_domain_json
         ],
         "outboundTag": "direct"
       }
-EOF_RULE
-    )"
+EOF
+)"
   fi
   flow_json=""
   if [ -n "$P_FLOW" ]; then
@@ -1257,7 +1017,6 @@ EOF_RULE
       },
       {
         "type": "field",
-        "network": "tcp",
         "port": "8080",
         "outboundTag": "direct"
       },
@@ -1288,7 +1047,7 @@ EOF_RULE
           "2ip.ru"
         ],
         "outboundTag": "proxy"
-      }$direct_domain_rule,
+      }$direct_domain_rule_json,
       {
         "type": "field",
         "inboundTag": ["socks-in", "http-in", "transparent-in"],
@@ -1543,31 +1302,20 @@ tcp_probe_ms() {
 }
 
 active_proxy_probe_ms() {
-  local attempt body metrics rc value
+  local value
 
   detect_xray_paths
-  body="/tmp/vpn-ui-proxy-probe.$$"
-  for attempt in 1 2 3; do
-    rc=0
-    metrics="$(curl -k -4 -f -sS -o "$body" \
-      --connect-timeout 4 --max-time 8 \
-      -x "socks5h://$LAN_IP:11808" \
-      -w '%{time_total}' https://api.ipify.org 2>/dev/null)" || rc=$?
-    value="$(one_line "$(cat "$body" 2>/dev/null || true)")"
-    if [ "$rc" -eq 0 ] && is_ipv4 "$value"; then
-      rm -f "$body"
-      awk -v value="$metrics" 'BEGIN {
-        ms = int((value * 1000) + 0.5)
-        if (ms < 1) ms = 1
-        printf "%d ms\n", ms
-      }'
-      return
-    fi
-    : > "$body"
-    [ "$attempt" -eq 3 ] || sleep 1
-  done
-  rm -f "$body"
-  printf 'timeout\n'
+  value="$(curl -k -4 -sS -o /dev/null \
+    --connect-timeout 4 --max-time 8 \
+    -x "socks5h://$LAN_IP:11808" \
+    -w '%{time_starttransfer}' "https://api.ipify.org/" 2>/dev/null || true)"
+  awk -v value="$value" 'BEGIN {
+    if (value + 0 <= 0) {
+      print "timeout"
+      exit
+    }
+    printf "%d ms\n", (value * 1000) + 0.5
+  }'
 }
 
 profile_ping_cached() {
@@ -1598,14 +1346,6 @@ ping_numeric() {
   printf '%s' "$1" | sed -n 's/^\([0-9][0-9]*\) ms$/\1/p'
 }
 
-connection_state_from_ping() {
-  case "$1" in
-    [0-9]*' ms') printf 'connected' ;;
-    timeout) printf 'failed' ;;
-    *) printf 'not-tested' ;;
-  esac
-}
-
 pool_has_id() {
   grep -qxF "$1" "$AUTO_POOL_FILE" 2>/dev/null
 }
@@ -1626,11 +1366,13 @@ auto_json() {
     "$([ "$AUTO_PERIODIC" = "1" ] && printf true || printf false)" \
     "${AUTO_PERIODIC_HOURS:-12}" "${AUTO_FAILURE_LIMIT:-3}"
   first=1
-  while IFS= read -r id || [ -n "$id" ]; do
-    [ -n "$id" ] || continue
-    if [ "$first" = "1" ]; then first=0; else printf ','; fi
-    json_string "$id"
-  done < "$AUTO_POOL_FILE"
+  if [ -f "$AUTO_POOL_FILE" ]; then
+    while IFS= read -r id || [ -n "$id" ]; do
+      [ -n "$id" ] || continue
+      if [ "$first" = "1" ]; then first=0; else printf ','; fi
+      json_string "$id"
+    done < "$AUTO_POOL_FILE"
+  fi
   printf ']}'
 }
 
@@ -1872,7 +1614,7 @@ cmd_test_domain() {
   local raw="$1"
   local domain route selected direct_ip proxy_ip
 
-  init_state
+  read_state
   ensure_domain_rule_data "$DOMAINS_FILE"
 
   domain="$(normalize_domain_input "$raw")"
@@ -1981,7 +1723,6 @@ json_array_from_file() {
 dhcp_devices_json() {
   local now first expiry mac ip host rest disabled remaining label
 
-  ensure_device_bypass_nft
   now="$(date +%s)"
   first=1
   printf '['
@@ -2030,12 +1771,10 @@ dhcp_devices_json() {
 }
 
 status_json() {
-  local selected selected_ping connection_state first f id active ping protocol in_pool
+  local selected first f id active ping protocol in_pool
 
-  init_state
+  read_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
-  selected_ping="$(profile_ping_cached "$selected")"
-  connection_state="$(connection_state_from_ping "$selected_ping")"
 
   printf '{"ok":true,'
   printf '"selected":'
@@ -2086,20 +1825,15 @@ status_json() {
   json_array_from_file "$IPS_FILE"
   printf ',"devices":'
   dhcp_devices_json
-  printf ',"router_metadata":{'
-  router_metadata_json_members
-  printf '}'
-  printf ',"connection_state":'
-  json_string "$connection_state"
   printf ','
   service_state
   printf '}\n'
 }
 
 vpn_summary_json() {
-  local selected file domain_count ping connection_state xray_state transparent_state service_ready working
+  local selected file domain_count ping xray_state transparent_state vpn_enabled
 
-  init_state
+  read_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   file="$PROFILE_DIR/$selected.conf"
   xray_state="stopped"
@@ -2131,21 +1865,8 @@ vpn_summary_json() {
     END { print count + 0 }
   ' "$DOMAINS_FILE" 2>/dev/null)"
   ping="$(profile_ping_cached "$selected")"
-  connection_state="$(connection_state_from_ping "$ping")"
-  xray_state="stopped"
-  transparent_state="inactive"
-  service_ready="false"
-  working="false"
-  if pidof xray-latest >/dev/null 2>&1 || pidof xray >/dev/null 2>&1; then
-    xray_state="running"
-  fi
-  nft list table inet xray_transparent >/dev/null 2>&1 && transparent_state="active"
-  [ "$xray_state" = "running" ] && [ "$transparent_state" = "active" ] && service_ready="true"
-  [ "$service_ready" = "true" ] && [ "$connection_state" = "connected" ] && working="true"
 
-  printf '{"ok":true,"configured":true,"working":%s,"service_ready":%s,"connection_state":' "$working" "$service_ready"
-  json_string "$connection_state"
-  printf ',"xray":'
+  printf '{"ok":true,"configured":true,"working":%s,"xray":' "$vpn_enabled"
   json_string "$xray_state"
   printf ',"transparent":'
   json_string "$transparent_state"
@@ -2173,8 +1894,6 @@ cmd_add() {
 cmd_select() {
   local id="$1"
   render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
-  load_profile_id "$id"
-  refresh_profile_ping "$id" "$P_HOST" "$P_PORT"
   status_json
 }
 
@@ -2225,265 +1944,7 @@ cmd_check() {
     die_json "Xray validation failed: $(one_line "$test_out")"
   fi
   rm -f "$tmpcfg"
-  printf '{"ok":true,"configured":true,"message":"configuration syntax validates; connectivity was not tested"}\n'
-}
-
-build_info_value() {
-  local key="$1"
-  [ -f "$BUILD_INFO_FILE" ] || return 0
-  sed -n "s/^$key=//p" "$BUILD_INFO_FILE" | sed -n '1p' | tr -d '\r'
-}
-
-manifest_value() {
-  local key="$1"
-  [ -f "$INSTALLED_MANIFEST_FILE" ] || return 0
-  if command -v "$JSONFILTER_BIN" >/dev/null 2>&1; then
-    "$JSONFILTER_BIN" -i "$INSTALLED_MANIFEST_FILE" -e "@.$key" 2>/dev/null | sed -n '1p'
-  else
-    sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$INSTALLED_MANIFEST_FILE" | sed -n '1p'
-  fi
-}
-
-openwrt_release_value() {
-  local key="$1"
-  [ -f "$OPENWRT_RELEASE_FILE" ] || return 0
-  sed -n "s/^$key=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$OPENWRT_RELEASE_FILE" | sed -n '1p'
-}
-
-installed_package_version() {
-  local package="$1"
-  "$OPKG_BIN" status "$package" 2>/dev/null | sed -n 's/^Version:[[:space:]]*//p' | sed -n '1p'
-}
-
-cmd_installed_build() {
-  local version package_version source_commit source_dirty build_date installed_at install_method install_source
-  local openwrt_version openwrt_target hardware manifest_present manifest_package verification_state package_set_verified
-  local core_version luci_version setup_version all_match source_short
-
-  version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
-  [ -n "$version" ] || version="unknown"
-  package_version="$(build_info_value PACKAGE_VERSION)"
-  source_commit="$(build_info_value SOURCE_COMMIT)"
-  source_dirty="$(build_info_value SOURCE_DIRTY)"
-  build_date="$(manifest_value generated_at)"
-  [ -n "$build_date" ] || build_date="$(build_info_value BUILD_DATE)"
-  if ensure_router_metadata; then
-    installed_at="$(metadata_get installed_at)"
-    install_method="$(metadata_get install_method)"
-    install_source="$(metadata_get install_source)"
-  else
-    installed_at=""
-    install_method="unknown"
-    install_source="unknown"
-  fi
-  openwrt_version="$(openwrt_release_value DISTRIB_RELEASE)"
-  openwrt_target="$(openwrt_release_value DISTRIB_TARGET)"
-  hardware="$(hardware_profile)"
-  core_version="$(installed_package_version premier-router-core)"
-  luci_version="$(installed_package_version luci-app-premier-router)"
-  setup_version="$(installed_package_version premier-router-setup)"
-  manifest_present=false
-  [ -f "$INSTALLED_MANIFEST_FILE" ] && manifest_present=true
-  manifest_package="$(manifest_value package_version)"
-  all_match=false
-  if [ -n "$package_version" ] &&
-     [ "$core_version" = "$package_version" ] &&
-     [ "$luci_version" = "$package_version" ] &&
-     [ "$setup_version" = "$package_version" ]; then
-    all_match=true
-  fi
-  package_set_verified="$all_match"
-  if [ "$manifest_present" = true ] && [ -n "$manifest_package" ] && [ "$manifest_package" != "$package_version" ]; then
-    package_set_verified=false
-  fi
-  if [ "$package_set_verified" = true ] && [ "$manifest_present" = true ]; then
-    verification_state="manifest and installed package set verified"
-  elif [ "$package_set_verified" = true ]; then
-    verification_state="installed package set verified; staged manifest not recorded"
-  elif [ -z "$package_version" ]; then
-    verification_state="build metadata unavailable"
-  else
-    verification_state="installed package set could not be verified"
-  fi
-  source_short="$(printf '%s' "$source_commit" | cut -c 1-12)"
-
-  printf '{"ok":true,"version":'
-  json_string "$version"
-  printf ',"package_version":'
-  json_string "$package_version"
-  printf ',"packages":{"premier-router-core":'
-  json_string "$core_version"
-  printf ',"luci-app-premier-router":'
-  json_string "$luci_version"
-  printf ',"premier-router-setup":'
-  json_string "$setup_version"
-  printf '},"install_method":'
-  json_string "$install_method"
-  printf ',"install_source":'
-  json_string "$install_source"
-  printf ',"source_commit":'
-  json_string "$source_commit"
-  printf ',"source_commit_short":'
-  json_string "$source_short"
-  printf ',"source_dirty":'
-  case "$source_dirty" in 0|false) printf false ;; 1|true) printf true ;; *) printf null ;; esac
-  printf ',"build_date":'
-  json_string "$build_date"
-  printf ',"installed_at":'
-  json_string "$installed_at"
-  printf ',"openwrt_version":'
-  json_string "$openwrt_version"
-  printf ',"openwrt_target":'
-  json_string "$openwrt_target"
-  printf ',"hardware_profile":'
-  json_string "$hardware"
-  printf ',"manifest_present":%s,"package_set_verified":%s,"verification_state":' "$manifest_present" "$package_set_verified"
-  json_string "$verification_state"
-  printf '}\n'
-}
-
-hardware_profile() {
-  local board="$VPN_UI_HARDWARE_PROFILE"
-  if [ -z "$board" ]; then
-    board="$(sed -n '1p' /tmp/sysinfo/board_name 2>/dev/null || true)"
-  fi
-  if [ -z "$board" ] && command -v "$UBUS_BIN" >/dev/null 2>&1; then
-    board="$($UBUS_BIN call system board 2>/dev/null | $JSONFILTER_BIN -e '@.board_name' 2>/dev/null || true)"
-  fi
-  case "$board" in
-    xiaomi-ax3000t-rd23|*xiaomi*ax3000t*|*mi-router-ax3000t*|*rd23*) printf '%s' xiaomi-ax3000t-rd23 ;;
-    *) printf '%s' generic ;;
-  esac
-}
-
-adguard_allowed_for_hardware() {
-  [ "$(hardware_profile)" != "xiaomi-ax3000t-rd23" ]
-}
-
-measure_adguard_storage() {
-  local estimate="${1:-$ADGUARD_ESTIMATE_BYTES}"
-  local values total_kb used_kb free_kb projected_tenths used_tenths
-
-  values="$($DF_BIN -Pk /overlay 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
-  [ -n "$values" ] || values="$($DF_BIN -Pk / 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
-  set -- $values
-  total_kb="${1:-0}"
-  used_kb="${2:-0}"
-  free_kb="${3:-0}"
-  case "$total_kb:$used_kb:$free_kb:$estimate" in
-    *[!0-9:]*) total_kb=0; used_kb=0; free_kb=0; estimate=0 ;;
-  esac
-
-  ADGUARD_TOTAL_BYTES=$((total_kb * 1024))
-  ADGUARD_USED_BYTES=$((used_kb * 1024))
-  ADGUARD_FREE_BYTES=$((free_kb * 1024))
-  ADGUARD_ESTIMATED_BYTES="$estimate"
-  ADGUARD_PROJECTED_BYTES=$((ADGUARD_USED_BYTES + estimate))
-  ADGUARD_CAN_INSTALL=false
-  ADGUARD_STORAGE_RISK=unknown
-  ADGUARD_USED_PERCENT=0.0
-  ADGUARD_PROJECTED_PERCENT=0.0
-
-  if [ "$ADGUARD_TOTAL_BYTES" -gt 0 ]; then
-    used_tenths=$(((ADGUARD_USED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
-    projected_tenths=$(((ADGUARD_PROJECTED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
-    ADGUARD_USED_PERCENT="$(awk -v value="$used_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
-    ADGUARD_PROJECTED_PERCENT="$(awk -v value="$projected_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
-    if [ "$projected_tenths" -gt 950 ]; then
-      ADGUARD_STORAGE_RISK=blocked
-    elif [ "$projected_tenths" -ge 900 ]; then
-      ADGUARD_STORAGE_RISK=warning
-      ADGUARD_CAN_INSTALL=true
-    else
-      ADGUARD_STORAGE_RISK=safe
-      ADGUARD_CAN_INSTALL=true
-    fi
-  fi
-}
-
-adguard_storage_json() {
-  printf '{"totalBytes":%s,"usedBytes":%s,"freeBytes":%s,"estimatedInstallBytes":%s,"projectedUsedBytes":%s,"usedPercent":%s,"projectedUsedPercent":%s,"risk":' \
-    "$ADGUARD_TOTAL_BYTES" "$ADGUARD_USED_BYTES" "$ADGUARD_FREE_BYTES" "$ADGUARD_ESTIMATED_BYTES" \
-    "$ADGUARD_PROJECTED_BYTES" "$ADGUARD_USED_PERCENT" "$ADGUARD_PROJECTED_PERCENT"
-  json_string "$ADGUARD_STORAGE_RISK"
-  printf '}'
-}
-
-adguard_config_value() {
-  local key="$1"
-  [ -f "$ADGUARD_CONFIG" ] || return 0
-  sed -n "s/^[[:space:]]*$key:[[:space:]]*//p" "$ADGUARD_CONFIG" | sed -n '1p' | tr -d '\"\r'
-}
-
-cmd_adguard_status() {
-  local installed running enabled supported can_install profile deferred estimate query_logging filter_count upstream_count listen
-  installed="false"
-  running="false"
-  enabled="false"
-  if [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1; then
-    installed="true"
-    /etc/init.d/adguardhome running >/dev/null 2>&1 && running="true"
-    /etc/init.d/adguardhome enabled >/dev/null 2>&1 && enabled="true"
-  fi
-  profile="$(hardware_profile)"
-  supported=true
-  deferred=""
-  if ! adguard_allowed_for_hardware; then
-    supported=false
-    deferred="AdGuardHome is not included or recommended for the Xiaomi AX3000T/RD23 lean profile. Its flash budget is reserved for core router software."
-  fi
-  [ "$installed" = true ] && estimate=0 || estimate="$ADGUARD_ESTIMATE_BYTES"
-  measure_adguard_storage "$estimate"
-  can_install="$ADGUARD_CAN_INSTALL"
-  [ "$supported" = true ] || can_install=false
-  [ "$installed" = false ] || can_install=false
-  query_logging="$(adguard_config_value enabled)"
-  case "$query_logging" in true|false) ;; *) query_logging=unknown ;; esac
-  filter_count="$(grep -c '^[[:space:]]*- enabled: true' "$ADGUARD_CONFIG" 2>/dev/null || true)"
-  [ -n "$filter_count" ] || filter_count=0
-  upstream_count="$(awk '
-    /^[[:space:]]*upstream_dns:/ { in_list=1; next }
-    in_list && /^[^[:space:]]/ { exit }
-    in_list && /^[[:space:]]*-/ { count++ }
-    END { print count + 0 }
-  ' "$ADGUARD_CONFIG" 2>/dev/null || printf 0)"
-  listen="$(adguard_config_value address)"
-  [ -n "$listen" ] || listen="0.0.0.0:3000"
-
-  printf '{"ok":true,"installed":%s,"running":%s,"enabled":%s,"port":3000,"listen":' "$installed" "$running" "$enabled"
-  json_string "$listen"
-  printf ',"query_logging":'
-  json_string "$query_logging"
-  printf ',"filter_count":%s,"upstream_count":%s,"hardware_profile":' "$filter_count" "$upstream_count"
-  json_string "$profile"
-  printf ',"install_supported":%s,"can_install":%s,"deferred_reason":' "$supported" "$can_install"
-  json_string "$deferred"
-  printf ',"storage":'
-  adguard_storage_json
-  printf '}\n'
-}
-
-cmd_adguard_install() {
-  local installed_size
-  adguard_allowed_for_hardware || die_json "AdGuardHome is deferred for the Xiaomi AX3000T/RD23 lean profile"
-  [ ! -x /etc/init.d/adguardhome ] || die_json "AdGuardHome is already installed"
-  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
-  [ "$ADGUARD_CAN_INSTALL" = true ] || die_json "AdGuardHome would use more than 95% of persistent storage and cannot be installed safely"
-  mkdir "$ADGUARD_INSTALL_LOCK" 2>/dev/null || die_json "another AdGuardHome installation is already running"
-  trap 'rm -rf "$ADGUARD_INSTALL_LOCK"' EXIT INT TERM
-  command -v "$OPKG_BIN" >/dev/null 2>&1 || die_json "the OpenWrt package manager is unavailable"
-  "$OPKG_BIN" update >/tmp/vpn-ui-adguard-opkg.log 2>&1 || die_json "could not refresh the signed OpenWrt package feed"
-  installed_size="$($OPKG_BIN info "$ADGUARD_PACKAGE" 2>/dev/null | awk '/^Installed-Size:/ { print $2; exit }')"
-  case "$installed_size" in ''|*[!0-9]*) installed_size="$ADGUARD_ESTIMATE_BYTES" ;; esac
-  [ "$installed_size" -ge "$ADGUARD_ESTIMATE_BYTES" ] || installed_size="$ADGUARD_ESTIMATE_BYTES"
-  measure_adguard_storage "$installed_size"
-  [ "$ADGUARD_CAN_INSTALL" = true ] || die_json "the current AdGuardHome package would use more than 95% of persistent storage"
-  "$OPKG_BIN" install "$ADGUARD_PACKAGE" >>/tmp/vpn-ui-adguard-opkg.log 2>&1 || die_json "AdGuardHome package installation failed; no global package upgrade was attempted"
-  /etc/init.d/adguardhome enable >/dev/null 2>&1 || true
-  /etc/init.d/adguardhome start >/dev/null 2>&1 || true
-  rm -rf "$ADGUARD_INSTALL_LOCK"
-  trap - EXIT INT TERM
-  cmd_adguard_status
+  printf '{"ok":true,"configured":true,"message":"configuration validates"}\n'
 }
 
 cmd_device() {
@@ -2654,10 +2115,7 @@ best_pool_profile() {
     [ -f "$f" ] || continue
     load_profile_file "$f"
     probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
-    case "$probe" in
-      timeout) printf '%s\n' "$probe" > "$PING_DIR/$id" ;;
-      *) printf 'tcp %s\n' "$probe" > "$PING_DIR/$id" ;;
-    esac
+    printf '%s\n' "$probe" > "$PING_DIR/$id"
     numeric="$(ping_numeric "$probe")"
     [ -n "$numeric" ] || continue
     if [ -z "$best_ms" ] || [ "$numeric" -lt "$best_ms" ]; then
@@ -2689,7 +2147,7 @@ cmd_auto_tick() {
   now="$(date +%s)"
 
   load_profile_file "$selected_file"
-  probe="$(active_proxy_probe_ms)"
+  probe="$(tcp_probe_ms "$P_HOST" "$P_PORT")"
   printf '%s\n' "$probe" > "$PING_DIR/$selected"
   current_ms="$(ping_numeric "$probe")"
 
@@ -2703,9 +2161,7 @@ EOF
         if [ -n "$best_id" ]; then
           render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
           selected="$best_id"
-          load_profile_id "$best_id"
-          refresh_profile_ping "$best_id" "$P_HOST" "$P_PORT"
-          current_ms="$(ping_numeric "$(profile_ping_cached "$best_id")")"
+          current_ms="$best_ms"
         fi
         fail_count=0
       fi
@@ -2723,8 +2179,6 @@ EOF
       threshold=$((current_ms * 65 / 100))
       if [ "$best_ms" -le "$threshold" ] && [ $((current_ms - best_ms)) -ge 30 ]; then
         render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
-        load_profile_id "$best_id"
-        refresh_profile_ping "$best_id" "$P_HOST" "$P_PORT"
       fi
     fi
     last_optimize="$now"
@@ -2742,7 +2196,6 @@ cmd_tailscale_up() {
   local auth_key="$3"
   local advertise_routes="$4"
   local advertise_exit="$5"
-  local log="/tmp/vpn-ui-tailscale-up.$$"
 
   case "$login_server" in https://*) ;; *) die_json "Tailscale login server must use https://" ;; esac
   [ -n "$hostname" ] || hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || printf openwrt)"
@@ -2759,28 +2212,10 @@ cmd_tailscale_up() {
   [ -n "$auth_key" ] && set -- "$@" "--auth-key=$auth_key"
   [ -n "$advertise_routes" ] && set -- "$@" "--advertise-routes=$advertise_routes"
   [ "$advertise_exit" = "1" ] && set -- "$@" "--advertise-exit-node"
-  if ! tailscale up "$@" >"$log" 2>&1; then
-    tailscale up --reset "$@" >"$log" 2>&1 || {
-      rm -f "$log"
-      die_json "tailscale up failed; verify the login server, TLS, and preauth key"
-    }
-  fi
-  rm -f "$log"
-  tailscale_registration_ready ||
-    die_json "tailscale did not reach a registered Running state; verify the login server, TLS, and preauth key"
+  tailscale up "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
+    tailscale up --reset "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
+    die_json "tailscale up failed: $(one_line "$(cat /tmp/vpn-ui-tailscale-up.log 2>/dev/null)")"
   tailscale_status_json
-}
-
-tailscale_registration_ready() {
-  local attempt=0 backend ip
-  while [ "$attempt" -lt 20 ]; do
-    backend="$(tailscale status --json 2>/dev/null | jsonfilter -e '@.BackendState' 2>/dev/null || true)"
-    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
-    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
-    attempt=$((attempt + 1))
-    sleep 1
-  done
-  return 1
 }
 
 cmd_tailscale_logout() {
@@ -2841,173 +2276,8 @@ cmd_update() {
   /usr/sbin/vpn-ui-update "$action" "$@"
 }
 
-router_reset_supported() {
-  [ -x "$FIRSTBOOT_SETUP_CGI" ] && [ -f "$FIRSTBOOT_SETUP_INDEX" ]
-}
-
-router_root_fs_type() {
-  awk '$2 == "/" { print $3; exit }' /proc/mounts 2>/dev/null
-}
-
-cmd_router_reset_status() {
-  local supported complete reset_command reset_state root_fs_type
-  supported="false"
-  complete="false"
-  router_reset_supported && supported="true"
-  [ -f "$FIRSTBOOT_COMPLETE_FILE" ] && complete="true"
-  root_fs_type="$(router_root_fs_type)"
-  if [ "$root_fs_type" = "ext4" ]; then
-    reset_command="explicit-ext4"
-  elif command -v firstboot >/dev/null 2>&1; then
-    reset_command="firstboot"
-  elif command -v jffs2reset >/dev/null 2>&1; then
-    reset_command="jffs2reset"
-  else
-    reset_command=""
-  fi
-  reset_state="$(sed -n '1p' "$ROUTER_RESET_STATE" 2>/dev/null || true)"
-  case "$reset_state" in
-    requested|stopping-services|clearing-configuration|resetting-storage|rebooting|failed) ;;
-    *) reset_state="idle" ;;
-  esac
-  printf '{"ok":true,"supported":%s,"setup_complete":%s,"reset_command":' "$supported" "$complete"
-  json_string "$reset_command"
-  printf ',"reset_state":'
-  json_string "$reset_state"
-  printf ',"setup_url":"/setup/","progress_url":"/setup/?reset=1"}\n'
-}
-
-cmd_router_reset_to_setup() {
-  local confirmation="$1"
-  [ "$confirmation" = "RESET" ] ||
-    die_json "router reset requires typed confirmation"
-  router_reset_supported ||
-    die_json "first-boot setup assistant is not installed on this router"
-
-  if [ "${VPN_UI_RESET_DRY_RUN:-0}" = "1" ]; then
-    printf '{"ok":true,"scheduled":false,"dry_run":true,"message":"Router reset validated."}\n'
-    return 0
-  fi
-
-  command -v firstboot >/dev/null 2>&1 || command -v jffs2reset >/dev/null 2>&1 ||
-    die_json "OpenWrt reset command is unavailable"
-
-  printf '%s\n' requested > "$ROUTER_RESET_STATE"
-
-  cat > "$ROUTER_RESET_SCRIPT" <<'EOF'
-#!/bin/ash
-set +e
-LOG="${ROUTER_RESET_LOG:-/tmp/router-reset-to-setup.log}"
-STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
-ROOT_FS_TYPE="$(awk '$2 == "/" { print $3; exit }' /proc/mounts 2>/dev/null)"
-write_state() {
-  printf '%s\n' "$1" > "$STATE.tmp"
-  mv "$STATE.tmp" "$STATE"
-  sync
-}
-{
-  printf 'Reset requested at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-  write_state stopping-services
-  /etc/init.d/xray-transparent stop >/dev/null 2>&1
-  /etc/init.d/xray stop >/dev/null 2>&1
-  /etc/init.d/tailscale stop >/dev/null 2>&1
-  /etc/init.d/adguardhome stop >/dev/null 2>&1
-
-  write_state clearing-configuration
-  rm -f /etc/firstboot-wizard/complete \
-        /etc/firstboot-wizard/in-progress
-  rm -rf /etc/firstboot-wizard/phases
-  mkdir -p /etc/firstboot-wizard
-
-  rm -rf /etc/xray/vless-profiles.d /etc/xray/subscriptions.d
-  rm -f /etc/xray/vless-selected \
-        /etc/xray/exit-st-cf.json \
-        /etc/xray/vpn-ui-auto.conf \
-        /etc/xray/vpn-ui-auto-pool.txt \
-        /etc/xray/vpn-ui-device-bypass-macs.txt
-
-  rm -f /etc/adguardhome.yaml /etc/adguardhome.yaml.bak.firstboot.*
-  rm -f /etc/dropbear/authorized_keys
-  rm -f /etc/tailscale/tailscaled.state /var/lib/tailscale/tailscaled.state
-
-  if [ -f /etc/shadow ]; then
-    sed -i 's#^root:[^:]*:#root::#' /etc/shadow
-  fi
-
-  uci set system.@system[0].hostname='openwrt-fin0' 2>/dev/null
-  uci commit system 2>/dev/null
-  uci set network.lan.ipaddr='10.77.0.1' 2>/dev/null
-  uci set network.lan.netmask='255.255.255.0' 2>/dev/null
-  uci set network.lan.proto='static' 2>/dev/null
-  uci commit network 2>/dev/null
-  uci -q delete wireless.firstboot_2g
-  uci -q delete wireless.firstboot_5g
-  uci commit wireless 2>/dev/null
-  uci -q delete firewall.router_prep_adguard
-  uci commit firewall 2>/dev/null
-
-  /etc/init.d/adguardhome disable >/dev/null 2>&1
-  /etc/init.d/xray disable >/dev/null 2>&1
-  /etc/init.d/xray-transparent disable >/dev/null 2>&1
-  /etc/init.d/tailscale disable >/dev/null 2>&1
-
-  sync
-  write_state resetting-storage
-  reset_rc=0
-  if [ "$ROOT_FS_TYPE" = "ext4" ]; then
-    printf 'Direct ext4 root detected; explicit Premier Router state cleanup is complete.\n'
-  elif command -v firstboot >/dev/null 2>&1; then
-    firstboot -y
-    reset_rc=$?
-  elif command -v jffs2reset >/dev/null 2>&1; then
-    jffs2reset -y
-    reset_rc=$?
-  fi
-  if [ "$reset_rc" -ne 0 ]; then
-    printf 'OpenWrt reset command failed with exit code %s\n' "$reset_rc"
-    write_state failed
-    exit "$reset_rc"
-  fi
-  sync
-  write_state rebooting
-  reboot -f
-} >> "$LOG" 2>&1
-EOF
-  chmod 700 "$ROUTER_RESET_SCRIPT"
-  ROUTER_RESET_LOG="$ROUTER_RESET_LOG" ROUTER_RESET_STATE="$ROUTER_RESET_STATE" \
-    /bin/ash -c "trap '' HUP; sleep 5; exec '$ROUTER_RESET_SCRIPT'" >/dev/null 2>&1 &
-
-  printf '{"ok":true,"scheduled":true,"progress_url":"/setup/?reset=1","message":"Router reset scheduled. Follow the public progress page until setup is ready."}\n'
-}
-
-[ "${VPN_UI_LIB_ONLY:-0}" = "1" ] && {
-  return 0 2>/dev/null || exit 0
-}
-
 case "${1:-status}" in
-  version)
-    sed -n '1p' "$VERSION_FILE" 2>/dev/null || printf 'unknown\n'
-    ;;
-  metadata-init)
-    ensure_router_metadata || die_json "UCI metadata storage is unavailable"
-    cmd_router_metadata
-    ;;
-  metadata|router-metadata|footer-info)
-    cmd_router_metadata
-    ;;
-  metadata-set)
-    shift
-    cmd_metadata_set "$@"
-    ;;
-  metadata-installed)
-    cmd_metadata_installed "${2:-package-first-local-ipk}"
-    ;;
-  metadata-sealed)
-    cmd_metadata_sealed "${2:-}"
-    ;;
   init)
-    ensure_router_metadata || true
     init_state
     runtime_memory_maintenance
     status_json
@@ -3020,15 +2290,6 @@ case "${1:-status}" in
     ;;
   refresh-pings)
     cmd_refresh_pings
-    ;;
-  adguard-status)
-    cmd_adguard_status
-    ;;
-  installed-build)
-    cmd_installed_build
-    ;;
-  adguard-install)
-    cmd_adguard_install
     ;;
   add)
     [ -n "${2:-}" ] || die_json "add requires a VLESS link"
@@ -3113,12 +2374,6 @@ case "${1:-status}" in
     ;;
   update-auto)
     cmd_update set-auto "${2:-}"
-    ;;
-  reset-status)
-    cmd_router_reset_status
-    ;;
-  reset-to-setup)
-    cmd_router_reset_to_setup "${2:-}"
     ;;
   test-domain)
     [ -n "${2:-}" ] || die_json "test-domain requires a domain"

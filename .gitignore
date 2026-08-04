@@ -12,8 +12,6 @@
 *.swo
 .vscode/
 .idea/
-.worktrees/
-_local/
 
 # Logs, temporary files, and patch leftovers
 *.log
@@ -58,6 +56,8 @@ run.log
 !rd23.env.example
 *.pem
 *.key
+*.sec
+*.p7m
 *.p12
 *.pfx
 *.ovpn
