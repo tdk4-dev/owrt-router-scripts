@@ -20,19 +20,27 @@ printf '0.7.11\n' > "$WORK/source/luci-vpn-ui/VERSION"
 printf '0.7.11-1\n' > "$WORK/source/luci-vpn-ui/PACKAGE_VERSION"
 printf '0.7.11\n' > "$WORK/source/luci-vpn-ui/files/usr/share/vpn-ui/version"
 
+# This production-key-signed payload is an explicitly marked disposable VM
+# successor fixture, not a release candidate. Its three controlled version
+# mutations intentionally make the copied checkout dirty. Do not inherit a
+# caller's STRICT_RELEASE=1 into these nested fixture-only staging commands;
+# the real candidate was already staged and validated under strict mode.
 SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-  USIGN_BIN="$USIGN_BIN" BUILD_DIR="$WORK/build" OUT_DIR="$WORK/ipk" FEED_DIR="$WORK/feed" \
+  STRICT_RELEASE=0 USIGN_BIN="$USIGN_BIN" BUILD_DIR="$WORK/build" \
+  OUT_DIR="$WORK/ipk" FEED_DIR="$WORK/feed" \
   ROUTER_UI_DISPOSABLE_TEST_MARKER=0.7.11-final-test \
   "$WORK/source/scripts/build-openwrt-ipks.sh"
 
-SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" \
+SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false STRICT_RELEASE=0 \
+  USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" \
   FEED_DIR="$WORK/feed" "$WORK/source/scripts/sign-opkg-feed.sh"
 SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-  USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" OUT_DIR="$WORK/installed-set" \
+  STRICT_RELEASE=0 USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" \
+  OUT_DIR="$WORK/installed-set" \
   "$WORK/source/scripts/stage-installed-package-set.sh"
 
 SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-  USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" FEED_DIR="$WORK/feed" \
+  STRICT_RELEASE=0 USIGN_BIN="$USIGN_BIN" IPK_DIR="$WORK/ipk" FEED_DIR="$WORK/feed" \
   INSTALLED_SET_DIR="$WORK/installed-set" RELEASE_CHANNEL=stable \
   OUT_ROOT="$WORK/output" RELEASE_DIR="$OUTPUT_DIR" \
   "$WORK/source/scripts/stage-router-release.sh"

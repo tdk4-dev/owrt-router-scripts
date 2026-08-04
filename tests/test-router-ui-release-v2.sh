@@ -62,6 +62,18 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   RELEASE_DIR="$TMP_ROOT/release" SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
+
+# A caller may itself be a strict candidate job. The deliberately
+# version-mutated synthetic successor must remain a bounded disposable VM
+# fixture instead of inheriting strict candidate staging policy.
+STRICT_RELEASE=1 OUTPUT_DIR="$TMP_ROOT/synthetic-next" \
+  SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  "$ROOT_DIR/tests/vm/build-synthetic-next.sh" >/dev/null
+jq -e --arg source "$SOURCE_COMMIT" '
+  .app_version == "0.7.11" and .package_version == "0.7.11-1" and
+  .source_commit == $source and .source_dirty == false
+' "$TMP_ROOT/synthetic-next/router-release-manifest.json" >/dev/null
+
 RELEASE_DIR="$TMP_ROOT/release" \
   EXPECTED_RELEASE_KEY_ID="$KEY_ID" EXPECTED_SOURCE_COMMIT="$SOURCE_COMMIT" \
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/validate-staged-release.sh" >/dev/null
