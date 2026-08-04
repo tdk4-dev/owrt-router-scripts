@@ -34,8 +34,15 @@ ssh root@ROUTER_ADDRESS \
   'cat /tmp/router-before-0.7.11-rc5.tar.gz' \
   > router-before-0.7.11-rc5.tar.gz
 test -s router-before-0.7.11-rc5.tar.gz
+tar -tzf router-before-0.7.11-rc5.tar.gz >/dev/null
+router_backup_sha="$(ssh root@ROUTER_ADDRESS \
+  "sha256sum /tmp/router-before-0.7.11-rc5.tar.gz | awk '{print \$1}'")"
+local_backup_sha="$(shasum -a 256 router-before-0.7.11-rc5.tar.gz | awk '{print $1}')"
+test -n "$router_backup_sha"
+test "$local_backup_sha" = "$router_backup_sha"
 ```
 
+The archive listing and the router/local SHA-256 comparison must both pass.
 Keep that backup private: it can contain network and VPN credentials. Stop and
 ask for help if `/overlay` is nearly full, `/tmp` cannot hold the downloaded
 files, or the log contains recent out-of-memory kills. Do not flash an image to

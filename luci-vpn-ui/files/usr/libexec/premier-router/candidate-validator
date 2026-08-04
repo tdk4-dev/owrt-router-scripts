@@ -139,12 +139,22 @@ if [ -d "$INCLUDE_DIR" ]; then
 fi
 
 if [ -x "$VPN_UI_BIN" ]; then
-  CHECK_JSON="$TMP.check.json"
-  if "$VPN_UI_BIN" check > "$CHECK_JSON" 2>/dev/null; then
-    check_ok="$(pr_json_get "$CHECK_JSON" '@.ok' '.ok // false')"
-    [ "$check_ok" = "true" ] || fatal "local VPN configuration check returned false"
+  if [ "$PHASE" = installed ]; then
+    SUMMARY_JSON="$TMP.vpn-summary.json"
+    if "$VPN_UI_BIN" vpn-summary > "$SUMMARY_JSON" 2>/dev/null; then
+      summary_ok="$(pr_json_get "$SUMMARY_JSON" '@.ok' '.ok // false')"
+      [ "$summary_ok" = "true" ] || fatal "read-only VPN runtime summary returned false"
+    else
+      fatal "read-only VPN runtime summary failed"
+    fi
   else
-    fatal "local VPN configuration check failed"
+    CHECK_JSON="$TMP.check.json"
+    if "$VPN_UI_BIN" check > "$CHECK_JSON" 2>/dev/null; then
+      check_ok="$(pr_json_get "$CHECK_JSON" '@.ok' '.ok // false')"
+      [ "$check_ok" = "true" ] || fatal "local VPN configuration check returned false"
+    else
+      fatal "local VPN configuration check failed"
+    fi
   fi
 else
   fatal "vpn-ui backend is not executable"

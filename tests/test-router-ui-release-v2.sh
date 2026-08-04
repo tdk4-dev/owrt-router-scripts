@@ -271,6 +271,58 @@ if VPN_UI_UPDATE_SOURCE_ONLY=1 \
 fi
 mv "$TMP_ROOT/core.good" "$TMP_ROOT/release/premier-router-core_${PKG_VERSION}_all.ipk"
 
+validator_root="$TMP_ROOT/installed-validator-root"
+validator_bin="$TMP_ROOT/installed-validator-bin"
+validator_log="$TMP_ROOT/installed-validator-vpn-ui.log"
+mkdir -p "$validator_root" "$validator_root/etc/premier-router" "$validator_bin"
+for ipk in "$TMP_ROOT/ipk-a"/*.ipk; do
+  tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$validator_root"
+done
+cp "$TMP_ROOT/installed-set/installed-manifest.json" \
+  "$validator_root/etc/premier-router/installed-manifest.json"
+cat > "$validator_bin/opkg" <<'EOF'
+#!/bin/sh
+set -eu
+case "${1:-}" in
+  status)
+    case "${2:-}" in
+      premier-router-core|luci-app-premier-router|premier-router-setup)
+        printf 'Package: %s\nVersion: %s\nStatus: install user installed\n' \
+          "$2" "$VALIDATOR_TEST_PKG_VERSION"
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+EOF
+cat > "$validator_bin/vpn-ui" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "${1:-}" >> "$VALIDATOR_VPN_UI_LOG"
+case "${1:-}" in
+  vpn-summary) printf '%s\n' '{"ok":true}' ;;
+  check) exit 99 ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod 755 "$validator_bin/opkg" "$validator_bin/vpn-ui"
+PATH="$TMP_ROOT/bootstrap-bin:$PATH" \
+  PREMIER_ROUTER_HOST_TEST=1 \
+  PREMIER_ROUTER_ROOT="$validator_root" \
+  PREMIER_ROUTER_UPDATE_LIB="$validator_root/usr/libexec/premier-router/update-lib.sh" \
+  PREMIER_ROUTER_OPKG_BIN="$validator_bin/opkg" \
+  PREMIER_ROUTER_VPN_UI_BIN="$validator_bin/vpn-ui" \
+  PREMIER_ROUTER_INSTALLED_MANIFEST="$validator_root/etc/premier-router/installed-manifest.json" \
+  PREMIER_ROUTER_BUILD_INFO="$validator_root/usr/share/premier-router/build-info" \
+  VALIDATOR_TEST_PKG_VERSION="$PKG_VERSION" \
+  VALIDATOR_VPN_UI_LOG="$validator_log" \
+  "$validator_root/usr/libexec/premier-router/candidate-validator" \
+    --manifest "$validator_root/etc/premier-router/installed-manifest.json" \
+    --source-version "$APP_VERSION" --phase installed >/dev/null
+grep -Fqx 'vpn-summary' "$validator_log"
+! grep -Fqx 'check' "$validator_log"
+
 owned_index=0
 for ipk in "$TMP_ROOT/ipk-a"/*.ipk; do
   owned_index=$((owned_index + 1))
