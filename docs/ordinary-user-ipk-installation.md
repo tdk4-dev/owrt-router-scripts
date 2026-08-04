@@ -48,6 +48,28 @@ ask for help if `/overlay` is nearly full, `/tmp` cannot hold the downloaded
 files, or the log contains recent out-of-memory kills. Do not flash an image to
 work around those symptoms.
 
+Because this router is being tested specifically with both Xray and Tailscale,
+record their enabled/running state and stop them temporarily before installing.
+Do not disable either service; the reboot after installation will restore every
+service that was already enabled:
+
+```sh
+ssh root@ROUTER_ADDRESS '
+  for service in xray-exit-st xray-transparent xray tailscale; do
+    [ -x "/etc/init.d/$service" ] || continue
+    /etc/init.d/$service enabled && enabled=yes || enabled=no
+    /etc/init.d/$service running && running=yes || running=no
+    echo "$service enabled=$enabled running=$running"
+  done
+  for service in xray-exit-st xray-transparent xray tailscale; do
+    [ -x "/etc/init.d/$service" ] || continue
+    /etc/init.d/$service stop
+  done'
+```
+
+Stay connected over wired LAN after this point. If stopping a service affects
+the management path, stop and reconnect locally before continuing.
+
 ## 2. Copy the signed RC5 package set and first-install bootstrap
 
 Place these ten release files in one directory on the workstation:
@@ -125,6 +147,14 @@ persistent storage before asking `opkg` to change packages. It then installs
 all three IPKs, validates the result, and preserves the exact IPK bytes as the
 rollback source for the later stable update.
 
+On an already configured OpenWrt router, the bootstrap seals the public
+first-boot endpoint before making its recovery backup, and the setup package
+independently locks that endpoint before its web files are installed. This
+prevents the image-only setup wizard from reopening access to root, LAN, VPN,
+or Tailscale configuration during an IPK installation. Offline image
+construction skips the package guard so a newly flashed image can still
+present its intended first-boot wizard.
+
 The bootstrap refuses an already managed installation or any Router UI package
 with a different version. If power loss or an `opkg` interruption leaves only a
 subset of the exact RC5 packages, rerunning the same verified bootstrap and
@@ -141,11 +171,31 @@ opkg status premier-router-core luci-app-premier-router premier-router-setup |
   sed -n '/^Package:/p;/^Version:/p;/^Status:/p'
 cat /usr/share/vpn-ui/version
 cat /usr/share/premier-router/build-info
-/usr/sbin/vpn-ui check
+test -f /etc/firstboot-wizard/complete
+test ! -L /etc/firstboot-wizard/complete
+test "$(stat -c '%a' /etc/firstboot-wizard/complete)" = 600
+QUERY_STRING='action=apply' CONTENT_LENGTH=0 /www/cgi-bin/firstboot-setup |
+  grep -F 'Initial setup is already complete'
 /usr/sbin/vpn-ui vpn-summary
 /usr/sbin/vpn-ui tailscale-status
 /usr/sbin/vpn-ui update-status
 free -m
+for service in xray-exit-st xray-transparent xray tailscale; do
+  [ -x "/etc/init.d/$service" ] || continue
+  /etc/init.d/$service enabled && enabled=yes || enabled=no
+  /etc/init.d/$service running && running=yes || running=no
+  echo "$service enabled=$enabled running=$running"
+done
+i=0
+while [ "$i" -lt 15 ]; do
+  date
+  free -m | sed -n '1,2p'
+  pidof xray tailscaled 2>/dev/null || true
+  i=$((i + 1))
+  sleep 2
+done
+dmesg | grep -Eai 'out of memory|oom-killer|killed process' || true
+logread | grep -Eai 'out of memory|oom-killer|killed process' || true
 logread | tail -n 160
 dmesg | tail -n 100
 ```

@@ -117,6 +117,12 @@ esac
 EOF
 cat > "$TMP_ROOT/bootstrap-bin/sysupgrade" <<'EOF'
 #!/bin/sh
+set -eu
+if [ "${BOOTSTRAP_TEST_SYSUPGRADE_MODE:-fail}" = backup ]; then
+  [ "${1:-}" = -b ] && [ -n "${2:-}" ]
+  tar -czf "$2" -C "$BOOTSTRAP_TEST_ROOT" etc/firstboot-wizard/complete
+  exit 0
+fi
 exit 2
 EOF
 chmod 755 "$TMP_ROOT/bootstrap-bin/jsonfilter" "$TMP_ROOT/bootstrap-bin/opkg" \
@@ -134,6 +140,44 @@ run_bootstrap_assets() {
     "$TMP_ROOT/release/bootstrap-router-ui-ipk-install.sh"
 }
 run_bootstrap_assets >/dev/null
+[ ! -e "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" ]
+
+run_bootstrap_until_update_failure() {
+  PATH="$TMP_ROOT/bootstrap-bin:$(dirname "$USIGN_BIN"):$PATH" \
+    PREMIER_ROUTER_HOST_TEST=1 \
+    ROUTER_UI_TEST_PERSISTENT_FREE_KIB=999999 \
+    ROUTER_UI_TEST_TMP_FREE_KIB=999999 \
+    BOOTSTRAP_TEST_PKG_VERSION="$PKG_VERSION" \
+    BOOTSTRAP_TEST_SYSUPGRADE_MODE=backup \
+    BOOTSTRAP_TEST_ROOT="$TMP_ROOT/bootstrap-root" \
+    ROUTER_UI_ROOT_PREFIX="$TMP_ROOT/bootstrap-root" \
+    ROUTER_UI_ASSET_DIR="$TMP_ROOT/release" \
+    ROUTER_UI_OPKG_BIN="$TMP_ROOT/bootstrap-bin/opkg" \
+    ROUTER_UI_SYSUPGRADE_BIN="$TMP_ROOT/bootstrap-bin/sysupgrade" \
+    "$TMP_ROOT/release/bootstrap-router-ui-ipk-install.sh"
+}
+if run_bootstrap_until_update_failure > "$TMP_ROOT/bootstrap-update-failure.log" 2>&1; then
+  printf 'initial-install bootstrap unexpectedly passed the forced opkg update failure\n' >&2
+  exit 1
+fi
+grep -q 'package index update failed' "$TMP_ROOT/bootstrap-update-failure.log"
+[ -f "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete" ]
+bootstrap_state_mode="$(stat -c '%a' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" \
+  2>/dev/null || stat -f '%Lp' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard")"
+bootstrap_complete_mode="$(stat -c '%a' \
+  "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete" 2>/dev/null ||
+  stat -f '%Lp' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete")"
+[ "$bootstrap_state_mode" = 700 ]
+[ "$bootstrap_complete_mode" = 600 ]
+bootstrap_backup="$TMP_ROOT/bootstrap-root/root/premier-router-updates/initial-ipk-install-$APP_VERSION/openwrt-configuration-recovery.tar.gz"
+tar -tzf "$bootstrap_backup" | grep -Fqx 'etc/firstboot-wizard/complete'
+known_good_dir="$TMP_ROOT/bootstrap-root/root/premier-router-updates/known-good/$(sha256sum \
+  "$TMP_ROOT/release/installed-manifest.json" | awk '{print $1}')"
+[ -f "$known_good_dir/bootstrap-incomplete" ]
+[ ! -e "$TMP_ROOT/bootstrap-root/etc/premier-router/installed-manifest.json" ]
+
+rm -rf "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" \
+  "$TMP_ROOT/bootstrap-root/root/premier-router-updates"
 
 cp "$TMP_ROOT/bootstrap-root/etc/openwrt_release" "$TMP_ROOT/openwrt_release.good"
 printf "DISTRIB_RELEASE='23.05.5'\nDISTRIB_TARGET='x86/64'\n" > \
@@ -356,6 +400,32 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control
 grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx "X-Premier-App-Version: $APP_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx 'X-Premier-Release-Channel: candidate' "$TMP_ROOT/core-control"
+tar -xzOf "$TMP_ROOT/ipk-a/premier-router-setup_${PKG_VERSION}_all.ipk" ./control.tar.gz |
+  tar -xzOf - ./preinst > "$TMP_ROOT/setup-preinst"
+grep -Fq '[ -n "${IPKG_INSTROOT:-}" ] && exit 0' "$TMP_ROOT/setup-preinst"
+grep -Fq 'STATE_DIR=/etc/firstboot-wizard' "$TMP_ROOT/setup-preinst"
+sed "s|STATE_DIR=/etc/firstboot-wizard|STATE_DIR='$TMP_ROOT/setup-state'|" \
+  "$TMP_ROOT/setup-preinst" > "$TMP_ROOT/setup-preinst-test"
+chmod 755 "$TMP_ROOT/setup-preinst-test"
+IPKG_INSTROOT="$TMP_ROOT/image-root" sh "$TMP_ROOT/setup-preinst-test"
+[ ! -e "$TMP_ROOT/setup-state" ]
+mkdir -p "$TMP_ROOT/setup-state-target"
+ln -s "$TMP_ROOT/setup-state-target" "$TMP_ROOT/setup-state"
+if sh "$TMP_ROOT/setup-preinst-test" > "$TMP_ROOT/setup-preinst-symlink.log" 2>&1; then
+  printf 'setup preinst accepted a symlinked first-boot state directory\n' >&2
+  exit 1
+fi
+grep -q 'refusing symlinked first-boot state directory' \
+  "$TMP_ROOT/setup-preinst-symlink.log"
+rm -f "$TMP_ROOT/setup-state"
+sh "$TMP_ROOT/setup-preinst-test"
+[ -f "$TMP_ROOT/setup-state/complete" ]
+setup_state_mode="$(stat -c '%a' "$TMP_ROOT/setup-state" 2>/dev/null ||
+  stat -f '%Lp' "$TMP_ROOT/setup-state")"
+setup_complete_mode="$(stat -c '%a' "$TMP_ROOT/setup-state/complete" 2>/dev/null ||
+  stat -f '%Lp' "$TMP_ROOT/setup-state/complete")"
+[ "$setup_state_mode" = 700 ]
+[ "$setup_complete_mode" = 600 ]
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -xzOf - ./usr/share/premier-router/build-info > "$TMP_ROOT/build-info"
 grep -Fqx "APP_VERSION=$APP_VERSION" "$TMP_ROOT/build-info"

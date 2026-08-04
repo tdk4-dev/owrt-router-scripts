@@ -206,6 +206,45 @@ EOF
 
 write_setup_scripts() {
   control_dir="$1"
+  cat > "$control_dir/preinst" <<'EOF'
+#!/bin/sh
+set -eu
+
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+
+STATE_DIR=/etc/firstboot-wizard
+COMPLETE_FILE="$STATE_DIR/complete"
+
+[ ! -L "$STATE_DIR" ] || {
+  printf '%s\n' 'refusing symlinked first-boot state directory' >&2
+  exit 1
+}
+if [ -e "$STATE_DIR" ] && [ ! -d "$STATE_DIR" ]; then
+  printf '%s\n' 'refusing non-directory first-boot state path' >&2
+  exit 1
+fi
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+[ ! -L "$COMPLETE_FILE" ] || {
+  printf '%s\n' 'refusing symlinked first-boot completion marker' >&2
+  exit 1
+}
+if [ -e "$COMPLETE_FILE" ] && [ ! -f "$COMPLETE_FILE" ]; then
+  printf '%s\n' 'refusing non-file first-boot completion marker' >&2
+  exit 1
+fi
+if [ ! -f "$COMPLETE_FILE" ]; then
+  temporary="$STATE_DIR/.complete.$$"
+  rm -f "$temporary"
+  umask 077
+  : > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$COMPLETE_FILE"
+fi
+chmod 600 "$COMPLETE_FILE"
+exit 0
+EOF
   cat > "$control_dir/postinst" <<'EOF'
 #!/bin/sh
 set -eu
@@ -221,7 +260,7 @@ EOF
 #!/bin/sh
 exit 0
 EOF
-  chmod 755 "$control_dir/postinst" "$control_dir/postrm"
+  chmod 755 "$control_dir/preinst" "$control_dir/postinst" "$control_dir/postrm"
 }
 
 write_legacy_manifest() {
