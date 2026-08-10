@@ -3,6 +3,11 @@ set -eu
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+UPDATER_SOURCE="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
+if grep -Eq 'sort([[:space:]][^[:space:]]+)*[[:space:]]-o([[:space:]]|$)' "$UPDATER_SOURCE"; then
+  printf 'updater uses unsupported target BusyBox sort output mode\n' >&2
+  exit 1
+fi
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 USIGN_BIN="${TEST_USIGN_BIN:-$(command -v usign || true)}"
 [ -x "$USIGN_BIN" ] || { printf 'usign is required for transaction tests\n' >&2; exit 1; }
@@ -454,6 +459,38 @@ expect_rc5_bridge_rejected() {
   }
 }
 
+REAL_SORT_BIN="$(command -v sort)"
+ORIGINAL_PATH="$PATH"
+BUSYBOX_BIN_DIR="$TMP_ROOT/busybox-minimal-bin"
+BUSYBOX_SORT_LOG="$TMP_ROOT/busybox-sort.log"
+BUSYBOX_STAT_LOG="$TMP_ROOT/busybox-stat.log"
+mkdir -p "$BUSYBOX_BIN_DIR"
+cat > "$BUSYBOX_BIN_DIR/sort" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "${BUSYBOX_SORT_REJECT_OUTPUT:-0}" = 1 ]; then
+  for argument in "$@"; do
+    case "$argument" in
+      -o|--output|--output=*)
+        printf 'target BusyBox sort does not support %s\n' "$argument" >&2
+        exit 64
+        ;;
+    esac
+  done
+fi
+printf '%s\n' "$*" >> "$BUSYBOX_SORT_LOG"
+exec "$REAL_SORT_BIN" "$@"
+EOF
+cat > "$BUSYBOX_BIN_DIR/stat" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$BUSYBOX_STAT_LOG"
+exit 127
+EOF
+chmod 755 "$BUSYBOX_BIN_DIR/sort" "$BUSYBOX_BIN_DIR/stat"
+export REAL_SORT_BIN BUSYBOX_SORT_LOG BUSYBOX_SORT_REJECT_OUTPUT BUSYBOX_STAT_LOG
+PATH="$BUSYBOX_BIN_DIR:$ORIGINAL_PATH"
+export PATH
+BUSYBOX_SORT_REJECT_OUTPUT=0
 prepare_rc5_reboot_transaction
 cat > "$TMP_ROOT/rc5-protected.paths.expected" <<'EOF'
 /etc/config
@@ -474,7 +511,14 @@ cat > "$TMP_ROOT/rc5-protected.paths.expected" <<'EOF'
 /usr/lib/opkg/status
 EOF
 cmp -s "$TMP_ROOT/rc5-protected.paths.expected" "$RC5_ROLLBACK/protected.paths.list"
-run_supervisor recover
+: > "$BUSYBOX_SORT_LOG"
+: > "$BUSYBOX_STAT_LOG"
+BUSYBOX_SORT_REJECT_OUTPUT=1
+run_supervisor_env recover PATH="$PATH"
+[ -s "$BUSYBOX_SORT_LOG" ]
+[ -s "$BUSYBOX_STAT_LOG" ]
+PATH="$ORIGINAL_PATH"
+export PATH
 [ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
 [ -s "$RC5_ROLLBACK/protected-validation.paths.list" ]
 [ -s "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
@@ -483,7 +527,7 @@ grep -Fqx '/etc/premier-router/xray-ownership.json' \
 grep -Fqx 'missing - - /etc/premier-router/xray-ownership.json' \
   "$RC5_ROLLBACK/protected-validation-source.fingerprint"
 [ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
-stage exact-rc5-reboot-metadata-bridge
+stage exact-rc5-reboot-metadata-bridge-busybox-sort
 
 prepare_rc5_reboot_transaction
 printf 'tampered config\n' >> "$FAKE_ROOT/etc/config/network"
