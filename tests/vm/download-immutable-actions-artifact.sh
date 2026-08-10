@@ -71,8 +71,18 @@ case "$KIND" in
   candidate)
     if [[ "$workflow_path" = .github/workflows/validate-router-ui-candidate.yml &&
           "$workflow_conclusion" = success ]]; then
+      gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+        --jq '.jobs[]' | jq -s '{jobs:.}' > "$jobs_json"
+      jq -e '
+        (.jobs) as $jobs |
+        any($jobs[]; .name == "Require Mac Pro VirtualBox-only qualification evidence" and
+          .status == "completed" and .conclusion == "success") and
+        all($jobs[] | select(.name | contains("QEMU")); .conclusion == "skipped")
+      ' "$jobs_json" >/dev/null ||
+        fail "successful candidate lacks the mandatory VirtualBox-only evidence gate"
       provenance_mode=successful-manual-candidate
       release_evidence_eligible=true
+      producer_jobs_api_sha256="$(sha256sum "$jobs_json" | awk '{print $1}')"
     elif [[ "${ROUTER_UI_ALLOW_FAILED_PROTECTED_CANDIDATE:-0}" = 1 &&
             "$workflow_path" = .github/workflows/validate-router-ui-candidate.yml &&
             "$workflow_conclusion" = failure ]]; then
@@ -85,8 +95,9 @@ case "$KIND" in
             (.jobs) as $jobs |
             any($jobs[]; .name == "canonical-ipks" and .conclusion == "success") and
             any($jobs[]; .name == "sign-installed-package-set" and .conclusion == "success") and
-            any($jobs[]; .name == "Fail-fast production-signed rescue-0.7.0" and
-              .conclusion == "failure")
+            any($jobs[]; .name == "Require Mac Pro VirtualBox-only qualification evidence" and
+              .conclusion == "failure") and
+            all($jobs[] | select(.name | contains("QEMU")); .conclusion == "skipped")
           ' "$jobs_json" >/dev/null ||
             fail "failed transition candidate producer jobs are not fail-closed"
           ;;
@@ -95,14 +106,13 @@ case "$KIND" in
             (.jobs) as $jobs |
             any($jobs[]; .name == "canonical-ipks" and .conclusion == "success") and
             any($jobs[]; .name == "sign-installed-package-set" and .conclusion == "success") and
-            any($jobs[]; .name == "Fail-fast production-signed rescue-0.7.0" and
-              .conclusion == "success") and
             any($jobs[]; .name == "rd23-stock-image" and .conclusion == "success") and
             any($jobs[]; .name == "rd23-ubootmod-image" and .conclusion == "success") and
             any($jobs[]; .name == "x86-image" and .conclusion == "success") and
             any($jobs[]; .name == "assemble-and-sign" and .conclusion == "success") and
-            (any($jobs[]; (.name | startswith("VM shard - ")) and .conclusion == "failure") or
-             any($jobs[]; .name == "Aggregate mandatory VM evidence" and .conclusion == "failure"))
+            any($jobs[]; .name == "Require Mac Pro VirtualBox-only qualification evidence" and
+              .conclusion == "failure") and
+            all($jobs[] | select(.name | contains("QEMU")); .conclusion == "skipped")
           ' "$jobs_json" >/dev/null ||
             fail "failed full candidate producer jobs are not fail-closed"
           ;;

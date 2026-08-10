@@ -16,9 +16,12 @@ Record:
 - VM name and host;
 - network mode and expected test URL.
 
-## VM Resource Limit
+## Diagnostic QEMU boundary
 
-- Configure every mandatory OpenWrt release-test VM with exactly 256 MiB RAM.
+- QEMU is diagnostic-only for RC6 and cannot authorize candidate or release
+  publication. The mandatory qualification hypervisor is VirtualBox on the Mac
+  Pro, using a disposable, locally recoverable clone under supervision.
+- Configure every diagnostic OpenWrt QEMU VM with exactly 256 MiB RAM.
 - Run every project VM case strictly serially, with exactly one project VM at
   a time and workflow/matrix parallelism fixed at 1.
 - Track only the exact QEMU PID started by the current case. Terminate and wait
@@ -31,8 +34,15 @@ Record:
   clean release image may receive its disposable test key and CA only after
   the serial console-ready marker, using paced UART input.
 - Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
-- Treat any request for 300 MiB or more, or any overlapping project VM case,
-  as a failed release gate.
+- Treat any request for 300 MiB or more, or any overlapping diagnostic project
+  VM case, as a failed diagnostic run.
+
+The Mac Pro qualification evidence must bind the exact source SHA and signed
+release-manifest hash, prove fingerprint `d055711acf1d9a5b`, record a changed
+boot ID, and cover RC5 → RC6 candidate preview, post-reboot commit, adoption,
+LuCI/RPC direct-rule apply and removal, Xray restart, exact rollback, and
+continuous Tailscale invariants. Same-workstation browser proof must use direct
+localhost access. `validate-rc6-virtualbox-evidence.sh` enforces this contract.
 
 Storage profiles are derived from the official OpenWrt 24.10.5 RD23 DTS,
 kernel UBI configuration, and the exact candidate payload. The stock DTS has a

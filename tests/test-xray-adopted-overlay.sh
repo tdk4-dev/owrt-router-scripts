@@ -6,6 +6,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 OVERLAY="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc"
 VPN_UI="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 FIXTURE="$ROOT_DIR/tests/fixtures/xray/adopted-overlay.json"
+VALERA_FIXTURE="$ROOT_DIR/tests/fixtures/xray/valera-manual-config.json"
 UCODE_REAL="${TEST_UCODE_BIN:-$(command -v ucode || true)}"
 [ -x "$UCODE_REAL" ] || {
   printf 'ucode is required for adopted-overlay tests\n' >&2
@@ -42,6 +43,23 @@ jq -e '
 ' "$TMP_ROOT/inspect.json" >/dev/null
 "$UCODE" "$OVERLAY" extract "$SOURCE" 3 4 "$DOMAINS" "$IPS" >/dev/null
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
+
+VALERA_SOURCE="$TMP_ROOT/valera-config.json"
+VALERA_DOMAINS="$TMP_ROOT/valera-domains.txt"
+VALERA_IPS="$TMP_ROOT/valera-ips.txt"
+cp "$VALERA_FIXTURE" "$VALERA_SOURCE"
+VALERA_HASH="$(sha256sum "$VALERA_SOURCE" | awk '{print $1}')"
+"$UCODE" "$OVERLAY" inspect "$VALERA_SOURCE" > "$TMP_ROOT/valera-inspect.json"
+jq -e '.domain_rule_index == 0 and .ip_rule_index == 1 and
+  .domain_count == 166 and .ip_count == 14' "$TMP_ROOT/valera-inspect.json" >/dev/null
+"$UCODE" "$OVERLAY" extract "$VALERA_SOURCE" 0 1 "$VALERA_DOMAINS" "$VALERA_IPS" >/dev/null
+[ "$(wc -l < "$VALERA_DOMAINS" | tr -d ' ')" -eq 166 ]
+[ "$(wc -l < "$VALERA_IPS" | tr -d ' ')" -eq 14 ]
+[ "$(sha256sum "$VALERA_SOURCE" | awk '{print $1}')" = "$VALERA_HASH" ]
+jq -e '(.inbounds | length) == 2 and (.routing.rules | length) == 3 and
+  .routing.domainStrategy == "AsIs" and
+  (any(.routing.rules[]; (.protocol // []) | index("bittorrent")) | not) and
+  (any(.routing.rules[]; .port == "8080") | not)' "$VALERA_SOURCE" >/dev/null
 [ "$(wc -l < "$DOMAINS" | tr -d ' ')" -eq 3 ]
 [ "$(wc -l < "$IPS" | tr -d ' ')" -eq 2 ]
 
@@ -142,6 +160,13 @@ EOF
 chmod 755 "$FAKE_ROOT/usr/local/bin/xray-latest" "$FAKE_ROOT/etc/init.d/xray" \
   "$FAKE_ROOT/etc/init.d/xray-transparent"
 
+tree_hash() {
+  (
+    cd "$1"
+    find . -type f -print | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}'
+  )
+}
+
 backend() {
   env \
     PREMIER_ROUTER_HOST_TEST=1 \
@@ -151,6 +176,7 @@ backend() {
     VPN_UI_XRAY_BIN="$FAKE_ROOT/usr/local/bin/xray-latest" \
     VPN_UI_XRAY_OVERLAY_HELPER="$FAKE_ROOT/usr/libexec/premier-router/xray-overlay.uc" \
     VPN_UI_UCODE_BIN="$UCODE" \
+    VPN_UI_UPDATE_PERSIST_ROOT="$FAKE_ROOT/root/premier-router-updates" \
     VPN_UI_TEST_TAILSCALE_SNAPSHOT='pid=606;enabled=true;backend=Running;ip4=100.64.0.6;route=unchanged' \
     VPN_UI_TEST_ADOPT_FREE_BYTES="${VPN_UI_TEST_ADOPT_FREE_BYTES:-10485760}" \
     VPN_UI_TEST_ADOPT_FAIL_AFTER="${VPN_UI_TEST_ADOPT_FAIL_AFTER:-}" \
@@ -159,6 +185,11 @@ backend() {
     VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER="${VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER:-}" \
     VPN_UI_TEST_XRAY_VALIDATE_FAIL="${VPN_UI_TEST_XRAY_VALIDATE_FAIL:-0}" \
     VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE="${VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE:-0}" \
+    VPN_UI_TEST_ADOPT_CRASH_AFTER="${VPN_UI_TEST_ADOPT_CRASH_AFTER:-}" \
+    VPN_UI_TEST_ADOPT_DRIFT_BEFORE="${VPN_UI_TEST_ADOPT_DRIFT_BEFORE:-}" \
+    VPN_UI_TEST_ADOPT_DRIFT_FILE="${VPN_UI_TEST_ADOPT_DRIFT_FILE:-}" \
+    VPN_UI_TEST_ADOPT_HOLD_AFTER_LOCK="${VPN_UI_TEST_ADOPT_HOLD_AFTER_LOCK:-}" \
+    VPN_UI_XRAY_TXN_RETAIN="${VPN_UI_XRAY_TXN_RETAIN:-4}" \
     sh -c '. "$1"; shift; "$@"' sh "$VPN_UI" "$@"
 }
 
@@ -184,6 +215,27 @@ jq -e '
 preview_hash="$(jq -r .adoption.config_sha256 "$TMP_ROOT/preview.json")"
 domain_index="$(jq -r .adoption.analysis.domain_rule_index "$TMP_ROOT/preview.json")"
 ip_index="$(jq -r .adoption.analysis.ip_rule_index "$TMP_ROOT/preview.json")"
+UPDATE_TRANSACTION=20260810T120000Z-0123456789abcdef
+mkdir -p "$FAKE_ROOT/root/premier-router-updates/$UPDATE_TRANSACTION"
+printf '%s\n' "$UPDATE_TRANSACTION" > "$FAKE_ROOT/root/premier-router-updates/active-transaction"
+printf '{"state":"committed_pending_reboot_validation"}\n' \
+  > "$FAKE_ROOT/root/premier-router-updates/$UPDATE_TRANSACTION/state.json"
+PENDING_TREE_HASH="$(tree_hash "$FAKE_ROOT/etc")"
+backend cmd_auto_tick
+[ "$(tree_hash "$FAKE_ROOT/etc")" = "$PENDING_TREE_HASH" ]
+backend cmd_adoption_confirm /etc/xray/config.json "$preview_hash" "$domain_index" "$ip_index" \
+  > "$TMP_ROOT/pending-confirm.json"
+jq -e '.ok == false and (.error | contains("supervised reboot validation"))' \
+  "$TMP_ROOT/pending-confirm.json" >/dev/null
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+[ ! -e "$FAKE_ROOT/etc/xray/direct-domains.txt" ]
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$CONFIG_PRE_ADOPT_HASH" ]
+backend ownership_status_json > "$TMP_ROOT/pending-status.json"
+jq -e '.mutations_allowed == false and
+  (.mutation_block_reason | contains("supervised reboot validation"))' \
+  "$TMP_ROOT/pending-status.json" >/dev/null
+printf '{"state":"committed"}\n' \
+  > "$FAKE_ROOT/root/premier-router-updates/$UPDATE_TRANSACTION/state.json"
 backend cmd_adoption_confirm /etc/xray/config.json "$preview_hash" "$domain_index" "$ip_index" \
   > "$TMP_ROOT/confirm.json"
 [ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$CONFIG_PRE_ADOPT_HASH" ]
@@ -191,6 +243,10 @@ jq -e '.mode == "adopted-overlay" and .path == "/etc/xray/config.json" and .conf
   --arg hash "$CONFIG_PRE_ADOPT_HASH" "$FAKE_ROOT/etc/premier-router/xray-ownership.json" >/dev/null
 [ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-domains.txt")" -eq 3 ]
 [ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-ips.txt")" -eq 2 ]
+backend cmd_device disable 02:00:00:00:00:06 192.0.2.6 > "$TMP_ROOT/adopted-device.json"
+jq -e '.ok == false and (.error | contains("profile changes are disabled"))' \
+  "$TMP_ROOT/adopted-device.json" >/dev/null
+[ ! -e "$FAKE_ROOT/etc/xray/vpn-ui-device-bypass-macs.txt" ]
 
 cp "$CONFIG" "$FAKE_ROOT/etc/xray/other.json"
 VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/other.json \
@@ -213,17 +269,124 @@ jq -e '
 jq -e --arg hash "$(sha256sum "$CONFIG" | awk '{print $1}')" '.config_sha256 == $hash' \
   "$FAKE_ROOT/etc/premier-router/xray-ownership.json" >/dev/null
 
+VPN_UI_TEST_ADOPT_HOLD_AFTER_LOCK=2 \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/concurrent-first.json" &
+concurrent_pid=$!
+tries=0
+while [ ! -f "$FAKE_ROOT/etc/premier-router/xray-transactions/lock/owner" ]; do
+  tries=$((tries + 1))
+  [ "$tries" -lt 50 ] || { printf 'overlay lock did not appear\n' >&2; exit 1; }
+  sleep 0.1
+done
+backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" \
+  > "$TMP_ROOT/concurrent-second.json"
+jq -e '.ok == false and (.error | contains("another adopted-overlay transaction"))' \
+  "$TMP_ROOT/concurrent-second.json" >/dev/null
+wait "$concurrent_pid"
+[ ! -d "$FAKE_ROOT/etc/premier-router/xray-transactions/lock" ]
+! find "$FAKE_ROOT/etc/xray" -maxdepth 1 -name '.*.vpn-ui-candidate.*' -print | grep -q .
+
+# An owner record is installed atomically. A second process must treat the
+# brief ownerless directory window as active instead of stealing the lock.
+mkdir "$FAKE_ROOT/etc/premier-router/xray-transactions/lock"
+backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" \
+  > "$TMP_ROOT/ownerless-lock.json"
+jq -e '.ok == false and (.error | contains("another adopted-overlay transaction"))' \
+  "$TMP_ROOT/ownerless-lock.json" >/dev/null
+[ -d "$FAKE_ROOT/etc/premier-router/xray-transactions/lock" ]
+rmdir "$FAKE_ROOT/etc/premier-router/xray-transactions/lock"
+
 ROLLBACK_CONFIG_HASH="$(sha256sum "$CONFIG" | awk '{print $1}')"
 ROLLBACK_DOMAIN_HASH="$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')"
 ROLLBACK_IP_HASH="$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')"
 ROLLBACK_STATE_HASH="$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')"
 printf '%s\n' 'full:must-roll-back.invalid' > "$TMP_ROOT/failing-domains"
+
+cp "$CONFIG" "$TMP_ROOT/pre-toctou-config.json"
+jq '.log.loglevel = "error"' "$CONFIG" > "$TMP_ROOT/external-drift.json"
+EXTERNAL_DRIFT_HASH="$(sha256sum "$TMP_ROOT/external-drift.json" | awk '{print $1}')"
+VPN_UI_TEST_ADOPT_DRIFT_BEFORE=config VPN_UI_TEST_ADOPT_DRIFT_FILE="$TMP_ROOT/external-drift.json" \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/toctou-config.json"
+VPN_UI_TEST_ADOPT_DRIFT_BEFORE=
+VPN_UI_TEST_ADOPT_DRIFT_FILE=
+jq -e '.ok == false and (.error | contains("immediately before live configuration commit")) and
+  (.error | contains("external Xray bytes were preserved"))' "$TMP_ROOT/toctou-config.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$EXTERNAL_DRIFT_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+cp "$TMP_ROOT/pre-toctou-config.json" "$CONFIG"
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+VPN_UI_TEST_ADOPT_DRIFT_BEFORE=config-final \
+  VPN_UI_TEST_ADOPT_DRIFT_FILE="$TMP_ROOT/external-drift.json" \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/toctou-config-final.json"
+VPN_UI_TEST_ADOPT_DRIFT_BEFORE=
+VPN_UI_TEST_ADOPT_DRIFT_FILE=
+jq -e '.ok == false and (.error | contains("immediately before live configuration replacement")) and
+  (.error | contains("external Xray bytes were preserved"))' \
+  "$TMP_ROOT/toctou-config-final.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$EXTERNAL_DRIFT_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+cp "$TMP_ROOT/pre-toctou-config.json" "$CONFIG"
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+if VPN_UI_TEST_ADOPT_CRASH_AFTER=rules \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/crash-rules.json"; then
+  printf 'rules-phase crash injection unexpectedly returned success\n' >&2
+  exit 1
+else
+  [ "$?" -eq 99 ]
+fi
+[ -d "$FAKE_ROOT/etc/premier-router/xray-transactions/lock" ]
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+backend cmd_overlay_recover > "$TMP_ROOT/recover-rules.json"
+jq -e '.ok and .recovered' "$TMP_ROOT/recover-rules.json" >/dev/null
+[ ! -d "$FAKE_ROOT/etc/premier-router/xray-transactions/lock" ]
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+
+if VPN_UI_TEST_ADOPT_CRASH_AFTER=config \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/crash-config.json"; then
+  printf 'config-phase crash injection unexpectedly returned success\n' >&2
+  exit 1
+else
+  [ "$?" -eq 99 ]
+fi
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" != "$ROLLBACK_CONFIG_HASH" ]
+backend cmd_overlay_recover > "$TMP_ROOT/recover-config.json"
+VPN_UI_TEST_ADOPT_CRASH_AFTER=
+jq -e '.ok and .recovered' "$TMP_ROOT/recover-config.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+
 for boundary in after-backup after-rules after-config after-restart after-state; do
   VPN_UI_TEST_ADOPT_FAIL_AFTER="$boundary" \
     backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
       > "$TMP_ROOT/rollback-$boundary.json"
-  jq -e '.ok == false and (.error | contains("exact Xray configuration, route lists, and management state restored"))' \
-    "$TMP_ROOT/rollback-$boundary.json" >/dev/null
+  case "$boundary" in
+    after-backup|after-rules)
+      jq -e '.ok == false and
+        (.error | contains("route lists and management state restored while external Xray bytes were preserved"))' \
+        "$TMP_ROOT/rollback-$boundary.json" >/dev/null
+      ;;
+    *)
+      jq -e '.ok == false and
+        (.error | contains("exact Xray configuration, route lists, and management state restored"))' \
+        "$TMP_ROOT/rollback-$boundary.json" >/dev/null
+      ;;
+  esac
   [ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
   [ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
   [ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
@@ -291,5 +454,12 @@ VPN_UI_TEST_ADOPT_FREE_BYTES="$((required - 1))" \
 jq -e '.ok == false and (.error | contains("free bytes"))' "$TMP_ROOT/storage-below.json" >/dev/null
 VPN_UI_TEST_ADOPT_FREE_BYTES="$required" \
   backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips"
+
+retained_transactions="$(find "$FAKE_ROOT/etc/premier-router/xray-transactions" \
+  -mindepth 1 -maxdepth 1 -type d \( -name '*-adoption-*' -o -name '*-apply-*' \) |
+  wc -l | tr -d ' ')"
+[ "$retained_transactions" -le 4 ]
+[ ! -d "$FAKE_ROOT/etc/premier-router/xray-transactions/lock" ]
+! find "$FAKE_ROOT/etc/xray" -maxdepth 1 -name '.*.vpn-ui-candidate.*' -print | grep -q .
 
 printf 'Adopted-overlay preview, exact adoption, structural apply, fail-closed rollback, Tailscale, validation, and storage tests passed\n'

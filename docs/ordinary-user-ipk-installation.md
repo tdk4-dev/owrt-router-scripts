@@ -250,6 +250,21 @@ as `/etc/xray/config.json`, Router UI keeps profile changes and direct-rule
 editing disabled. Do not press **Use** on a profile and do not try to work
 around the disabled controls.
 
+Complete the supervised reboot gate before adopting. Record the boot ID before
+the reboot, reboot while a local recovery path is available, and verify both a
+changed boot ID and final protocol state:
+
+```sh
+cat /proc/sys/kernel/random/boot_id
+/usr/sbin/vpn-ui-update status
+```
+
+The state must be `committed`, not
+`committed_pending_reboot_validation`. Adoption and every persistent VPN
+configuration change are refused while reboot validation is pending. The
+candidate validator may run a compatible read-only adoption preview, but it
+does not create ownership metadata or rewrite Xray.
+
 From the authenticated LuCI VPN page:
 
 1. Select **Preview adoption**.

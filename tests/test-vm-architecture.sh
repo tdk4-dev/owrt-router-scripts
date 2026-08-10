@@ -8,6 +8,8 @@ DIAGNOSTIC="$ROOT_DIR/.github/workflows/diagnose-router-ui-vm.yml"
 BASELINES="$ROOT_DIR/.github/workflows/build-router-ui-legacy-baselines.yml"
 CANDIDATE="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
 RELEASE="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
+VIRTUALBOX_PUBLISH="$ROOT_DIR/.github/workflows/publish-router-ui-rc6-virtualbox-evidence.yml"
+VIRTUALBOX_VALIDATOR="$ROOT_DIR/tests/integration/validate-rc6-virtualbox-evidence.sh"
 GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"
 RUNNER="$ROOT_DIR/tests/vm/fail-closed-runner.sh"
 ARTIFACT_HELPER="$ROOT_DIR/tests/vm/download-immutable-actions-artifact.sh"
@@ -30,14 +32,18 @@ grep -q '^  workflow_dispatch:' "$BASELINES" || fail 'baseline workflow is not m
 ! grep -q '^  push:' "$BASELINES" || fail 'baseline workflow is push-triggered'
 grep -q '^  workflow_dispatch:' "$CANDIDATE" || fail 'protected candidate is not manually dispatched'
 ! grep -q '^  workflow_call:' "$CANDIDATE" || fail 'protected candidate can still be invoked automatically'
-for workflow in "$CANDIDATE" "$RELEASE"; do
-  for input in baseline_pack_artifact_id baseline_pack_artifact_zip_sha256; do
-    grep -q "^      $input:" "$workflow" || fail "release gate lacks baseline identity input: $workflow $input"
-  done
-  for derived in baseline_pack_run_id baseline_pack_artifact_name baseline_pack_manifest_sha256; do
-    ! grep -q "^      $derived:" "$workflow" || fail "release gate still asks operators for derived baseline identity: $workflow $derived"
-  done
+for input in virtualbox_evidence_artifact_id virtualbox_evidence_artifact_zip_sha256; do
+  grep -q "^      $input:" "$CANDIDATE" ||
+    fail "candidate gate lacks immutable Mac Pro VirtualBox evidence identity: $input"
 done
+for workflow in "$CANDIDATE" "$RELEASE"; do
+  ! grep -q '^      baseline_pack_artifact_' "$workflow" ||
+    fail "release-authorizing workflow still accepts QEMU baseline evidence: $workflow"
+done
+grep -q '^  workflow_dispatch:' "$VIRTUALBOX_PUBLISH" ||
+  fail 'Mac Pro VirtualBox evidence publisher is not manually dispatched'
+grep -Fq 'runs-on: [self-hosted, macOS, mac-pro, virtualbox]' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox evidence publisher is not pinned to the Mac Pro runner boundary'
 for workflow in "$BASELINES" "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
   grep -q 'group: router-ui-project-vm-global' "$workflow" ||
     fail "VM workflow does not share the no-overlap concurrency group: $workflow"
@@ -62,10 +68,12 @@ grep -q "timeout-minutes: \${{ inputs.case == 'full' && 360 || 90 }}" "$DIAGNOST
   fail 'targeted diagnostics retain the full-matrix hang window'
 grep -q "timeout-minutes: \${{ inputs.selector == 'all' && 360 || 90 }}" "$BASELINES" ||
   fail 'single baseline validation retains the complete-pack hang window'
-for workflow in "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
+for workflow in "$DIAGNOSTIC" "$RELEASE"; do
   grep -q 'download-immutable-actions-artifact.sh' "$workflow" ||
     fail "workflow does not derive immutable artifact descriptors: $workflow"
 done
+grep -q 'validate-rc6-virtualbox-evidence.sh' "$CANDIDATE" ||
+  fail 'candidate does not validate the immutable Mac Pro VirtualBox evidence bundle'
 grep -q 'vm_work_root="$RUNNER_TEMP/baseline-pack-work"' "$DIAGNOSTIC" ||
   fail 'diagnostic baseline consumer does not preserve the relocatable overlay layout'
 grep -q 'export TMPDIR="$vm_work_root/overlays"' "$DIAGNOSTIC" ||
@@ -95,9 +103,9 @@ grep -q 'failed-protected-diagnostic-candidate' "$ARTIFACT_HELPER" ||
 grep -q 'candidate_scope=transition-only' "$ARTIFACT_HELPER" ||
   fail 'transition-only failed candidates are not scoped fail closed'
 grep -q '^  rescue-0-7-0:' "$CANDIDATE" ||
-  fail 'protected candidate lacks the earliest rescue-0.7.0 gate'
-grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]' "$CANDIDATE" ||
-  fail 'image builds do not wait for rescue-0.7.0'
+  fail 'candidate no longer retains its explicitly disabled QEMU diagnostic job'
+sed -n '/^  rescue-0-7-0:/,/^  rd23-stock-image:/p' "$CANDIDATE" |
+  grep -Fq 'if: ${{ false }}' || fail 'candidate QEMU rescue job can execute'
 grep -q 'pretag-router-ui-transition-candidate-' "$CANDIDATE" ||
   fail 'protected workflow does not preserve reusable signed transition bytes'
 for workflow in "$CANDIDATE" "$DIAGNOSTIC"; do
@@ -129,19 +137,19 @@ for shard in legacy protocol-concurrency-storage faults-a faults-b; do
   grep -q "$shard" "$CANDIDATE" || fail "candidate VM shard is missing: $shard"
 done
 grep -q '^  aggregate-vm-evidence:' "$CANDIDATE" ||
-  fail 'candidate has no supplemental QEMU evidence aggregation job'
+  fail 'candidate has no VirtualBox evidence authorization job'
 grep -Fq "if: \${{ always() && needs.assemble-and-sign.result == 'success' }}" "$CANDIDATE" ||
   fail 'candidate aggregation still emits a secondary failure when assembly is skipped'
-grep -q 'Aggregate supplemental QEMU evidence' "$CANDIDATE" ||
-  fail 'candidate QEMU evidence is not explicitly labeled supplemental'
-grep -q 'aggregate-candidate-evidence.sh' "$CANDIDATE" ||
-  fail 'candidate aggregation job does not run the completeness validator'
+grep -q 'Require Mac Pro VirtualBox-only qualification evidence' "$CANDIDATE" ||
+  fail 'candidate authorization is not explicitly VirtualBox-only'
+grep -q 'validate-rc6-virtualbox-evidence.sh' "$CANDIDATE" ||
+  fail 'candidate authorization job does not run the VirtualBox evidence validator'
 grep -q '^  rd23-stock-image:' "$CANDIDATE" &&
   grep -q '^  rd23-ubootmod-image:' "$CANDIDATE" ||
   fail 'RD23 stock and ubootmod are not independent concurrent jobs'
-[ "$(grep -Fc 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0]' "$CANDIDATE")" -eq 2 ] ||
-  fail 'the two RD23 image jobs are not independent after fail-fast rescue'
-grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rescue-0-7-0, rd23-stock-image]' \
+[ "$(grep -Fc 'needs: [canonical-ipks, sign-installed-package-set]' "$CANDIDATE")" -eq 2 ] ||
+  fail 'the two RD23 image jobs are not independent of disabled QEMU diagnostics'
+grep -Fq 'needs: [canonical-ipks, sign-installed-package-set, rd23-stock-image]' \
   "$CANDIDATE" || fail 'x86 does not wait for the exact candidate RD23 stock image'
 grep -q 'provenance_member=' "$CANDIDATE" &&
   grep -q 'rd23_storage_layout.rootfs_data_volume_kib' "$CANDIDATE" ||
@@ -152,9 +160,11 @@ for shard in legacy protocol-concurrency-storage faults-a faults-b; do
   grep -q "$shard" "$RELEASE" || fail "tagged VM shard is missing: $shard"
 done
 grep -q '^  aggregate-tagged-vm-evidence:' "$RELEASE" ||
-  fail 'tagged release has no mandatory evidence aggregation job'
-grep -q 'aggregate-candidate-evidence.sh' "$RELEASE" ||
-  fail 'tagged aggregation job does not run the completeness validator'
+  fail 'tagged release no longer retains its explicitly disabled QEMU aggregation job'
+sed -n '/^  tagged-vm-shards:/,/^  draft-round-trip:/p' "$RELEASE" |
+  grep -Fq 'if: ${{ false }}' || fail 'tagged QEMU jobs can execute'
+grep -Fq 'needs: verify-pretag-candidate' "$RELEASE" ||
+  fail 'release publication does not depend directly on the VirtualBox-qualified pre-tag candidate'
 grep -q '^  rd23-stock-image:' "$RELEASE" &&
   grep -q '^  rd23-ubootmod-image:' "$RELEASE" ||
   fail 'tagged RD23 stock and ubootmod are not independent concurrent jobs'
@@ -167,6 +177,11 @@ grep -q 'individual_shards_authorize_release:false' "$AGGREGATOR" ||
   fail 'individual shard evidence can be mistaken for release authorization'
 grep -q 'release_authorized:false' "$AGGREGATOR" ||
   fail 'supplemental QEMU evidence can be mistaken for release authorization'
+[ -x "$VIRTUALBOX_VALIDATOR" ] || fail 'Mac Pro VirtualBox evidence validator is not executable'
+grep -q '.provider.qemu_used == false' "$VIRTUALBOX_VALIDATOR" ||
+  fail 'VirtualBox evidence validator does not reject QEMU evidence'
+grep -q 'Require Mac Pro VirtualBox-only qualification evidence' "$ARTIFACT_HELPER" ||
+  fail 'successful candidate artifact provenance does not require the VirtualBox-only job'
 for workflow in "$CANDIDATE" "$RELEASE"; do
   grep -q 'write-candidate-content-descriptor.sh' "$workflow" ||
     fail "workflow does not persist a candidate content descriptor: $workflow"
