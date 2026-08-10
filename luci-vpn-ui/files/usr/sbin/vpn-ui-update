@@ -129,6 +129,30 @@ atomic_from_stdin() {
   mv "$tmp" "$dst"
   [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
 }
+atomic_sort_file() {
+  local file="$1" ordering="${2:-plain}" tmp="$1.sorted.$$"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+  if ! (
+    umask 077
+    case "$ordering" in
+      plain) LC_ALL=C sort "$file" ;;
+      unique) LC_ALL=C sort -u "$file" ;;
+      *) exit 2 ;;
+    esac
+  ) > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 600 "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$file" || {
+    rm -f "$tmp"
+    return 1
+  }
+}
 read_config_value() {
   local key="$1" file="$2"
   sed -n "s/^$key=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$file" |
@@ -503,8 +527,8 @@ derive_candidate_owned_paths() {
     printf '/www/luci-static/resources/view/status/include/%s\n' \
       "${legacy_include##*/}" >> "$paths"
   done
-  LC_ALL=C sort -u "$paths" -o "$paths"
-  LC_ALL=C sort -u "$dirs" -o "$dirs"
+  atomic_sort_file "$paths" unique || return 1
+  atomic_sort_file "$dirs" unique || return 1
 }
 
 protected_path_list() {
@@ -623,9 +647,9 @@ rc5_expected_protected_paths() {
   done
   [ "$count" = 3 ] || return 1
   printf '%s\n' $PR_PROJECT_PACKAGES | LC_ALL=C sort > "$names.expected"
-  LC_ALL=C sort "$names" -o "$names"
+  atomic_sort_file "$names" || return 1
   cmp -s "$names.expected" "$names" || return 1
-  LC_ALL=C sort -u "$out" -o "$out"
+  atomic_sort_file "$out" unique || return 1
   rm -f "$names" "$names.expected" "$members"
 }
 
@@ -1859,7 +1883,7 @@ cleanup_successful_storage() {
   if [ -d "$TXN_DIR/downloads" ]; then
     find "$TXN_DIR/downloads" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} \;
   fi
-  LC_ALL=C sort -u "$keep_file" -o "$keep_file"
+  atomic_sort_file "$keep_file" unique || return 1
   for dir in "$KNOWN_GOOD"/*; do
     [ -d "$dir" ] || continue
     hash="$(basename "$dir")"
