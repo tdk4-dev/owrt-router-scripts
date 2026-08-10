@@ -525,7 +525,7 @@ return view.extend({
 				}, preview ? _('Refresh preview') : _('Preview adoption')),
 				preview ? E('button', {
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView || !mutationsAllowed,
+					'disabled': !!(isReadonlyView || !mutationsAllowed) || null,
 					'click': ui.createHandlerFn(this, 'handleAdoptionConfirm')
 				}, _('Adopt without rewrite')) : ''
 			]));

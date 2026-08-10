@@ -171,6 +171,26 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	);
 	page.refresh = data => { page.data = data; };
 	page.notify = message => { notifications.push(String(message)); };
+	page.adoptionPreview = {
+		path: '/etc/xray/config.json',
+		config_sha256: 'a'.repeat(64),
+		domain_sha256: 'b'.repeat(64),
+		ip_sha256: 'c'.repeat(64),
+		analysis: { domain_count: 166, ip_count: 14, warnings: [] }
+	};
+	const renderedAdoption = page.renderOwnership({
+		ownership: {
+			adoption_required: true,
+			adopted: false,
+			healthy: false,
+			mutations_allowed: true
+		}
+	});
+	const adoptButton = findElement(renderedAdoption, node =>
+		node.tag === 'button' && (node.children || []).includes('Adopt without rewrite'));
+	assert.ok(adoptButton, 'Adopt without rewrite button must be rendered after preview');
+	assert.equal(adoptButton.attrs.disabled, null, 'Adopt without rewrite must be enabled');
+	page.adoptionPreview = null;
 
 	const adoptedStatus = JSON.parse(backend(['status']).stdout);
 	assert.equal(adoptedStatus.ownership.adopted, true);
