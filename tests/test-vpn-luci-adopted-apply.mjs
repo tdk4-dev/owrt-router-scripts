@@ -119,12 +119,29 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	};
 	const helperCalls = [];
 	const notifications = [];
-	const ui = { showModal() {}, hideModal() {}, addNotification() {} };
+	const ui = {
+		showModal() {},
+		hideModal() {},
+		addNotification() {},
+		createHandlerFn: (self, name, ...args) => self[name].bind(self, ...args)
+	};
 	const element = (tag, attrs, children) => ({
 		tag,
 		attrs: attrs || {},
 		children: Array.isArray(children) ? children : [children]
 	});
+	const findElement = (node, predicate) => {
+		if (!node || typeof node !== 'object')
+			return null;
+		if (predicate(node))
+			return node;
+		for (const child of node.children || []) {
+			const match = findElement(child, predicate);
+			if (match)
+				return match;
+		}
+		return null;
+	};
 	const page = new Function(
 		'view', 'fs', 'ui', 'dom', 'L', 'E', '_', 'document', 'confirm',
 		luciSource
@@ -154,6 +171,21 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	);
 	page.refresh = data => { page.data = data; };
 	page.notify = message => { notifications.push(String(message)); };
+
+	const adoptedStatus = JSON.parse(backend(['status']).stdout);
+	assert.equal(adoptedStatus.ownership.adopted, true);
+	assert.equal(adoptedStatus.ownership.healthy, true);
+	assert.equal(adoptedStatus.ownership.mutations_allowed, true);
+	const renderedRules = page.renderRules(adoptedStatus);
+	for (const id of ['vpn-direct-domains', 'vpn-direct-ips']) {
+		const textarea = findElement(renderedRules, node => node.attrs && node.attrs.id === id);
+		assert.ok(textarea, `${id} must be rendered`);
+		assert.equal(textarea.attrs.disabled, null, `${id} must be editable after healthy adoption`);
+	}
+	const applyRules = findElement(renderedRules, node =>
+		node.tag === 'button' && (node.children || []).includes('Apply rules'));
+	assert.ok(applyRules, 'Apply rules button must be rendered');
+	assert.equal(applyRules.attrs.disabled, null, 'Apply rules must be enabled after healthy adoption');
 
 	await page.handleApplyRules();
 	assert.deepEqual(helperCalls.at(-1), {
