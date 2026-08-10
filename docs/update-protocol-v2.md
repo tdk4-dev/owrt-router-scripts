@@ -22,6 +22,17 @@ binds token, PID, boot ID, and process start identity. A tuple of source
 version, target tag, and manifest hash is quarantined after an automatic
 failure and requires an explicit clear before automatic retry.
 
+For the exact signed `0.7.11-rc.5` bootstrap lineage, OpenWrt has two valid
+maintainer-metadata shapes. ImageBuilder removes successful `postinst` files,
+while a runtime `opkg` reinstall retains all three project `postinst` files.
+Rollback restores every pre-existing protected path byte-for-byte. When the
+source had the ImageBuilder-cleaned shape, reinstall may additionally
+reconstruct exactly those three root-owned mode-0755 files from the cached,
+signed RC5 IPKs. For the retained variant, the reboot bridge authenticates
+their bytes, archive metadata, fingerprint, and complete three-file shape;
+partial, extra, changed, or non-regular recorded variants are rejected. No
+other recorded protected-path drift is an allowed rollback result.
+
 States before mutation recover to `failed_before_mutation`. Ambiguous applying,
 validating, or committing states run the target validator and either commit or
 roll back. Rollback reinstalls exact cached prior IPKs for package sources, or

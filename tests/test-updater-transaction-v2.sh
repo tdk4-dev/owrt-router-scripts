@@ -169,7 +169,7 @@ case "${1:-}" in
     printf '%s\n' "$version" > "$db/$pkg"
     printf '%s\n' "$control" > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control"
     tar -xzOf "$ipk" ./data.tar.gz | tar -tzf - > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list"
-    for control_member in conffiles preinst prerm postrm; do
+    for control_member in conffiles preinst prerm postinst postrm; do
       if tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx "./$control_member"; then
         tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - "./$control_member" \
           > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.$control_member"
@@ -364,6 +364,12 @@ seed_rc5_source() {
   for package in premier-router-core luci-app-premier-router premier-router-setup; do
     FAKE_ROOT="$FAKE_ROOT" "$FAKE_OPKG" install --force-reinstall \
       "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk"
+  done
+  # The retained RC5 base models ImageBuilder's prepare_rootfs result, which
+  # removes successful postinst scripts. Runtime fake-opkg installs retain them
+  # exactly like OpenWrt opkg so rollback -> second-update is exercised honestly.
+  for package in premier-router-core luci-app-premier-router premier-router-setup; do
+    rm -f "$FAKE_ROOT/usr/lib/opkg/info/$package.postinst"
   done
   source_manifest="$RC5_INSTALLED_SET/installed-manifest.json"
   source_signature="$RC5_INSTALLED_SET/installed-manifest.json.sig"
@@ -651,9 +657,52 @@ stage 079-recovered
 # after proving the stable protected state is unchanged.
 prepare_rc5_reboot_transaction() {
   local cron_shape="${1:-existing}"
+  local postinst_shape="${2:-absent}"
+  local source_setup="${3:-seed}"
   local cron_source="$TMP_ROOT/rc5-source-root.cron"
   local cron_expected="$TMP_ROOT/rc6-expected-root.cron"
-  seed_rc5_source
+  local package postinst_path
+  case "$source_setup" in
+    seed) seed_rc5_source ;;
+    current)
+      [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.11-rc.5 ]
+      ;;
+    *) printf 'unsupported RC5 source setup: %s\n' "$source_setup" >&2; exit 1 ;;
+  esac
+  case "$postinst_shape" in
+    absent) ;;
+    current-retained)
+      for package in premier-router-core luci-app-premier-router premier-router-setup; do
+        postinst_path="$FAKE_ROOT/usr/lib/opkg/info/$package.postinst"
+        [ -f "$postinst_path" ] && [ ! -L "$postinst_path" ] && [ -x "$postinst_path" ]
+      done
+      ;;
+    retained|tampered|wrong-mode|symlink)
+      for package in premier-router-core luci-app-premier-router premier-router-setup; do
+        postinst_path="$FAKE_ROOT/usr/lib/opkg/info/$package.postinst"
+        tar -xzOf "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk" ./control.tar.gz |
+          tar -xzOf - ./postinst > "$postinst_path"
+        chmod 755 "$postinst_path"
+      done
+      if [ "$postinst_shape" = tampered ]; then
+        printf '%s\n' '# unauthenticated retained postinst drift' >> \
+          "$FAKE_ROOT/usr/lib/opkg/info/premier-router-core.postinst"
+      elif [ "$postinst_shape" = wrong-mode ]; then
+        chmod 644 "$FAKE_ROOT/usr/lib/opkg/info/premier-router-core.postinst"
+      elif [ "$postinst_shape" = symlink ]; then
+        rm -f "$FAKE_ROOT/usr/lib/opkg/info/premier-router-core.postinst"
+        ln -s /dev/null "$FAKE_ROOT/usr/lib/opkg/info/premier-router-core.postinst"
+      fi
+      ;;
+    partial)
+      package=premier-router-core
+      postinst_path="$FAKE_ROOT/usr/lib/opkg/info/$package.postinst"
+      tar -xzOf "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk" ./control.tar.gz |
+        tar -xzOf - ./postinst > "$postinst_path"
+      chmod 755 "$postinst_path"
+      ;;
+    *) printf 'unsupported RC5 postinst fixture: %s\n' "$postinst_shape" >&2; exit 1 ;;
+  esac
   case "$cron_shape" in
     existing)
       printf '%s\n' \
@@ -719,7 +768,8 @@ prepare_rc5_reboot_transaction() {
     return 1
   }
   cmp -s "$cron_expected" "$FAKE_ROOT/etc/crontabs/root"
-  printf 'boot-after-rc5-bridge\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
+  printf 'boot-after-rc5-bridge-%s\n' "$RC5_TRANSACTION" \
+    > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 }
 
 expect_rc5_bridge_rejected() {
@@ -835,7 +885,66 @@ run_supervisor recover
 run_supervisor rollback "$RC5_TRANSACTION"
 [ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
 [ ! -e "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
-stage exact-rc5-reboot-missing-cron-preservation
+for package in premier-router-core luci-app-premier-router premier-router-setup; do
+  postinst_path="$FAKE_ROOT/usr/lib/opkg/info/$package.postinst"
+  [ -f "$postinst_path" ] && [ ! -L "$postinst_path" ] && [ -x "$postinst_path" ]
+  tar -xzOf "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk" ./control.tar.gz |
+    tar -xzOf - ./postinst | cmp -s - "$postinst_path"
+done
+
+# Continue from the actual rollback result without reseeding. Runtime opkg has
+# retained all three RC5 postinst files; the second transaction must snapshot,
+# authenticate, reboot-validate, and roll back that exact source shape.
+prepare_rc5_reboot_transaction missing current-retained current
+for package in premier-router-core luci-app-premier-router premier-router-setup; do
+  grep -Fqx "/usr/lib/opkg/info/$package.postinst" "$RC5_ROLLBACK/protected.paths.list"
+done
+run_supervisor recover
+[ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
+[ -s "$RC5_ROLLBACK/protected-validation.paths.list" ]
+[ -s "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
+run_supervisor rollback "$RC5_TRANSACTION"
+[ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
+[ ! -e "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
+stage exact-rc5-reboot-missing-cron-and-sequential-postinst-bridge
+
+# A successful exact rollback on real OpenWrt can retain the three authenticated
+# RC5 postinst control files even though the original bootstrap shape omitted
+# them. The next RC5 -> RC6 reboot must accept that complete byte-bound shape,
+# while partial or locally modified variants remain fail-closed.
+prepare_rc5_reboot_transaction missing retained
+for package in premier-router-core luci-app-premier-router premier-router-setup; do
+  grep -Fqx "/usr/lib/opkg/info/$package.postinst" "$RC5_ROLLBACK/protected.paths.list"
+done
+run_supervisor recover
+[ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
+[ -s "$RC5_ROLLBACK/protected-validation.paths.list" ]
+[ -s "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
+run_supervisor rollback "$RC5_TRANSACTION"
+[ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
+[ ! -e "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
+stage exact-rc5-reboot-post-rollback-postinst-bridge
+
+prepare_rc5_reboot_transaction missing partial
+expect_rc5_target_drift_rolled_back partial-retained-postinst
+
+prepare_rc5_reboot_transaction missing tampered
+expect_rc5_target_drift_rolled_back tampered-retained-postinst
+
+prepare_rc5_reboot_transaction missing wrong-mode
+expect_rc5_target_drift_rolled_back wrong-mode-retained-postinst
+
+prepare_rc5_reboot_transaction missing symlink
+expect_rc5_target_drift_rolled_back symlink-retained-postinst
+
+prepare_rc5_reboot_transaction missing retained
+awk '$4 == "/usr/lib/opkg/info/premier-router-core.postinst" { $2="644:0:0" }
+  { print }' "$RC5_ROLLBACK/protected-source.fingerprint" \
+  > "$TMP_ROOT/retained-postinst-fingerprint.tampered"
+mv "$TMP_ROOT/retained-postinst-fingerprint.tampered" \
+  "$RC5_ROLLBACK/protected-source.fingerprint"
+expect_rc5_bridge_rejected retained-postinst-fingerprint-mode
+stage rc5-reboot-retained-postinst-negative-cases
 
 prepare_rc5_reboot_transaction missing
 printf '%s\n' 'unauthorized operator cron drift' >> "$FAKE_ROOT/etc/crontabs/root"
