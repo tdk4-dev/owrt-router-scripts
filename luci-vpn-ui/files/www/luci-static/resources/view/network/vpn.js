@@ -478,6 +478,7 @@ return view.extend({
 		var warnings = analysis.warnings || [];
 		var needsAdoption = !!ownership.adoption_required;
 		var adopted = !!ownership.adopted;
+		var mutationsAllowed = ownership.mutations_allowed !== false;
 		var label = adopted ? _('Adopted overlay') : _('Native generated');
 		var body = [
 			E('h3', {}, _('Xray configuration ownership')),
@@ -499,6 +500,9 @@ return view.extend({
 
 		if (ownership.error && !adopted)
 			body.push(E('div', { 'class': 'vpn-muted vpn-section-note' }, ownership.error));
+		if (!mutationsAllowed)
+			body.push(E('div', { 'class': 'alert-message warning' },
+				ownership.mutation_block_reason || _('VPN configuration changes are blocked until update validation completes.')));
 
 		if (preview) {
 			body.push(E('table', { 'class': 'table' }, [
@@ -521,7 +525,7 @@ return view.extend({
 				}, preview ? _('Refresh preview') : _('Preview adoption')),
 				preview ? E('button', {
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView,
+					'disabled': isReadonlyView || !mutationsAllowed,
 					'click': ui.createHandlerFn(this, 'handleAdoptionConfirm')
 				}, _('Adopt without rewrite')) : ''
 			]));
@@ -534,7 +538,8 @@ return view.extend({
 		var services = data.services || {};
 		var ownership = data.ownership || {};
 		var enabled = !!services.vpn_enabled;
-		var mutationDisabled = !!(ownership.adopted || ownership.adoption_required || !ownership.healthy);
+		var mutationDisabled = !!(ownership.adopted || ownership.adoption_required ||
+			!ownership.healthy || ownership.mutations_allowed === false);
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Global VPN')),
@@ -651,7 +656,8 @@ return view.extend({
 
 	renderProfileTable: function(data) {
 		var profiles = data.profiles || [];
-		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
+		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
+			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
 		var subscriptionNames = {};
 		(data.subscriptions || []).forEach(function(subscription) {
 			subscriptionNames[subscription.id] = subscription.name;
@@ -720,7 +726,8 @@ return view.extend({
 	},
 
 	renderProfiles: function(data) {
-		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
+		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
+			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('VLESS profiles')),
 			E('div', { 'class': 'vpn-service-row' }, [
@@ -751,7 +758,8 @@ return view.extend({
 
 	renderSubscriptions: function(data) {
 		var subscriptions = data.subscriptions || [];
-		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
+		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
+			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
 		var rows = subscriptions.map(function(subscription) {
 			return E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td left' }, subscription.name || '-'),
@@ -807,7 +815,8 @@ return view.extend({
 
 	renderAutoSwitch: function(data) {
 		var auto = data.auto || {};
-		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
+		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
+			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Automatic server switching')),
 			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute TCP checks. Periodic optimization switches only for a substantial latency improvement.')),
@@ -854,7 +863,8 @@ return view.extend({
 
 	renderRules: function(data) {
 		var ownership = data.ownership || {};
-		var rulesDisabled = isReadonlyView || !!ownership.adoption_required || !ownership.healthy;
+		var rulesDisabled = isReadonlyView || !!ownership.adoption_required || !ownership.healthy ||
+			ownership.mutations_allowed === false;
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
 			this.renderDomainTester(),
@@ -906,6 +916,9 @@ return view.extend({
 
 	renderDevices: function(data) {
 		var devices = data.devices || [];
+		var ownership = data.ownership || {};
+		var deviceMutationDisabled = !!(ownership.adopted || ownership.adoption_required ||
+			ownership.mutations_allowed === false);
 		var rows = devices.map(function(device) {
 			var disabled = !!device.vpn_disabled;
 
@@ -920,7 +933,7 @@ return view.extend({
 				E('td', { 'class': 'td right' }, [
 					E('button', {
 						'class': 'cbi-button ' + (disabled ? 'cbi-button-positive' : 'cbi-button-negative'),
-						'disabled': isReadonlyView,
+						'disabled': isReadonlyView || deviceMutationDisabled,
 						'click': L.bind(this.handleToggleDevice, this, device)
 					}, disabled ? _('Enable') : _('Disable'))
 				])

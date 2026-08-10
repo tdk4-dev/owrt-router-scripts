@@ -489,6 +489,7 @@ protected_path_list() {
   printf '%s\n' \
     /etc/config \
     /etc/xray \
+    /etc/premier-router/xray-ownership.json \
     /etc/vpn-ui-update.conf \
     /etc/crontabs/root \
     /usr/lib/opkg/status
@@ -498,6 +499,15 @@ protected_path_list() {
         printf '/%s\n' "${path#${ROOT_PREFIX}/}"
       done
   done
+}
+
+protected_validation_path_list() {
+  printf '%s\n' \
+    /etc/config \
+    /etc/xray \
+    /etc/premier-router/xray-ownership.json \
+    /etc/vpn-ui-update.conf \
+    /etc/crontabs/root
 }
 
 fingerprint_one() {
@@ -567,7 +577,8 @@ protected_hashes() {
   : > "$out"
   (
     cd "${ROOT_PREFIX:-/}" || exit 1
-    for rel in etc/vpn-ui-update.conf etc/crontabs/root; do
+    for rel in etc/vpn-ui-update.conf etc/crontabs/root \
+      etc/premier-router/xray-ownership.json; do
       [ -f "$rel" ] && sha256sum "$rel"
     done
     for rel in etc/xray etc/config; do
@@ -581,8 +592,10 @@ protected_hashes() {
 
 snapshot_protected_state() {
   local rollback="$TXN_DIR/rollback" list="$TXN_DIR/rollback/protected.paths.list"
+  local validation_list="$TXN_DIR/rollback/protected-validation.paths.list"
   local existing="$TXN_DIR/rollback/protected.existing.list" path rel
   protected_path_list | LC_ALL=C sort -u > "$list"
+  protected_validation_path_list | LC_ALL=C sort -u > "$validation_list"
   : > "$existing"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -592,6 +605,7 @@ snapshot_protected_state() {
     fi
   done < "$list"
   fingerprint_paths "$list" "$rollback/protected-source.fingerprint"
+  fingerprint_paths "$validation_list" "$rollback/protected-validation-source.fingerprint"
   if [ -s "$existing" ]; then
     tar -czf "$rollback/protected-state.tar.gz" -C "${ROOT_PREFIX:-/}" -T "$existing" || return 1
   else
@@ -966,7 +980,7 @@ restart_local_services() {
 }
 
 candidate_validate() {
-  local manifest="$1" assets="$2" phase="$3" validator output
+  local manifest="$1" assets="$2" phase="$3" validator output current
   if [ "$phase" = candidate ] && [ -f "$TEST_MARKER.force-candidate-failure" ]; then
     rm -f "$TEST_MARKER.force-candidate-failure"
     return 1
@@ -984,7 +998,10 @@ candidate_validate() {
   "$assets/$validator" --manifest "$manifest" --source-version "$J_SOURCE_APP_VERSION" \
     --phase "$phase" --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
     > "$output" 2>> "$LOG_FILE" || return 1
-  [ "$(pr_json_get "$output" '@.ok' '.ok // false')" = true ]
+  [ "$(pr_json_get "$output" '@.ok' '.ok // false')" = true ] || return 1
+  current="$TXN_DIR/rollback/candidate-protected-validation.fingerprint"
+  fingerprint_paths "$TXN_DIR/rollback/protected-validation.paths.list" "$current"
+  cmp -s "$TXN_DIR/rollback/protected-validation-source.fingerprint" "$current"
 }
 
 commit_target() {
@@ -1581,7 +1598,7 @@ cleanup_successful_storage() {
 }
 
 target_state_validate() {
-  local phase="$1" validator="$TXN_DIR/downloads/router-candidate-validator"
+  local phase="$1" validator="$TXN_DIR/downloads/router-candidate-validator" current
   if [ ! -x "$validator" ]; then
     validator="$(pr_json_get "$TXN_DIR/router-release-manifest.json" \
       '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
@@ -1596,7 +1613,10 @@ target_state_validate() {
     "$validator" --manifest "$TXN_DIR/router-release-manifest.json" \
     --source-version "$J_SOURCE_APP_VERSION" --phase "$phase" \
     --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
-    >> "$LOG_FILE" 2>&1
+    >> "$LOG_FILE" 2>&1 || return 1
+  current="$TXN_DIR/rollback/$phase-protected-validation.fingerprint"
+  fingerprint_paths "$TXN_DIR/rollback/protected-validation.paths.list" "$current"
+  cmp -s "$TXN_DIR/rollback/protected-validation-source.fingerprint" "$current"
 }
 
 recover_transaction() {

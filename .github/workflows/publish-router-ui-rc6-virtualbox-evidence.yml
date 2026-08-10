@@ -1,0 +1,53 @@
+name: Publish supervised Mac Pro VirtualBox RC6 evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact clean RC6 candidate source commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: router-ui-mac-pro-virtualbox-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-evidence:
+    name: Publish already-supervised VirtualBox-only evidence
+    runs-on: [self-hosted, macOS, mac-pro, virtualbox]
+    environment: router-ui-mac-pro-virtualbox-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Verify exact clean source and Mac Pro VirtualBox boundary
+        run: |
+          set -Eeuo pipefail
+          printf '%s' '${{ inputs.source_sha }}' | grep -Eq '^[0-9a-f]{40}$'
+          test "$(git rev-parse HEAD)" = '${{ inputs.source_sha }}'
+          test -z "$(git status --porcelain)"
+          test "$(uname -s)" = Darwin
+          test -x /usr/local/bin/VBoxManage
+          /usr/local/bin/VBoxManage --version
+      - name: Validate the pre-existing supervised evidence bundle
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_DIR: /Users/mac-pro-host/Documents/RouterUI-local-repro/assets/release-v0.7.11-rc.6
+        run: |
+          set -Eeuo pipefail
+          export EVIDENCE_DIR="/Users/mac-pro-host/Documents/RouterUI-local-repro/evidence/rc6-final/$EXPECTED_SOURCE_SHA"
+          ./tests/integration/validate-rc6-virtualbox-evidence.sh
+          mkdir -p "$RUNNER_TEMP/virtualbox-evidence"
+          cp -a "$EVIDENCE_DIR/." "$RUNNER_TEMP/virtualbox-evidence/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: router-ui-rc6-mac-pro-virtualbox-evidence-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/virtualbox-evidence/
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true

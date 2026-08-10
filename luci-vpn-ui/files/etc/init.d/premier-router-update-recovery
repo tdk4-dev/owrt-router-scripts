@@ -6,5 +6,7 @@ STOP=89
 start() {
 	# Deliberately synchronous: an interrupted application transaction must be
 	# resolved before rpcd, uhttpd, or cron can expose/use mixed state.
-	/usr/sbin/vpn-ui-update recover
+	/usr/sbin/vpn-ui-update recover || return 1
+	[ ! -d /etc/premier-router/xray-transactions ] ||
+		/usr/sbin/vpn-ui overlay-recover >/dev/null
 }

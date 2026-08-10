@@ -1,0 +1,276 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      }
+    },
+    {
+      "tag": "transparent-in",
+      "listen": "0.0.0.0",
+      "port": 12345,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "198.51.100.200",
+            "port": 443,
+            "users": [
+              {
+                "id": "00000000-0000-4000-8000-000000000006",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "example.invalid",
+          "fingerprint": "chrome",
+          "publicKey": "sanitized-public-key",
+          "shortId": "0123456789abcdef",
+          "spiderX": "/"
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "domain": [
+        "full:valera-001.example.invalid",
+        "full:valera-002.example.invalid",
+        "full:valera-003.example.invalid",
+        "full:valera-004.example.invalid",
+        "full:valera-005.example.invalid",
+        "full:valera-006.example.invalid",
+        "full:valera-007.example.invalid",
+        "full:valera-008.example.invalid",
+        "full:valera-009.example.invalid",
+        "full:valera-010.example.invalid",
+        "full:valera-011.example.invalid",
+        "full:valera-012.example.invalid",
+        "full:valera-013.example.invalid",
+        "full:valera-014.example.invalid",
+        "full:valera-015.example.invalid",
+        "full:valera-016.example.invalid",
+        "full:valera-017.example.invalid",
+        "full:valera-018.example.invalid",
+        "full:valera-019.example.invalid",
+        "full:valera-020.example.invalid",
+        "full:valera-021.example.invalid",
+        "full:valera-022.example.invalid",
+        "full:valera-023.example.invalid",
+        "full:valera-024.example.invalid",
+        "full:valera-025.example.invalid",
+        "full:valera-026.example.invalid",
+        "full:valera-027.example.invalid",
+        "full:valera-028.example.invalid",
+        "full:valera-029.example.invalid",
+        "full:valera-030.example.invalid",
+        "full:valera-031.example.invalid",
+        "full:valera-032.example.invalid",
+        "full:valera-033.example.invalid",
+        "full:valera-034.example.invalid",
+        "full:valera-035.example.invalid",
+        "full:valera-036.example.invalid",
+        "full:valera-037.example.invalid",
+        "full:valera-038.example.invalid",
+        "full:valera-039.example.invalid",
+        "full:valera-040.example.invalid",
+        "full:valera-041.example.invalid",
+        "full:valera-042.example.invalid",
+        "full:valera-043.example.invalid",
+        "full:valera-044.example.invalid",
+        "full:valera-045.example.invalid",
+        "full:valera-046.example.invalid",
+        "full:valera-047.example.invalid",
+        "full:valera-048.example.invalid",
+        "full:valera-049.example.invalid",
+        "full:valera-050.example.invalid",
+        "full:valera-051.example.invalid",
+        "full:valera-052.example.invalid",
+        "full:valera-053.example.invalid",
+        "full:valera-054.example.invalid",
+        "full:valera-055.example.invalid",
+        "full:valera-056.example.invalid",
+        "full:valera-057.example.invalid",
+        "full:valera-058.example.invalid",
+        "full:valera-059.example.invalid",
+        "full:valera-060.example.invalid",
+        "full:valera-061.example.invalid",
+        "full:valera-062.example.invalid",
+        "full:valera-063.example.invalid",
+        "full:valera-064.example.invalid",
+        "full:valera-065.example.invalid",
+        "full:valera-066.example.invalid",
+        "full:valera-067.example.invalid",
+        "full:valera-068.example.invalid",
+        "full:valera-069.example.invalid",
+        "full:valera-070.example.invalid",
+        "full:valera-071.example.invalid",
+        "full:valera-072.example.invalid",
+        "full:valera-073.example.invalid",
+        "full:valera-074.example.invalid",
+        "full:valera-075.example.invalid",
+        "full:valera-076.example.invalid",
+        "full:valera-077.example.invalid",
+        "full:valera-078.example.invalid",
+        "full:valera-079.example.invalid",
+        "full:valera-080.example.invalid",
+        "full:valera-081.example.invalid",
+        "full:valera-082.example.invalid",
+        "full:valera-083.example.invalid",
+        "full:valera-084.example.invalid",
+        "full:valera-085.example.invalid",
+        "full:valera-086.example.invalid",
+        "full:valera-087.example.invalid",
+        "full:valera-088.example.invalid",
+        "full:valera-089.example.invalid",
+        "full:valera-090.example.invalid",
+        "full:valera-091.example.invalid",
+        "full:valera-092.example.invalid",
+        "full:valera-093.example.invalid",
+        "full:valera-094.example.invalid",
+        "full:valera-095.example.invalid",
+        "full:valera-096.example.invalid",
+        "full:valera-097.example.invalid",
+        "full:valera-098.example.invalid",
+        "full:valera-099.example.invalid",
+        "full:valera-100.example.invalid",
+        "full:valera-101.example.invalid",
+        "full:valera-102.example.invalid",
+        "full:valera-103.example.invalid",
+        "full:valera-104.example.invalid",
+        "full:valera-105.example.invalid",
+        "full:valera-106.example.invalid",
+        "full:valera-107.example.invalid",
+        "full:valera-108.example.invalid",
+        "full:valera-109.example.invalid",
+        "full:valera-110.example.invalid",
+        "full:valera-111.example.invalid",
+        "full:valera-112.example.invalid",
+        "full:valera-113.example.invalid",
+        "full:valera-114.example.invalid",
+        "full:valera-115.example.invalid",
+        "full:valera-116.example.invalid",
+        "full:valera-117.example.invalid",
+        "full:valera-118.example.invalid",
+        "full:valera-119.example.invalid",
+        "full:valera-120.example.invalid",
+        "full:valera-121.example.invalid",
+        "full:valera-122.example.invalid",
+        "full:valera-123.example.invalid",
+        "full:valera-124.example.invalid",
+        "full:valera-125.example.invalid",
+        "full:valera-126.example.invalid",
+        "full:valera-127.example.invalid",
+        "full:valera-128.example.invalid",
+        "full:valera-129.example.invalid",
+        "full:valera-130.example.invalid",
+        "full:valera-131.example.invalid",
+        "full:valera-132.example.invalid",
+        "full:valera-133.example.invalid",
+        "full:valera-134.example.invalid",
+        "full:valera-135.example.invalid",
+        "full:valera-136.example.invalid",
+        "full:valera-137.example.invalid",
+        "full:valera-138.example.invalid",
+        "full:valera-139.example.invalid",
+        "full:valera-140.example.invalid",
+        "full:valera-141.example.invalid",
+        "full:valera-142.example.invalid",
+        "full:valera-143.example.invalid",
+        "full:valera-144.example.invalid",
+        "full:valera-145.example.invalid",
+        "full:valera-146.example.invalid",
+        "full:valera-147.example.invalid",
+        "full:valera-148.example.invalid",
+        "full:valera-149.example.invalid",
+        "full:valera-150.example.invalid",
+        "full:valera-151.example.invalid",
+        "full:valera-152.example.invalid",
+        "full:valera-153.example.invalid",
+        "full:valera-154.example.invalid",
+        "full:valera-155.example.invalid",
+        "full:valera-156.example.invalid",
+        "full:valera-157.example.invalid",
+        "full:valera-158.example.invalid",
+        "full:valera-159.example.invalid",
+        "full:valera-160.example.invalid",
+        "full:valera-161.example.invalid",
+        "full:valera-162.example.invalid",
+        "full:valera-163.example.invalid",
+        "full:valera-164.example.invalid",
+        "full:valera-165.example.invalid",
+        "full:valera-166.example.invalid"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+        "198.51.100.1/32",
+        "198.51.100.2/32",
+        "198.51.100.3/32",
+        "198.51.100.4/32",
+        "198.51.100.5/32",
+        "198.51.100.6/32",
+        "198.51.100.7/32",
+        "198.51.100.8/32",
+        "198.51.100.9/32",
+        "198.51.100.10/32",
+        "198.51.100.11/32",
+        "198.51.100.12/32",
+        "198.51.100.13/32",
+        "198.51.100.14/32"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "socks-in",
+          "transparent-in"
+        ],
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}

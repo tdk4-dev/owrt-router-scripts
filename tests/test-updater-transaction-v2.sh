@@ -6,6 +6,8 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 USIGN_BIN="${TEST_USIGN_BIN:-$(command -v usign || true)}"
 [ -x "$USIGN_BIN" ] || { printf 'usign is required for transaction tests\n' >&2; exit 1; }
+UCODE_BIN="${TEST_UCODE_BIN:-$(command -v ucode || true)}"
+[ -x "$UCODE_BIN" ] || { printf 'ucode is required for adoption-aware transaction tests\n' >&2; exit 1; }
 export USIGN_BIN
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-transaction-test.XXXXXX")"
 cleanup() {
@@ -89,7 +91,16 @@ case "${1:-}" in
     printf '%s\n' "$control" > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control"
     tar -xzOf "$ipk" ./data.tar.gz | tar -tzf - > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list"
     write_status
-    if [ "$pkg" = premier-router-core ]; then
+    if [ "$pkg" = premier-router-core ] && [ "${FAKE_OPKG_KEEP_REAL_VPN_UI:-0}" = 1 ]; then
+      vpn_ui="$FAKE_ROOT/usr/sbin/vpn-ui"
+      vpn_ui_host="$vpn_ui.host-test"
+      {
+        printf '#!/bin/sh\n'
+        sed '1d' "$vpn_ui"
+      } > "$vpn_ui_host"
+      mv "$vpn_ui_host" "$vpn_ui"
+      chmod 755 "$vpn_ui"
+    elif [ "$pkg" = premier-router-core ]; then
       cat > "$FAKE_ROOT/usr/sbin/vpn-ui" <<'EOS'
 #!/bin/sh
 [ "${1:-}" = check ] || exit 1
@@ -189,6 +200,22 @@ run_supervisor() {
     VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
     VPN_UI_UPDATE_RESTART_CRON=0 \
     sh "$TMP_ROOT/release/router-update-supervisor" "$@"
+}
+
+run_supervisor_env() {
+  command="$1"
+  shift
+  env PREMIER_ROUTER_HOST_TEST=1 FAKE_ROOT="$FAKE_ROOT" \
+    PR_USIGN_BIN="$USIGN_BIN" \
+    PR_OPENWRT_RELEASE_FILE="$FAKE_ROOT/etc/openwrt_release" \
+    VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_UPDATE_LIB="$TMP_ROOT/release/router-update-lib.sh" \
+    VPN_UI_UPDATE_SELF="$TMP_ROOT/release/router-update-supervisor" \
+    VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" \
+    VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
+    VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
+    VPN_UI_UPDATE_RESTART_CRON=0 "$@" \
+    sh "$TMP_ROOT/release/router-update-supervisor" "$command"
 }
 
 probe_exact_space_requirements() {
@@ -304,6 +331,79 @@ stage 079-recovered
 [ "$(jq -r .state "$journal")" = committed ]
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
+
+# A Valera-shaped manual configuration must survive candidate and changed-boot
+# validation byte-for-byte.  Ownership may be established only after the
+# protocol-2 journal reaches committed, and rollback must restore its absence.
+reset_source 0.7.10
+mkdir -p "$FAKE_ROOT/etc/xray"
+cp "$ROOT_DIR/tests/fixtures/xray/valera-manual-config.json" \
+  "$FAKE_ROOT/etc/xray/config.json"
+manual_config_sha="$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')"
+fake_xray="$TMP_ROOT/fake-xray"
+cat > "$fake_xray" <<'EOF'
+#!/bin/sh
+[ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] &&
+  jq -e . "$4" >/dev/null 2>&1
+EOF
+chmod 755 "$fake_xray"
+manual_env() {
+  env PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/config.json \
+    VPN_UI_XRAY_BIN="$fake_xray" \
+    VPN_UI_XRAY_OVERLAY_HELPER="$FAKE_ROOT/usr/libexec/premier-router/xray-overlay.uc" \
+    VPN_UI_UCODE_BIN="$UCODE_BIN" \
+    "$FAKE_ROOT/usr/sbin/vpn-ui" "$@"
+}
+if ! run_update manual \
+  FAKE_OPKG_KEEP_REAL_VPN_UI=1 \
+  VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/config.json \
+  VPN_UI_XRAY_BIN="$fake_xray" VPN_UI_UCODE_BIN="$UCODE_BIN" \
+  > "$TMP_ROOT/manual-candidate.log" 2> "$TMP_ROOT/manual-candidate.err"; then
+  cat "$TMP_ROOT/manual-candidate.err" >&2
+  cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
+  exit 1
+fi
+transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+[ "$(jq -r .state "$journal")" = committed_pending_reboot_validation ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')" = "$manual_config_sha" ]
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+jq -e '.ok == true and
+  (.warnings | index("compatible manual Xray configuration awaits explicit post-commit adoption") != null)' \
+  "$FAKE_ROOT/root/premier-router-updates/$transaction/validator-candidate.json" >/dev/null
+manual_env adoption-preview > "$TMP_ROOT/manual-preview.json"
+jq -e '.ok == true and .adoption.analysis.domain_count == 166 and
+  .adoption.analysis.ip_count == 14' "$TMP_ROOT/manual-preview.json" >/dev/null
+manual_env adoption-confirm /etc/xray/config.json \
+  "$(jq -r .adoption.config_sha256 "$TMP_ROOT/manual-preview.json")" \
+  "$(jq -r .adoption.analysis.domain_rule_index "$TMP_ROOT/manual-preview.json")" \
+  "$(jq -r .adoption.analysis.ip_rule_index "$TMP_ROOT/manual-preview.json")" \
+  > "$TMP_ROOT/manual-pending-adoption.json"
+jq -e '.ok == false and (.error | contains("supervised reboot validation"))' \
+  "$TMP_ROOT/manual-pending-adoption.json" >/dev/null
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+printf 'boot-after-manual-candidate\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
+run_supervisor_env recover \
+  FAKE_OPKG_KEEP_REAL_VPN_UI=1 \
+  VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/config.json \
+  VPN_UI_XRAY_BIN="$fake_xray" VPN_UI_UCODE_BIN="$UCODE_BIN"
+[ "$(jq -r .state "$journal")" = committed ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')" = "$manual_config_sha" ]
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+manual_env adoption-confirm /etc/xray/config.json \
+  "$(jq -r .adoption.config_sha256 "$TMP_ROOT/manual-preview.json")" \
+  "$(jq -r .adoption.analysis.domain_rule_index "$TMP_ROOT/manual-preview.json")" \
+  "$(jq -r .adoption.analysis.ip_rule_index "$TMP_ROOT/manual-preview.json")" \
+  > "$TMP_ROOT/manual-adopted.json"
+jq -e '.ok == true and .ownership.mode == "adopted-overlay"' \
+  "$TMP_ROOT/manual-adopted.json" >/dev/null
+[ -s "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+run_supervisor rollback "$transaction"
+[ "$(jq -r .state "$journal")" = rolled_back ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')" = "$manual_config_sha" ]
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+stage adoption-aware-candidate-reboot-and-protected-rollback
 
 reset_source 0.7.10
 if ! run_update manual > "$TMP_ROOT/success.log" 2> "$TMP_ROOT/success.err"; then

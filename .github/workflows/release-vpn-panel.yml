@@ -20,14 +20,6 @@ on:
         description: Exact pre-tag candidate artifact ZIP SHA-256
         required: true
         type: string
-      baseline_pack_artifact_id:
-        description: Exact complete baseline-pack artifact ID
-        required: true
-        type: string
-      baseline_pack_artifact_zip_sha256:
-        description: Exact complete baseline-pack artifact ZIP SHA-256
-        required: true
-        type: string
 
 permissions:
   actions: read
@@ -401,7 +393,8 @@ jobs:
           retention-days: 30
 
   tagged-vm-shards:
-    name: Tagged VM shard - ${{ matrix.shard }}
+    name: Disabled diagnostic tagged QEMU shard - ${{ matrix.shard }}
+    if: ${{ false }}
     needs: verify-pretag-candidate
     strategy:
       fail-fast: false
@@ -542,8 +535,8 @@ jobs:
           include-hidden-files: true
 
   aggregate-tagged-vm-evidence:
-    name: Aggregate mandatory tagged VM evidence
-    if: always()
+    name: Disabled diagnostic tagged QEMU aggregation
+    if: ${{ false }}
     needs: [verify-pretag-candidate, tagged-vm-shards]
     runs-on: ubuntu-24.04
     steps:
@@ -596,7 +589,7 @@ jobs:
           include-hidden-files: true
 
   draft-round-trip:
-    needs: aggregate-tagged-vm-evidence
+    needs: verify-pretag-candidate
     runs-on: ubuntu-24.04
     environment: router-ui-production-release
     permissions:

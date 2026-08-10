@@ -61,11 +61,13 @@ jobs:
             tests/test-factory-schema2-staging.sh \
             tests/test-local-signing-key-lifecycle.sh \
             tests/test-recovery-lock-reproducer.sh \
+            tests/test-rc6-virtualbox-evidence.sh \
             tests/test-security-boundaries-0.7.11.sh \
             tests/test-updater-worker-start.sh \
             tests/test-xray-adopted-overlay.sh \
             tests/test-vm-controller-contract.sh \
             tests/test-vm-listener-normalization.sh \
+            tests/integration/validate-rc6-virtualbox-evidence.sh \
             tests/vm/build-synthetic-next.sh \
             tests/vm/baseline-contract-digest.sh \
             tests/vm/router-ui-vm-guest.sh \
@@ -91,6 +93,7 @@ jobs:
           node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
           node --check firstboot-wizard/server.mjs
           node --check firstboot-wizard/www/app.js
+          node --check tests/test-vpn-luci-adopted-apply.mjs
           node --check tests/vm/check-status-card.cjs
 
       - name: Run local tests
@@ -102,6 +105,7 @@ jobs:
           sh tests/test-factory-schema2-staging.sh
           sh tests/test-local-signing-key-lifecycle.sh
           sh tests/test-recovery-lock-reproducer.sh
+          sh tests/test-rc6-virtualbox-evidence.sh
           sh tests/test-router-ui-release-v2.sh
           sh tests/test-security-boundaries-0.7.11.sh
           sh tests/test-updater-transaction-v2.sh
@@ -114,3 +118,4 @@ jobs:
           sh tests/test-vm-listener-normalization.sh
           bash tests/test-vm-recovery-readiness.sh
           node tests/test-tailscale-ping-ui.mjs
+          node tests/test-vpn-luci-adopted-apply.mjs

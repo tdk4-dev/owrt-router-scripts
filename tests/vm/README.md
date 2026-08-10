@@ -1,6 +1,6 @@
 # Router UI VM test architecture
 
-The VM gate has three deliberately separate workflows:
+The test architecture has four deliberately separate workflows:
 
 1. Ordinary push/pull-request CI runs shell, unit, and fixture-contract tests.
    It never invokes production signing or a VM workflow.
@@ -15,8 +15,13 @@ The VM gate has three deliberately separate workflows:
    product/builder commits, manifest hashes, and signing provenance are derived
    into immutable descriptor files and checked against the downloaded bytes.
    Diagnostic mode rebuilds nothing and has no signing or publication
-   permission. The protected candidate and tagged release workflows use the
-   same descriptor verification for their full gates.
+   permission. Its QEMU results never authorize an RC6 candidate or release.
+4. `publish-router-ui-rc6-virtualbox-evidence.yml` runs only on the protected
+   self-hosted Mac Pro runner. It validates and publishes an already-supervised
+   VirtualBox evidence bundle for the exact source SHA. The protected candidate
+   consumes that immutable artifact and refuses QEMU-backed evidence; the tagged
+   release accepts only a successful pre-tag candidate whose VirtualBox-only job
+   passed.
 
 Baseline compatibility is the digest emitted by
 `baseline-contract-digest.sh`, not equality between the baseline builder and
@@ -31,10 +36,11 @@ from consumer-harness identity. The 0.7.11 release deliberately retains the
 single digest contract, so a VM gate or guest harness change requires one new
 self-validated baseline pack.
 
-Every VM is serial. QEMU receives `-m 256`; the harness records only the PID it
-started, terminates and waits for that PID, and does not inspect other host QEMU
-processes. Baseline consumers inject a fresh disposable SSH key and TLS CA over
-the serial console, so no private key is stored in the baseline artifact.
+Every diagnostic QEMU VM is serial. QEMU receives `-m 256`; the harness records
+only the PID it started, terminates and waits for that PID, and does not inspect
+other host QEMU processes. Baseline consumers inject a fresh disposable SSH key
+and TLS CA over the serial console, so no private key is stored in the baseline
+artifact. These diagnostics are not RC6 release evidence.
 
 ## Manual selectors
 
@@ -63,6 +69,7 @@ QEMU PID and serial evidence, terminates the owned process tree, and waits for
 it. Targeted diagnostic and single-version baseline jobs are capped at 90
 minutes; only complete matrices/packs retain the 360-minute job cap.
 
-Baseline artifacts and diagnostic artifacts are evidence, not release
-authorization. Only a fresh protected candidate run from the final exact source
-SHA can authorize merge, tag, draft, or publication.
+Baseline and QEMU diagnostic artifacts are not release authorization. RC6
+authorization requires the final exact source SHA, production fingerprint
+`d055711acf1d9a5b`, and an immutable supervised Mac Pro VirtualBox evidence
+bundle that passes `validate-rc6-virtualbox-evidence.sh`.

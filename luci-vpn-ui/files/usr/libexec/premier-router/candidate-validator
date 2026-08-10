@@ -17,6 +17,7 @@ OPKG_BIN="${PREMIER_ROUTER_OPKG_BIN:-opkg}"
 VPN_UI_BIN="${PREMIER_ROUTER_VPN_UI_BIN:-${ROOT}/usr/sbin/vpn-ui}"
 INSTALLED_MANIFEST="${PREMIER_ROUTER_INSTALLED_MANIFEST:-${ROOT}/etc/premier-router/installed-manifest.json}"
 BUILD_INFO="${PREMIER_ROUTER_BUILD_INFO:-${ROOT}/usr/share/premier-router/build-info}"
+OWNERSHIP_STATE="${PREMIER_ROUTER_XRAY_OWNERSHIP_STATE:-${ROOT}/etc/premier-router/xray-ownership.json}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -151,7 +152,33 @@ if [ -x "$VPN_UI_BIN" ]; then
     CHECK_JSON="$TMP.check.json"
     if "$VPN_UI_BIN" check > "$CHECK_JSON" 2>/dev/null; then
       check_ok="$(pr_json_get "$CHECK_JSON" '@.ok' '.ok // false')"
-      [ "$check_ok" = "true" ] || fatal "local VPN configuration check returned false"
+      if [ "$check_ok" != "true" ]; then
+        check_error="$(pr_json_get "$CHECK_JSON" '@.error' '.error // empty')"
+        case "$check_error" in
+          'active Xray configuration requires explicit adoption before mutation:'*)
+            if [ -e "$OWNERSHIP_STATE" ] || [ -L "$OWNERSHIP_STATE" ]; then
+              fatal "manual Xray configuration has unexpected ownership metadata"
+            else
+              PREVIEW_JSON="$TMP.adoption-preview.json"
+              if "$VPN_UI_BIN" adoption-preview > "$PREVIEW_JSON" 2>/dev/null &&
+                [ "$(pr_json_get "$PREVIEW_JSON" '@.ok' '.ok // false')" = true ] &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.path' '.adoption.path // empty')" |
+                  grep -Eq '^/etc/xray/[A-Za-z0-9._-]+\.json$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.config_sha256' '.adoption.config_sha256 // empty')" |
+                  grep -Eq '^[0-9a-f]{64}$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.analysis.domain_rule_index' '.adoption.analysis.domain_rule_index // empty')" |
+                  grep -Eq '^[0-9]+$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.analysis.ip_rule_index' '.adoption.analysis.ip_rule_index // empty')" |
+                  grep -Eq '^[0-9]+$'; then
+                warn "compatible manual Xray configuration awaits explicit post-commit adoption"
+              else
+                fatal "manual Xray configuration is not compatible with read-only adoption preview"
+              fi
+            fi
+            ;;
+          *) fatal "local VPN configuration check returned false" ;;
+        esac
+      fi
     else
       fatal "local VPN configuration check failed"
     fi

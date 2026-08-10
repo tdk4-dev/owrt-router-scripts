@@ -42,7 +42,7 @@ sh "$TMP_ROOT/vpn-ui-readonly" test-domain example.com |
   grep -Fq '"ok":true'
 [ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 7 ]
 
-for command in init refresh-pings add select delete adoption-confirm apply-rules check device xray \
+for command in init refresh-pings add select delete adoption-confirm overlay-recover apply-rules check device xray \
   subscription-add subscription-sync subscription-delete subscription-preview \
   validate-vless auto-config auto-tick tailscale-up tailscale-logout \
   tailscale-restart tailscale-stop update-check-start update-apply-start update-auto
@@ -58,6 +58,12 @@ grep -Fq 'adoption-confirm' "$HELPER"
 grep -Fq 'adoption-preview' "$HELPER"
 grep -Fq 'profile changes are disabled in adopted-overlay mode' "$HELPER"
 sed -n '/^cmd_xray()/,/^}/p' "$HELPER" | grep -Fq 'require_native_ownership'
+sed -n '/^cmd_device()/,/^}/p' "$HELPER" | grep -Fq 'require_native_ownership'
+! sed -n '/^cmd_check()/,/^}/p' "$HELPER" | grep -Fq 'init_state'
+sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'update_mutation_status || exit 0'
+sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'adoption_state_load && exit 0'
+sed -n '/^case "${1:-status}" in/,/^[[:space:]]*status)/p' "$HELPER" |
+  grep -Fq 'require_native_ownership'
 grep -Fq "'disabled': isReadonlyView || mutationDisabled" "$VPN_VIEW"
 ! grep -Fq '"protocol": ["bittorrent"]' "$HELPER"
 ! grep -Fq '"port": "8080"' "$HELPER"

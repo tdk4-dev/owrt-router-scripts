@@ -32,7 +32,23 @@ records. A rollback is reported as successful only after source validation.
 Candidate validation ends in `committed_pending_reboot_validation`, not final
 success. Only a later boot with a different boot ID may clean compatibility
 files, run the target post-reboot validator, and advance the transaction to
-`committed`.
+`committed`. VPN configuration mutations, including Xray adoption and direct
+rule application, are blocked until that final state. A compatible,
+unambiguous manual Xray configuration may pass candidate and post-reboot
+validation through a read-only adoption preview; validation never adopts it.
+
+Protocol-v2 protected state includes `/etc/premier-router/xray-ownership.json`
+as well as the Xray and UCI configuration trees. Its presence, absence, bytes,
+fingerprint, snapshot, and exact rollback are therefore part of the update
+transaction contract.
+
+Adopted-overlay changes use a separate exclusive lock and schema-2 phase
+journal under `/etc/premier-router/xray-transactions`. Each transaction keeps
+exact configuration, rule-list, and ownership preimages, rechecks the live
+configuration immediately before every persistent mutation, and recovers
+deterministically before rpcd, uhttpd, or cron starts. Unknown external Xray
+bytes are never overwritten during recovery. Completed transaction retention
+is bounded; unresolved recovery evidence is retained.
 
 The pre-mutation reservation is derived from the verified target archives and
 accounts for target assets, extracted package and opkg overhead, exact legacy
