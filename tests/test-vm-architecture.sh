@@ -129,11 +129,11 @@ for shard in legacy protocol-concurrency-storage faults-a faults-b; do
   grep -q "$shard" "$CANDIDATE" || fail "candidate VM shard is missing: $shard"
 done
 grep -q '^  aggregate-vm-evidence:' "$CANDIDATE" ||
-  fail 'candidate has no mandatory evidence aggregation job'
+  fail 'candidate has no supplemental QEMU evidence aggregation job'
 grep -Fq "if: \${{ always() && needs.assemble-and-sign.result == 'success' }}" "$CANDIDATE" ||
   fail 'candidate aggregation still emits a secondary failure when assembly is skipped'
-grep -q 'Aggregate mandatory VM evidence' "$CANDIDATE" ||
-  fail 'candidate aggregation job is not an explicit authorization boundary'
+grep -q 'Aggregate supplemental QEMU evidence' "$CANDIDATE" ||
+  fail 'candidate QEMU evidence is not explicitly labeled supplemental'
 grep -q 'aggregate-candidate-evidence.sh' "$CANDIDATE" ||
   fail 'candidate aggregation job does not run the completeness validator'
 grep -q '^  rd23-stock-image:' "$CANDIDATE" &&
@@ -165,6 +165,8 @@ grep -q 'maximum_parallel_vm_jobs:2' "$AGGREGATOR" ||
   fail 'aggregated evidence does not record the two-VM maximum'
 grep -q 'individual_shards_authorize_release:false' "$AGGREGATOR" ||
   fail 'individual shard evidence can be mistaken for release authorization'
+grep -q 'release_authorized:false' "$AGGREGATOR" ||
+  fail 'supplemental QEMU evidence can be mistaken for release authorization'
 for workflow in "$CANDIDATE" "$RELEASE"; do
   grep -q 'write-candidate-content-descriptor.sh' "$workflow" ||
     fail "workflow does not persist a candidate content descriptor: $workflow"

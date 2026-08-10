@@ -201,11 +201,11 @@ load_release_contracts() {
     selected_status=previous
     candidate_channel_expected=stable
   else
-    CANDIDATE_CONTRACT_MODE=rc5-active-key
-    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.5 ]] ||
-      fail "candidate app version is not the RC5 contract: $CANDIDATE_APP_VERSION"
-    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc5-1' ]] ||
-      fail "candidate package version is not the opkg-safe RC5 contract: $CANDIDATE_PACKAGE_VERSION"
+    CANDIDATE_CONTRACT_MODE=rc6-active-key
+    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.6 ]] ||
+      fail "candidate app version is not the RC6 contract: $CANDIDATE_APP_VERSION"
+    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc6-1' ]] ||
+      fail "candidate package version is not the opkg-safe RC6 contract: $CANDIDATE_PACKAGE_VERSION"
     [[ "$SUCCESSOR_APP_VERSION" = 0.7.11 &&
       "$SUCCESSOR_PACKAGE_VERSION" = 0.7.11-1 ]] ||
       fail "synthetic successor is not stable 0.7.11"
@@ -1213,16 +1213,46 @@ run_dual_daemon() {
 }
 
 run_protocol_v2() {
+  local poll state
   VM_ACTIVE_VERSION="$CANDIDATE_APP_VERSION"
   disk="$WORK/protocol-v2.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_candidate_vm "$disk" protocol-v2; record_measurement protocol-v2
   discovery="$ORIGIN/releases/download/$SUCCESSOR_RELEASE_TAG"
   protected_before="$(guest protected-hash)"; usage_before="$(measure_stock)"
-  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start" >/tmp/protocol-v2.log
-  guest verify-update-available "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" \
-    "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION"
-  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >>/tmp/protocol-v2.log
-  transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' /usr/sbin/vpn-ui-update check-start" \
+    > "$EVIDENCE_DIR/protocol-v2-check-start.json"
+  jq -e '.ok and .started and .job == "check"' \
+    "$EVIDENCE_DIR/protocol-v2-check-start.json" >/dev/null || fail "detached update check did not start"
+  state=waiting
+  for poll in {1..120}; do
+    if guest verify-update-available "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" \
+      "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" >/dev/null 2>&1; then
+      state=available
+      break
+    fi
+    sleep 1
+  done
+  [[ "$state" = available ]] || fail "detached update check did not publish verified availability"
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' /usr/sbin/vpn-ui-update apply-start" \
+    > "$EVIDENCE_DIR/protocol-v2-apply-start.json"
+  jq -e '.ok and .started and .job == "apply"' \
+    "$EVIDENCE_DIR/protocol-v2-apply-start.json" >/dev/null || fail "detached update apply did not start"
+  transaction=""
+  state=waiting
+  for poll in {1..180}; do
+    transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction 2>/dev/null || true)"
+    if [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]]; then
+      state="$("${ssh_base[@]}" "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" 2>/dev/null || true)"
+      if [[ "$state" = committed_pending_reboot_validation ]] &&
+        ! "${ssh_base[@]}" test -d /root/premier-router-updates/update.lock 2>/dev/null; then
+        break
+      fi
+      case "$state" in rollback_failed|recovery_required) fail "detached updater reached unsafe state: $state" ;; esac
+    fi
+    sleep 1
+  done
+  [[ "$state" = committed_pending_reboot_validation ]] ||
+    fail "detached update apply did not reach a pending committed state"
   guest verify-target "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" \
     "$CANDIDATE_APP_VERSION" pending
   usage_candidate_one="$(measure_stock)"

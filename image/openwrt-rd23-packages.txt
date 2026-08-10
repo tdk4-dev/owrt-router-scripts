@@ -3,6 +3,7 @@
 -dnsmasq
 cgi-io
 coreutils-base64
+coreutils-nohup
 curl
 dnsmasq-full
 jsonfilter
@@ -16,5 +17,7 @@ nftables-json
 rpcd-mod-file
 socat
 tailscale
+ucode
+ucode-mod-fs
 usign
 xray-core

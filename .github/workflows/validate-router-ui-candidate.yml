@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Exact 0.7.11-rc.5 candidate source commit SHA
+        description: Exact 0.7.11-rc.6 candidate source commit SHA
         required: true
         type: string
       baseline_pack_artifact_id:
@@ -25,9 +25,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_VERSION: 0.7.11-rc.5
-  PACKAGE_VERSION: 0.7.11~rc5-1
-  RELEASE_BASENAME: release-v0.7.11-rc.5
+  APP_VERSION: 0.7.11-rc.6
+  PACKAGE_VERSION: 0.7.11~rc6-1
+  RELEASE_BASENAME: release-v0.7.11-rc.6
   ROUTER_UI_SIGNING_KEY_ID: production-2026-07
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-      - name: Verify exact clean 0.7.11-rc.5 source
+      - name: Verify exact clean 0.7.11-rc.6 source
         run: |
           printf '%s' '${{ inputs.source_sha }}' | grep -Eq '^[0-9a-f]{40}$'
           test "$(git rev-parse HEAD)" = '${{ inputs.source_sha }}'
@@ -588,7 +588,7 @@ jobs:
           include-hidden-files: true
 
   aggregate-vm-evidence:
-    name: Aggregate mandatory VM evidence
+    name: Aggregate supplemental QEMU evidence
     if: ${{ always() && needs.assemble-and-sign.result == 'success' }}
     needs: [assemble-and-sign, vm-shards]
     runs-on: ubuntu-24.04
@@ -614,7 +614,7 @@ jobs:
         with:
           pattern: candidate-vm-evidence-*-${{ inputs.source_sha }}
           path: ${{ runner.temp }}/vm-shards
-      - name: Require every shard and aggregate all mandatory evidence
+      - name: Require every shard and aggregate supplemental QEMU evidence
         env:
           EVIDENCE_ROOT: ${{ runner.temp }}/vm-shards
           RELEASE_DIR: ${{ runner.temp }}/${{ env.RELEASE_BASENAME }}

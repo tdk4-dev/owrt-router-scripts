@@ -62,6 +62,13 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   RELEASE_DIR="$TMP_ROOT/release" SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DIRTY=false \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
+jq -e '
+  .app_version == "0.7.11-rc.6" and .package_version == "0.7.11~rc6-1" and
+  any(.transitions[]; .source_version == "0.7.11-rc.5" and
+    .source_protocol == 2 and .mode == "package-v2-rc") and
+  (any(.transitions[]; .source_version == "0.7.11-rc.4" and
+    .source_protocol == 2) | not)
+' "$TMP_ROOT/release/router-release-manifest.json" >/dev/null
 
 # A caller may itself be a strict candidate job. The deliberately
 # version-mutated synthetic successor must remain a bounded disposable VM
@@ -71,7 +78,9 @@ STRICT_RELEASE=1 OUTPUT_DIR="$TMP_ROOT/synthetic-next" \
   "$ROOT_DIR/tests/vm/build-synthetic-next.sh" >/dev/null
 jq -e --arg source "$SOURCE_COMMIT" '
   .app_version == "0.7.11" and .package_version == "0.7.11-1" and
-  .source_commit == $source and .source_dirty == false
+  .source_commit == $source and .source_dirty == false and
+  any(.transitions[]; .source_version == "0.7.11-rc.6" and
+    .source_protocol == 2 and .mode == "package-v2-rc")
 ' "$TMP_ROOT/synthetic-next/router-release-manifest.json" >/dev/null
 
 RELEASE_DIR="$TMP_ROOT/release" \
@@ -400,6 +409,11 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control
 grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx "X-Premier-App-Version: $APP_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx 'X-Premier-Release-Channel: candidate' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*coreutils-nohup' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*ucode-mod-fs' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*ucode' "$TMP_ROOT/core-control"
+tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
+  tar -tzf - | grep -Fq './usr/libexec/premier-router/xray-overlay.uc'
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-setup_${PKG_VERSION}_all.ipk" ./control.tar.gz |
   tar -xzOf - ./preinst > "$TMP_ROOT/setup-preinst"
 grep -Fq '[ -n "${IPKG_INSTROOT:-}" ] && exit 0' "$TMP_ROOT/setup-preinst"
