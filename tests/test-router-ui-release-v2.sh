@@ -66,6 +66,8 @@ jq -e '
   .app_version == "0.7.11-rc.6" and .package_version == "0.7.11~rc6-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
+  any(.transitions[]; .source_version == "0.7.11-rc.6" and
+    .source_protocol == 2 and .mode == "package-v2-rc") and
   (any(.transitions[]; .source_version == "0.7.11-rc.4" and
     .source_protocol == 2) | not)
 ' "$TMP_ROOT/release/router-release-manifest.json" >/dev/null

@@ -191,8 +191,11 @@ else
     .app_version == "0.7.11-rc.6" and .package_version == "0.7.11~rc6-1" and
     any(.transitions[];
       .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
+      .mode == "package-v2-rc") and
+    any(.transitions[];
+      .source_version == "0.7.11-rc.6" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "RC6 release does not authorize the exact RC5 protocol-2 transition"
+  ' "$MANIFEST" >/dev/null || fail "RC6 release does not authorize the RC5 and RC6 protocol-2 transitions"
 fi
 [ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
   "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||

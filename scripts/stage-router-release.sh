@@ -262,7 +262,7 @@ else
 fi
 
 if [ "$RELEASE_CHANNEL" = candidate ]; then
-  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"}]'
+  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.6","source_protocol":2,"mode":"package-v2-rc"}]'
 else
   PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.6","source_protocol":2,"mode":"package-v2-rc"}]'
 fi
