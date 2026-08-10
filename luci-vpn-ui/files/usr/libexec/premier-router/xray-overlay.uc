@@ -81,6 +81,108 @@ function inspect(config) {
 	};
 }
 
+function inspect_proxy(config) {
+	let outbounds = config?.outbounds;
+	let matches = [];
+
+	if (type(outbounds) != 'array')
+		fail('Xray outbounds is missing or is not an array');
+
+	for (let i = 0; i < length(outbounds); i++) {
+		let outbound = outbounds[i];
+		if (type(outbound) == 'object' && outbound.tag == 'proxy' &&
+		    outbound.protocol == 'vless')
+			push(matches, i);
+	}
+
+	if (length(matches) != 1)
+		fail(sprintf('expected exactly one proxy VLESS outbound, found %d', length(matches)));
+
+	let index = matches[0];
+	let outbound = outbounds[index];
+	let vnext = outbound?.settings?.vnext;
+	let users = type(vnext) == 'array' && length(vnext) == 1 ? vnext[0]?.users : null;
+	let reality = outbound?.streamSettings?.realitySettings;
+
+	if (type(vnext) != 'array' || length(vnext) != 1 ||
+	    type(vnext[0]) != 'object' || type(users) != 'array' || length(users) != 1 ||
+	    type(users[0]) != 'object' || outbound?.streamSettings?.network != 'tcp' ||
+	    outbound?.streamSettings?.security != 'reality' || type(reality) != 'object')
+		fail('proxy VLESS outbound is outside the supported single-server Reality TCP layout');
+
+	return index;
+}
+
+function load_profile(path) {
+	let profile = load_json(path);
+	let required = [
+		'address', 'uuid', 'server_name', 'fingerprint', 'public_key',
+		'short_id', 'spider_x', 'old_vps_ip', 'new_vps_ip'
+	];
+
+	for (let key in required)
+		if (type(profile[key]) != 'string' || !length(profile[key]))
+			fail('adopted profile input is missing a required string');
+	if (type(profile.flow) != 'string' || type(profile.port) != 'int' ||
+	    profile.port < 1 || profile.port > 65535)
+		fail('adopted profile input has an invalid flow or port');
+
+	return profile;
+}
+
+function patch_profile(candidate, details, profile) {
+	let outbound_index = inspect_proxy(candidate);
+	let outbound = candidate.outbounds[outbound_index];
+	let server = outbound.settings.vnext[0];
+	let user = server.users[0];
+	let reality = outbound.streamSettings.realitySettings;
+	let endpoint_match = profile.old_vps_ip + '/32';
+	let replacement = profile.new_vps_ip + '/32';
+	let endpoint_count = 0;
+	let endpoint_rule = -1;
+	let endpoint_item = -1;
+
+	for (let i = 0; i < length(candidate.routing.rules); i++) {
+		let rule = candidate.routing.rules[i];
+		if (i == details.ip_rule_index || type(rule) != 'object' ||
+		    rule.outboundTag != 'direct' || type(rule.ip) != 'array')
+			continue;
+		for (let j = 0; j < length(rule.ip); j++) {
+			if (rule.ip[j] == endpoint_match) {
+				endpoint_count++;
+				endpoint_rule = i;
+				endpoint_item = j;
+			}
+		}
+	}
+
+	if (endpoint_count != 1)
+		fail(sprintf('expected exactly one isolated current endpoint bypass, found %d', endpoint_count));
+
+	server.address = profile.address;
+	server.port = profile.port;
+	user.id = profile.uuid;
+	user.encryption = 'none';
+	if (length(profile.flow))
+		user.flow = profile.flow;
+	else
+		delete user.flow;
+	outbound.streamSettings.network = 'tcp';
+	outbound.streamSettings.security = 'reality';
+	reality.serverName = profile.server_name;
+	reality.fingerprint = profile.fingerprint;
+	reality.publicKey = profile.public_key;
+	reality.shortId = profile.short_id;
+	reality.spiderX = profile.spider_x;
+	candidate.routing.rules[endpoint_rule].ip[endpoint_item] = replacement;
+
+	return {
+		outbound_index: outbound_index,
+		endpoint_rule_index: endpoint_rule,
+		endpoint_item_index: endpoint_item
+	};
+}
+
 function read_list(path) {
 	let content = readfile(path);
 	let values = [];
@@ -100,6 +202,11 @@ function read_list(path) {
 	}
 
 	return values;
+}
+
+function patch_rules(candidate, details, domain_input, ip_input) {
+	candidate.routing.rules[details.domain_rule_index].domain = read_list(domain_input);
+	candidate.routing.rules[details.ip_rule_index].ip = read_list(ip_input);
 }
 
 function deep_equal_except(a, b, path, excluded) {
@@ -165,7 +272,7 @@ if (command == 'extract') {
 	exit(0);
 }
 
-if (command == 'patch') {
+if (command == 'patch' || command == 'patch-profile') {
 	let domain_index = +ARGV[2];
 	let ip_index = +ARGV[3];
 	let domain_input = ARGV[4];
@@ -176,12 +283,23 @@ if (command == 'patch') {
 		fail('adopted selectors no longer identify the unique managed arrays');
 
 	let candidate = json(readfile(config_path));
-	candidate.routing.rules[domain_index].domain = read_list(domain_input);
-	candidate.routing.rules[ip_index].ip = read_list(ip_input);
+	patch_rules(candidate, details, domain_input, ip_input);
 
 	let excluded = {};
 	excluded[sprintf('$.routing.rules[%d].domain', domain_index)] = true;
 	excluded[sprintf('$.routing.rules[%d].ip', ip_index)] = true;
+	let profile_details = null;
+	if (command == 'patch-profile') {
+		let profile = load_profile(ARGV[7]);
+		profile_details = patch_profile(candidate, details, profile);
+		excluded[sprintf('$.outbounds[%d].settings.vnext[0].address', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.outbounds[%d].settings.vnext[0].port', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.outbounds[%d].settings.vnext[0].users[0]', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.outbounds[%d].streamSettings.network', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.outbounds[%d].streamSettings.security', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.outbounds[%d].streamSettings.realitySettings', profile_details.outbound_index)] = true;
+		excluded[sprintf('$.routing.rules[%d].ip', profile_details.endpoint_rule_index)] = true;
+	}
 	if (!deep_equal_except(source, candidate, '$', excluded))
 		fail('non-managed Xray JSON semantics changed');
 
@@ -191,6 +309,7 @@ if (command == 'patch') {
 	print({
 		ok: true,
 		non_managed_semantics_unchanged: true,
+		profile_updated: command == 'patch-profile',
 		domain_rule_index: domain_index,
 		ip_rule_index: ip_index,
 		domain_count: length(candidate.routing.rules[domain_index].domain),

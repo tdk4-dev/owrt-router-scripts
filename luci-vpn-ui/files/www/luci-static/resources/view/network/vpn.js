@@ -495,7 +495,7 @@ return view.extend({
 		else if (adopted)
 			body.push(E('div', { 'class': ownership.healthy ? 'vpn-muted vpn-section-note' : 'alert-message warning' },
 				ownership.healthy
-					? _('Only the adopted direct-domain and direct-IP arrays may be changed. Profile and service controls are disabled.')
+					? _('Router UI preserves the adopted Xray layout while managing profiles, subscriptions, services, devices, and direct-routing arrays.')
 					: (ownership.error || _('The adopted configuration drifted; mutations are disabled.'))));
 
 		if (ownership.error && !adopted)
@@ -538,8 +538,8 @@ return view.extend({
 		var services = data.services || {};
 		var ownership = data.ownership || {};
 		var enabled = !!services.vpn_enabled;
-		var mutationDisabled = !!(ownership.adopted || ownership.adoption_required ||
-			!ownership.healthy || ownership.mutations_allowed === false);
+		var mutationDisabled = !!(ownership.adoption_required || !ownership.healthy ||
+			ownership.mutations_allowed === false) || null;
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Global VPN')),
@@ -656,8 +656,8 @@ return view.extend({
 
 	renderProfileTable: function(data) {
 		var profiles = data.profiles || [];
-		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
-			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
+		var profileMutationDisabled = !!((data.ownership || {}).adoption_required ||
+			!(data.ownership || {}).healthy || (data.ownership || {}).mutations_allowed === false) || null;
 		var subscriptionNames = {};
 		(data.subscriptions || []).forEach(function(subscription) {
 			subscriptionNames[subscription.id] = subscription.name;
@@ -726,8 +726,8 @@ return view.extend({
 	},
 
 	renderProfiles: function(data) {
-		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
-			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
+		var profileMutationDisabled = !!((data.ownership || {}).adoption_required ||
+			!(data.ownership || {}).healthy || (data.ownership || {}).mutations_allowed === false) || null;
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('VLESS profiles')),
 			E('div', { 'class': 'vpn-service-row' }, [
@@ -758,8 +758,8 @@ return view.extend({
 
 	renderSubscriptions: function(data) {
 		var subscriptions = data.subscriptions || [];
-		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
-			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
+		var profileMutationDisabled = !!((data.ownership || {}).adoption_required ||
+			!(data.ownership || {}).healthy || (data.ownership || {}).mutations_allowed === false) || null;
 		var rows = subscriptions.map(function(subscription) {
 			return E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td left' }, subscription.name || '-'),
@@ -815,8 +815,8 @@ return view.extend({
 
 	renderAutoSwitch: function(data) {
 		var auto = data.auto || {};
-		var profileMutationDisabled = !!((data.ownership || {}).adopted ||
-			(data.ownership || {}).adoption_required || (data.ownership || {}).mutations_allowed === false);
+		var profileMutationDisabled = !!((data.ownership || {}).adoption_required ||
+			!(data.ownership || {}).healthy || (data.ownership || {}).mutations_allowed === false) || null;
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Automatic server switching')),
 			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute TCP checks. Periodic optimization switches only for a substantial latency improvement.')),
@@ -917,8 +917,8 @@ return view.extend({
 	renderDevices: function(data) {
 		var devices = data.devices || [];
 		var ownership = data.ownership || {};
-		var deviceMutationDisabled = !!(ownership.adopted || ownership.adoption_required ||
-			ownership.mutations_allowed === false);
+		var deviceMutationDisabled = !!(ownership.adoption_required || !ownership.healthy ||
+			ownership.mutations_allowed === false) || null;
 		var rows = devices.map(function(device) {
 			var disabled = !!device.vpn_disabled;
 

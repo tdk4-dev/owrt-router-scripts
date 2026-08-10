@@ -5,17 +5,17 @@ umask 077
 ROOT_PREFIX="${VPN_UI_ROOT_PREFIX:-}"
 NATIVE_XRAY_CONFIG="/etc/xray/exit-st-cf.json"
 XRAY_CONFIG="$NATIVE_XRAY_CONFIG"
-PROFILE_DIR="/etc/xray/vless-profiles.d"
-SELECTED_FILE="/etc/xray/vless-selected"
-DOMAINS_FILE="/etc/xray/direct-domains.txt"
-IPS_FILE="/etc/xray/direct-ips.txt"
+PROFILE_DIR="${VPN_UI_PROFILE_DIR:-${ROOT_PREFIX}/etc/xray/vless-profiles.d}"
+SELECTED_FILE="${VPN_UI_SELECTED_FILE:-${ROOT_PREFIX}/etc/xray/vless-selected}"
+DOMAINS_FILE="${VPN_UI_DOMAINS_FILE:-${ROOT_PREFIX}/etc/xray/direct-domains.txt}"
+IPS_FILE="${VPN_UI_IPS_FILE:-${ROOT_PREFIX}/etc/xray/direct-ips.txt}"
 TRANSPARENT_INIT="/etc/init.d/xray-transparent"
-DEVICE_BYPASS_FILE="/etc/xray/vpn-ui-device-bypass-macs.txt"
-SUBSCRIPTION_DIR="/etc/xray/subscriptions.d"
-AUTO_CONFIG="/etc/xray/vpn-ui-auto.conf"
-AUTO_POOL_FILE="/etc/xray/vpn-ui-auto-pool.txt"
-AUTO_STATE="/tmp/vpn-ui-auto-state"
-PING_DIR="/tmp/vpn-ui-pings"
+DEVICE_BYPASS_FILE="${VPN_UI_DEVICE_BYPASS_FILE:-${ROOT_PREFIX}/etc/xray/vpn-ui-device-bypass-macs.txt}"
+SUBSCRIPTION_DIR="${VPN_UI_SUBSCRIPTION_DIR:-${ROOT_PREFIX}/etc/xray/subscriptions.d}"
+AUTO_CONFIG="${VPN_UI_AUTO_CONFIG:-${ROOT_PREFIX}/etc/xray/vpn-ui-auto.conf}"
+AUTO_POOL_FILE="${VPN_UI_AUTO_POOL_FILE:-${ROOT_PREFIX}/etc/xray/vpn-ui-auto-pool.txt}"
+AUTO_STATE="${VPN_UI_AUTO_STATE:-${ROOT_PREFIX}/tmp/vpn-ui-auto-state}"
+PING_DIR="${VPN_UI_PING_DIR:-${ROOT_PREFIX}/tmp/vpn-ui-pings}"
 VERSION_FILE="/usr/share/vpn-ui/version"
 DHCP_LEASES_FILE="/tmp/dhcp.leases"
 NFT_FAMILY="inet"
@@ -169,6 +169,13 @@ host_path() {
     /*) printf '%s%s' "$ROOT_PREFIX" "$1" ;;
     *) return 1 ;;
   esac
+}
+
+managed_state_path() {
+  if [ -n "$ROOT_PREFIX" ]; then
+    case "$1" in "$ROOT_PREFIX"/*) printf '%s' "$1"; return 0 ;; esac
+  fi
+  host_path "$1"
 }
 
 json_value() {
@@ -373,6 +380,29 @@ require_native_ownership() {
   require_native_ownership_readonly
 }
 
+require_adopted_ownership() {
+  local actual_hash
+
+  adoption_state_load || die_json "adopted-overlay state is missing or invalid"
+  discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+  [ "$ACTIVE_XRAY_CONFIG" = "$OWNERSHIP_PATH" ] ||
+    die_json "active Xray configuration path drifted from the adopted path"
+  safe_adopted_config_file "$OWNERSHIP_PATH" ||
+    die_json "adopted Xray configuration path is unsafe, missing, or symlinked"
+  actual_hash="$(config_sha256 "$OWNERSHIP_PATH")"
+  [ "$actual_hash" = "$OWNERSHIP_CONFIG_HASH" ] ||
+    die_json "adopted Xray configuration bytes changed outside Router UI"
+}
+
+require_managed_ownership() {
+  require_update_committed_for_mutation
+  if adoption_state_load; then
+    require_adopted_ownership
+  else
+    require_native_ownership_readonly
+  fi
+}
+
 safe_native_config_target() {
   local actual parent
   actual="$(host_path "$NATIVE_XRAY_CONFIG")" || return 1
@@ -418,11 +448,13 @@ json_vnext_number_value() {
 }
 
 detect_vps_ip_from_transparent() {
-  [ -f "$TRANSPARENT_INIT" ] || return 0
+  local init_actual
+  init_actual="$(managed_state_path "$TRANSPARENT_INIT")" || return 0
+  [ -f "$init_actual" ] || return 0
   sed -n \
     -e 's/^[[:space:]]*FIN0_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
     -e 's/^[[:space:]]*VPS_IP=["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}.*/\1/p' \
-    "$TRANSPARENT_INIT" |
+    "$init_actual" |
     sed -n '1p'
 }
 
@@ -1108,9 +1140,11 @@ cmd_adoption_confirm() {
     cleanup_adoption_metadata
     die_json "could not preserve the exact Xray preimage"
   }
-  backup_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
-    backup_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
-    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || {
+  backup_optional_file "$(managed_state_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(managed_state_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(managed_state_path "$SELECTED_FILE")" selected.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(host_path "$TRANSPARENT_INIT")" transparent-init.preimage "$OVERLAY_TRANSACTION" || {
       cleanup_adoption_metadata
       die_json "could not preserve route-list or management preimages"
     }
@@ -1119,21 +1153,21 @@ cmd_adoption_confirm() {
     die_json "could not create the private adoption journal"
   }
 
-  mkdir -p "$(dirname "$(host_path "$DOMAINS_FILE")")"
+  mkdir -p "$(dirname "$(managed_state_path "$DOMAINS_FILE")")"
   adopted_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   overlay_journal_write "$OVERLAY_TRANSACTION" adopting ||
     die_json "could not durably enter the adoption mutation phase"
   [ "$(config_sha256 "$ADOPTION_PATH")" = "$ADOPTION_CONFIG_HASH" ] ||
     failure="Xray configuration changed before domain-list adoption"
   if [ -z "$failure" ]; then
-    install_managed_file "$ADOPTION_DOMAINS" "$(host_path "$DOMAINS_FILE")" 600 ||
+    install_managed_file "$ADOPTION_DOMAINS" "$(managed_state_path "$DOMAINS_FILE")" 600 ||
       failure="domain-list adoption failed"
   fi
   if [ -z "$failure" ] && [ "$(config_sha256 "$ADOPTION_PATH")" != "$ADOPTION_CONFIG_HASH" ]; then
     failure="Xray configuration changed before IP-list adoption"
   fi
   if [ -z "$failure" ]; then
-    install_managed_file "$ADOPTION_IPS" "$(host_path "$IPS_FILE")" 600 ||
+    install_managed_file "$ADOPTION_IPS" "$(managed_state_path "$IPS_FILE")" 600 ||
       failure="IP-list adoption failed"
   fi
   if [ -z "$failure" ] && [ "$(config_sha256 "$ADOPTION_PATH")" != "$ADOPTION_CONFIG_HASH" ]; then
@@ -1360,7 +1394,7 @@ import_current_profile() {
 init_route_files() {
   local tmp item selected_ip
 
-  mkdir -p /etc/xray
+  mkdir -p "$(dirname "$DOMAINS_FILE")"
   selected_ip="$(detect_vps_ip_from_transparent)"
 
   if [ ! -f "$DOMAINS_FILE" ]; then
@@ -1387,7 +1421,7 @@ init_route_files() {
 }
 
 init_device_bypass_file() {
-  mkdir -p /etc/xray
+  mkdir -p "$(dirname "$DEVICE_BYPASS_FILE")"
   [ -f "$DEVICE_BYPASS_FILE" ] || {
     {
       printf '# Device MAC addresses whose traffic should bypass Xray/VPN.\n'
@@ -1870,15 +1904,17 @@ update_transparent_endpoint() {
   local ip="$1"
   local ts="$2"
   local tmp="/tmp/vpn-ui-transparent.$$"
+  local init_actual
 
-  [ -f "$TRANSPARENT_INIT" ] || return 0
-  grep -q '^[[:space:]]*FIN0_IP=' "$TRANSPARENT_INIT" || return 0
-  cp "$TRANSPARENT_INIT" "$TRANSPARENT_INIT.bak.vpn-ui.$ts" 2>/dev/null || true
-  sed 's/^[[:space:]]*FIN0_IP=.*/FIN0_IP="'"$ip"'"/' "$TRANSPARENT_INIT" > "$tmp" ||
+  init_actual="$(managed_state_path "$TRANSPARENT_INIT")" || return 1
+  [ -f "$init_actual" ] || return 0
+  grep -q '^[[:space:]]*FIN0_IP=' "$init_actual" || return 0
+  cp "$init_actual" "$init_actual.bak.vpn-ui.$ts" 2>/dev/null || true
+  sed 's/^[[:space:]]*FIN0_IP=.*/FIN0_IP="'"$ip"'"/' "$init_actual" > "$tmp" ||
     return 1
-  mv "$tmp" "$TRANSPARENT_INIT"
-  chmod 755 "$TRANSPARENT_INIT"
-  /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-restart.log 2>&1 || true
+  mv "$tmp" "$init_actual"
+  chmod 755 "$init_actual"
+  "${ROOT_PREFIX}/etc/init.d/xray-transparent" restart >/tmp/vpn-ui-transparent-restart.log 2>&1 || true
 }
 
 active_xray_service() {
@@ -2042,9 +2078,11 @@ restore_adopted_preimage() {
       failed=1
     fi
   fi
-  restore_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$transaction" || failed=1
-  restore_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$transaction" || failed=1
+  restore_optional_file "$(managed_state_path "$DOMAINS_FILE")" domains.preimage "$transaction" || failed=1
+  restore_optional_file "$(managed_state_path "$IPS_FILE")" ips.preimage "$transaction" || failed=1
   restore_optional_file "$OWNERSHIP_STATE" ownership.preimage "$transaction" || failed=1
+  restore_optional_file "$(managed_state_path "$SELECTED_FILE")" selected.preimage "$transaction" || failed=1
+  restore_optional_file "$(host_path "$TRANSPARENT_INIT")" transparent-init.preimage "$transaction" || failed=1
   if [ "$config_restored" = true ]; then
     case "$service" in *[!A-Za-z0-9_-]*|'') failed=1 ;; esac
     if [ "$failed" = 0 ] && [ "$xray_was_running" = true ]; then
@@ -2072,11 +2110,23 @@ restore_adopted_preimage() {
   [ "$failed" = 0 ]
 }
 
+write_adopted_profile_input() {
+  local output="$1" old_vps_ip="$2"
+
+  is_ipv4 "$old_vps_ip" || return 1
+  is_ipv4 "$P_VPS_IP" || return 1
+  cat > "$output" <<EOF
+{"address":"$(json_config_escape "$P_HOST")","port":$P_PORT,"uuid":"$(json_config_escape "$P_UUID")","flow":"$(json_config_escape "$P_FLOW")","server_name":"$(json_config_escape "$P_SNI")","fingerprint":"$(json_config_escape "$P_FINGERPRINT")","public_key":"$(json_config_escape "$P_PUBLIC_KEY")","short_id":"$(json_config_escape "$P_SHORT_ID")","spider_x":"$(json_config_escape "$P_SPIDERX")","old_vps_ip":"$old_vps_ip","new_vps_ip":"$P_VPS_IP"}
+EOF
+  chmod 600 "$output"
+}
+
 apply_adopted_rules() {
-  local domains_src="$1" ips_src="$2" config_actual config_dir candidate service
+  local domains_src="$1" ips_src="$2" profile_id="${3:-}" config_actual config_dir candidate service
   local actual_hash candidate_hash adopted_at domain_count ip_count required available
   local xray_was_running=false transparent_was_running=false failure="" mode uid gid
-  local before_snapshot after_snapshot rollback_policy=never
+  local before_snapshot after_snapshot rollback_policy=never old_selected="" old_vps_ip=""
+  local profile_input="" selected_input="" ts overlay_rc=0
 
   require_update_committed_for_mutation
   overlay_lock_acquire || die_json "another adopted-overlay transaction is active"
@@ -2090,6 +2140,14 @@ apply_adopted_rules() {
   actual_hash="$(config_sha256 "$OWNERSHIP_PATH")"
   [ "$actual_hash" = "$OWNERSHIP_CONFIG_HASH" ] ||
     die_json "adopted Xray configuration bytes changed outside Router UI; preview and adopt again"
+  if [ -n "$profile_id" ]; then
+    old_selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+    [ -n "$old_selected" ] || die_json "no selected VLESS profile"
+    load_profile_id "$old_selected"
+    old_vps_ip="$(detect_vps_ip_from_transparent)"
+    [ -n "$old_vps_ip" ] || old_vps_ip="$P_VPS_IP"
+    load_profile_id "$profile_id"
+  fi
   validate_domain_rules_file "$domains_src" 2>"/tmp/vpn-ui-domain-validation.$$" ||
     die_json "domain rule validation failed: $(cat "/tmp/vpn-ui-domain-validation.$$" 2>/dev/null)"
   validate_ip_rules_file "$ips_src" 2>"/tmp/vpn-ui-ip-validation.$$" ||
@@ -2102,15 +2160,32 @@ apply_adopted_rules() {
   new_overlay_transaction apply "$OWNERSHIP_PATH" ||
     die_json "could not create private apply journal"
   cp -p "$config_actual" "$OVERLAY_TRANSACTION/config.preimage" &&
-    backup_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
-    backup_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
-    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" ||
+    backup_optional_file "$(managed_state_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(managed_state_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(managed_state_path "$SELECTED_FILE")" selected.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(host_path "$TRANSPARENT_INIT")" transparent-init.preimage "$OVERLAY_TRANSACTION" ||
       die_json "could not preserve exact adopted-overlay preimages"
   printf '%s\n' "$candidate" > "$OVERLAY_TRANSACTION/candidate.path"
   chmod 600 "$OVERLAY_TRANSACTION/candidate.path"
   OVERLAY_CANDIDATE="$candidate"
-  if ! overlay_exec patch "$config_actual" "$OWNERSHIP_DOMAIN_INDEX" "$OWNERSHIP_IP_INDEX" \
-    "$domains_src" "$ips_src" "$candidate" >"/tmp/vpn-ui-overlay-result.$$" 2>&1; then
+  if [ -n "$profile_id" ]; then
+    profile_input="$OVERLAY_TRANSACTION/profile.json"
+    selected_input="$OVERLAY_TRANSACTION/selected.new"
+    write_adopted_profile_input "$profile_input" "$old_vps_ip" ||
+      die_json "could not prepare the adopted VLESS profile overlay"
+    printf '%s\n' "$profile_id" > "$selected_input"
+    chmod 600 "$selected_input"
+  fi
+  if [ -n "$profile_id" ]; then
+    overlay_exec patch-profile "$config_actual" "$OWNERSHIP_DOMAIN_INDEX" "$OWNERSHIP_IP_INDEX" \
+      "$domains_src" "$ips_src" "$candidate" "$profile_input" \
+      >"/tmp/vpn-ui-overlay-result.$$" 2>&1 || overlay_rc=$?
+  else
+    overlay_exec patch "$config_actual" "$OWNERSHIP_DOMAIN_INDEX" "$OWNERSHIP_IP_INDEX" \
+      "$domains_src" "$ips_src" "$candidate" >"/tmp/vpn-ui-overlay-result.$$" 2>&1 || overlay_rc=$?
+  fi
+  if [ "$overlay_rc" -ne 0 ]; then
     overlay_journal_write "$OVERLAY_TRANSACTION" failed_before_mutation "structural overlay failed" || true
     die_json "structural Xray overlay failed: $(cat "/tmp/vpn-ui-overlay-result.$$" 2>/dev/null)"
   fi
@@ -2133,8 +2208,10 @@ apply_adopted_rules() {
   domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$domains_src")"
   ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$ips_src")"
   required=$(( $(wc -c < "$config_actual") + $(wc -c < "$candidate") +
-    $(file_bytes "$(host_path "$DOMAINS_FILE")") + $(file_bytes "$(host_path "$IPS_FILE")") +
-    $(file_bytes "$OWNERSHIP_STATE") + $(wc -c < "$domains_src") + $(wc -c < "$ips_src") +
+    $(file_bytes "$(managed_state_path "$DOMAINS_FILE")") + $(file_bytes "$(managed_state_path "$IPS_FILE")") +
+    $(file_bytes "$OWNERSHIP_STATE") + $(file_bytes "$profile_input") +
+    $(file_bytes "$(managed_state_path "$SELECTED_FILE")") + $(file_bytes "$(host_path "$TRANSPARENT_INIT")") +
+    $(wc -c < "$domains_src") + $(wc -c < "$ips_src") +
     ADOPT_STORAGE_MARGIN_BYTES ))
   if ! overlay_storage_gate "$config_actual" "$required"; then
     available="${OVERLAY_AVAILABLE_BYTES:-unknown}"
@@ -2167,7 +2244,7 @@ apply_adopted_rules() {
     failure="Xray configuration changed immediately before domain-list commit"
   fi
   if [ -z "$failure" ]; then
-    install_managed_file "$domains_src" "$(host_path "$DOMAINS_FILE")" 600 || failure="domain rule-list commit failed"
+    install_managed_file "$domains_src" "$(managed_state_path "$DOMAINS_FILE")" 600 || failure="domain rule-list commit failed"
   fi
   [ -n "$failure" ] || overlay_test_external_drift ip "$config_actual" ||
     failure="could not inject IP-list TOCTOU drift"
@@ -2175,7 +2252,7 @@ apply_adopted_rules() {
     failure="Xray configuration changed immediately before IP-list commit"
   fi
   if [ -z "$failure" ]; then
-    install_managed_file "$ips_src" "$(host_path "$IPS_FILE")" 600 || failure="IP rule-list commit failed"
+    install_managed_file "$ips_src" "$(managed_state_path "$IPS_FILE")" 600 || failure="IP rule-list commit failed"
   fi
   if [ -z "$failure" ]; then
     overlay_journal_write "$OVERLAY_TRANSACTION" rules_committed ||
@@ -2224,6 +2301,11 @@ apply_adopted_rules() {
     overlay_journal_write "$OVERLAY_TRANSACTION" restarting ||
       failure="could not durably enter Xray restart phase"
   fi
+  if [ -z "$failure" ] && [ -n "$profile_id" ]; then
+    ts="$(date +%Y%m%d-%H%M%S)"
+    update_transparent_endpoint "$P_VPS_IP" "$ts" ||
+      failure="transparent endpoint update failed"
+  fi
   if [ -z "$failure" ] && [ "$xray_was_running" = true ]; then
     "${ROOT_PREFIX}/etc/init.d/$service" restart >"/tmp/vpn-ui-xray-restart.$$" 2>&1 ||
       failure="Xray restart failed: $(cat "/tmp/vpn-ui-xray-restart.$$" 2>/dev/null)"
@@ -2259,6 +2341,10 @@ apply_adopted_rules() {
     write_ownership_state "$OWNERSHIP_PATH" "$candidate_hash" "$OWNERSHIP_DOMAIN_INDEX" \
       "$OWNERSHIP_IP_INDEX" "$domain_count" "$ip_count" "$adopted_at" ||
       failure="adopted-overlay management state commit failed"
+  fi
+  if [ -z "$failure" ] && [ -n "$profile_id" ]; then
+    install_managed_file "$selected_input" "$(managed_state_path "$SELECTED_FILE")" 600 ||
+      failure="selected VLESS profile state commit failed"
   fi
   [ -n "$failure" ] || overlay_test_boundary after-state || failure="injected failure after management-state commit"
   if [ -z "$failure" ]; then
@@ -2449,18 +2535,18 @@ set_device_bypass() {
 
 start_xray_services() {
   init_state
-  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
-    /etc/init.d/"$XRAY_SERVICE" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+  if [ -x "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" ]; then
+    "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
       die_json "could not start $XRAY_SERVICE: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
-  elif [ -x /etc/init.d/xray ]; then
-    /etc/init.d/xray start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+  elif [ -x "${ROOT_PREFIX}/etc/init.d/xray" ]; then
+    "${ROOT_PREFIX}/etc/init.d/xray" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
       die_json "could not start xray: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
   else
     die_json "could not find Xray init script"
   fi
 
-  if [ -x /etc/init.d/xray-transparent ]; then
-    /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-start.log 2>&1 ||
+  if [ -x "${ROOT_PREFIX}/etc/init.d/xray-transparent" ]; then
+    "${ROOT_PREFIX}/etc/init.d/xray-transparent" restart >/tmp/vpn-ui-transparent-start.log 2>&1 ||
       die_json "could not start xray-transparent: $(cat /tmp/vpn-ui-transparent-start.log 2>/dev/null)"
   fi
   ensure_device_bypass_nft
@@ -2468,13 +2554,13 @@ start_xray_services() {
 
 stop_xray_services() {
   init_state
-  [ -x /etc/init.d/xray-transparent ] &&
-    /etc/init.d/xray-transparent stop >/tmp/vpn-ui-transparent-stop.log 2>&1 || true
+  [ -x "${ROOT_PREFIX}/etc/init.d/xray-transparent" ] &&
+    "${ROOT_PREFIX}/etc/init.d/xray-transparent" stop >/tmp/vpn-ui-transparent-stop.log 2>&1 || true
 
-  if [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
-    /etc/init.d/"$XRAY_SERVICE" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
-  elif [ -x /etc/init.d/xray ]; then
-    /etc/init.d/xray stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
+  if [ -x "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" ]; then
+    "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
+  elif [ -x "${ROOT_PREFIX}/etc/init.d/xray" ]; then
+    "${ROOT_PREFIX}/etc/init.d/xray" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
   fi
 }
 
@@ -2983,8 +3069,8 @@ ownership_status_json() {
       [ -n "$error" ] || error="$ACTIVE_XRAY_DISCOVERY_ERROR"
     fi
     [ "$config_matches" = true ] && [ "$discovery_matches" = true ] && healthy=true
-    domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(host_path "$DOMAINS_FILE")" 2>/dev/null)"
-    ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(host_path "$IPS_FILE")" 2>/dev/null)"
+    domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(managed_state_path "$DOMAINS_FILE")" 2>/dev/null)"
+    ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(managed_state_path "$IPS_FILE")" 2>/dev/null)"
     printf '{"mode":"adopted-overlay","adopted":true,"adoption_required":false,"healthy":%s' "$healthy"
     printf ',"path":'
     json_string "$OWNERSHIP_PATH"
@@ -3139,7 +3225,7 @@ vpn_summary_json() {
 
 cmd_add() {
   local url="$1"
-  require_native_ownership
+  require_managed_ownership
   init_state
   parse_vless_url "$url"
   write_profile_file
@@ -3148,15 +3234,20 @@ cmd_add() {
 
 cmd_select() {
   local id="$1"
-  require_native_ownership
-  render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+  require_update_committed_for_mutation
+  if adoption_state_load; then
+    apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$id"
+  else
+    require_native_ownership_readonly
+    render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+  fi
   status_json
 }
 
 cmd_delete() {
   local id="$1"
   local selected
-  require_native_ownership
+  require_managed_ownership
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   [ "$id" != "$selected" ] || die_json "refusing to delete the selected profile"
@@ -3229,7 +3320,7 @@ cmd_device() {
   local mac="$2"
   local ip="${3:-}"
 
-  require_native_ownership
+  require_managed_ownership
   init_state
   set_device_bypass "$mode" "$mac" "$ip"
   status_json
@@ -3238,7 +3329,7 @@ cmd_device() {
 cmd_xray() {
   local mode="$1"
 
-  require_native_ownership
+  require_managed_ownership
   case "$mode" in
     on|enable|enabled)
       start_xray_services
@@ -3255,7 +3346,7 @@ cmd_xray() {
 
 cmd_refresh_pings() {
   local f id running
-  require_native_ownership
+  require_managed_ownership
   init_state
   running=0
   for f in "$PROFILE_DIR"/*.conf; do
@@ -3276,7 +3367,7 @@ cmd_refresh_pings() {
 cmd_subscription_add() {
   local url="$1"
   local id name
-  require_native_ownership
+  require_managed_ownership
   init_state
   url="$(trim_input "$url")"
   case "$url" in https://*) ;; *) die_json "subscription URL must use https://" ;; esac
@@ -3289,7 +3380,7 @@ cmd_subscription_add() {
 cmd_subscription_sync() {
   local id="$1"
   local file="$SUBSCRIPTION_DIR/$id.conf"
-  require_native_ownership
+  require_managed_ownership
   init_state
   [ -f "$file" ] || die_json "unknown subscription"
   load_subscription_file "$file"
@@ -3301,7 +3392,7 @@ cmd_subscription_delete() {
   local id="$1"
   local file="$SUBSCRIPTION_DIR/$id.conf"
   local selected f profile_id
-  require_native_ownership
+  require_managed_ownership
   init_state
   [ -f "$file" ] || die_json "unknown subscription"
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
@@ -3357,7 +3448,7 @@ cmd_auto_config() {
   local tmp="/tmp/vpn-ui-auto-pool.$$"
   local id
 
-  require_native_ownership
+  require_managed_ownership
   init_state
   case "$failover" in 0|1) ;; *) die_json "invalid failover setting" ;; esac
   case "$periodic" in 0|1) ;; *) die_json "invalid periodic setting" ;; esac
@@ -3415,8 +3506,10 @@ cmd_auto_tick() {
   local best_id best_ms due threshold
 
   update_mutation_status || exit 0
-  adoption_state_load && exit 0
-  if ! discover_active_xray_config || [ "$ACTIVE_XRAY_CONFIG" != "$NATIVE_XRAY_CONFIG" ]; then
+  [ "$UPDATE_MUTATIONS_ALLOWED" = true ] || exit 0
+  if adoption_state_load; then
+    require_adopted_ownership
+  elif ! discover_active_xray_config || [ "$ACTIVE_XRAY_CONFIG" != "$NATIVE_XRAY_CONFIG" ]; then
     exit 0
   fi
   init_state
@@ -3448,7 +3541,11 @@ cmd_auto_tick() {
 $(best_pool_profile "$selected")
 EOF
         if [ -n "$best_id" ]; then
-          render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+          if adoption_state_load; then
+            apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id"
+          else
+            render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+          fi
           selected="$best_id"
           current_ms="$best_ms"
         fi
@@ -3467,7 +3564,11 @@ EOF
     if [ -n "$best_id" ] && [ -n "$best_ms" ]; then
       threshold=$((current_ms * 65 / 100))
       if [ "$best_ms" -le "$threshold" ] && [ $((current_ms - best_ms)) -ge 30 ]; then
-        render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+        if adoption_state_load; then
+          apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id"
+        else
+          render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+        fi
       fi
     fi
     last_optimize="$now"

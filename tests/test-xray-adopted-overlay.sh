@@ -53,6 +53,66 @@ jq -e '
 "$UCODE" "$OVERLAY" extract "$SOURCE" 3 4 "$DOMAINS" "$IPS" >/dev/null
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
 
+VALERA_FULL="$TMP_ROOT/valera-full-panel.json"
+PROFILE_INPUT="$TMP_ROOT/profile-input.json"
+PROFILE_CANDIDATE="$TMP_ROOT/profile-candidate.json"
+PROFILE_DOMAINS="$TMP_ROOT/profile-domains.txt"
+PROFILE_IPS="$TMP_ROOT/profile-ips.txt"
+jq '.routing.rules = [
+  {
+    "type":"field",
+    "inboundTag":["socks-in","transparent-in"],
+    "ip":["0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8","169.254.0.0/16","172.16.0.0/12","192.168.0.0/16","224.0.0.0/4","240.0.0.0/4","198.51.100.200/32"],
+    "outboundTag":"direct"
+  },
+  .routing.rules[1],
+  .routing.rules[0],
+  .routing.rules[2]
+]' "$VALERA_FIXTURE" > "$VALERA_FULL"
+jq -r '.routing.rules[2].domain[]' "$VALERA_FULL" > "$PROFILE_DOMAINS"
+jq -r '.routing.rules[1].ip[]' "$VALERA_FULL" > "$PROFILE_IPS"
+cat > "$PROFILE_INPUT" <<'EOF'
+{"address":"198.51.100.201","port":8443,"uuid":"00000000-0000-4000-8000-000000000007","flow":"","server_name":"next.example.invalid","fingerprint":"firefox","public_key":"next-sanitized-public-key","short_id":"fedcba9876543210","spider_x":"/next","old_vps_ip":"198.51.100.200","new_vps_ip":"198.51.100.201"}
+EOF
+"$UCODE" "$OVERLAY" patch-profile "$VALERA_FULL" 2 1 "$PROFILE_DOMAINS" "$PROFILE_IPS" \
+  "$PROFILE_CANDIDATE" "$PROFILE_INPUT" > "$TMP_ROOT/profile-patch.json"
+jq -e '.ok and .profile_updated and .non_managed_semantics_unchanged and
+  .domain_rule_index == 2 and .ip_rule_index == 1 and .domain_count == 166 and .ip_count == 14' \
+  "$TMP_ROOT/profile-patch.json" >/dev/null
+jq -e '
+  .outbounds[0].settings.vnext[0].address == "198.51.100.201" and
+  .outbounds[0].settings.vnext[0].port == 8443 and
+  .outbounds[0].settings.vnext[0].users[0].id == "00000000-0000-4000-8000-000000000007" and
+  (.outbounds[0].settings.vnext[0].users[0] | has("flow") | not) and
+  .outbounds[0].streamSettings.realitySettings.serverName == "next.example.invalid" and
+  .routing.rules[0].ip[9] == "198.51.100.201/32" and
+  (.routing.rules[1].ip | length) == 14 and (.routing.rules[2].domain | length) == 166 and
+  .routing.domainStrategy == "AsIs" and (.inbounds | length) == 2 and (.routing.rules | length) == 4
+' "$PROFILE_CANDIDATE" >/dev/null
+jq -S '
+  .outbounds[0].settings.vnext[0].address = "managed" |
+  .outbounds[0].settings.vnext[0].port = 1 |
+  .outbounds[0].settings.vnext[0].users[0] = {} |
+  .outbounds[0].streamSettings.network = "managed" |
+  .outbounds[0].streamSettings.security = "managed" |
+  .outbounds[0].streamSettings.realitySettings = {} |
+  .routing.rules[0].ip = ["managed"] |
+  .routing.rules[1].ip = ["managed"] |
+  .routing.rules[2].domain = ["managed"]
+' "$VALERA_FULL" > "$TMP_ROOT/profile-source-unmanaged.json"
+jq -S '
+  .outbounds[0].settings.vnext[0].address = "managed" |
+  .outbounds[0].settings.vnext[0].port = 1 |
+  .outbounds[0].settings.vnext[0].users[0] = {} |
+  .outbounds[0].streamSettings.network = "managed" |
+  .outbounds[0].streamSettings.security = "managed" |
+  .outbounds[0].streamSettings.realitySettings = {} |
+  .routing.rules[0].ip = ["managed"] |
+  .routing.rules[1].ip = ["managed"] |
+  .routing.rules[2].domain = ["managed"]
+' "$PROFILE_CANDIDATE" > "$TMP_ROOT/profile-candidate-unmanaged.json"
+cmp -s "$TMP_ROOT/profile-source-unmanaged.json" "$TMP_ROOT/profile-candidate-unmanaged.json"
+
 VALERA_SOURCE="$TMP_ROOT/valera-config.json"
 VALERA_DOMAINS="$TMP_ROOT/valera-domains.txt"
 VALERA_IPS="$TMP_ROOT/valera-ips.txt"
@@ -254,9 +314,21 @@ jq -e '.mode == "adopted-overlay" and .path == "/etc/xray/config.json" and .conf
 [ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-domains.txt")" -eq 3 ]
 [ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-ips.txt")" -eq 2 ]
 backend cmd_device disable 02:00:00:00:00:06 192.0.2.6 > "$TMP_ROOT/adopted-device.json"
-jq -e '.ok == false and (.error | contains("profile changes are disabled"))' \
+jq -e '.ok == true and .ownership.mode == "adopted-overlay" and .ownership.healthy == true' \
   "$TMP_ROOT/adopted-device.json" >/dev/null
-[ ! -e "$FAKE_ROOT/etc/xray/vpn-ui-device-bypass-macs.txt" ]
+grep -Fxq '02:00:00:00:00:06' "$FAKE_ROOT/etc/xray/vpn-ui-device-bypass-macs.txt"
+backend cmd_device enable 02:00:00:00:00:06 192.0.2.6 > "$TMP_ROOT/adopted-device-enabled.json"
+jq -e '.ok == true' "$TMP_ROOT/adopted-device-enabled.json" >/dev/null
+! grep -Fxq '02:00:00:00:00:06' "$FAKE_ROOT/etc/xray/vpn-ui-device-bypass-macs.txt"
+backend cmd_xray off > "$TMP_ROOT/adopted-xray-off.json"
+jq -e '.ok == true and .ownership.mode == "adopted-overlay"' "$TMP_ROOT/adopted-xray-off.json" >/dev/null
+backend cmd_xray on > "$TMP_ROOT/adopted-xray-on.json"
+jq -e '.ok == true and .ownership.healthy == true' "$TMP_ROOT/adopted-xray-on.json" >/dev/null
+backend cmd_refresh_pings > "$TMP_ROOT/adopted-refresh.json"
+jq -e '.ok == true' "$TMP_ROOT/adopted-refresh.json" >/dev/null
+backend cmd_auto_config 0 0 12 '' > "$TMP_ROOT/adopted-auto.json"
+jq -e '.ok == true and .auto.failover == false and .auto.periodic == false' \
+  "$TMP_ROOT/adopted-auto.json" >/dev/null
 
 cp "$CONFIG" "$FAKE_ROOT/etc/xray/other.json"
 VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/other.json \

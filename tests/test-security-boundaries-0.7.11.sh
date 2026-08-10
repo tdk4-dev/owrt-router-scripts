@@ -57,11 +57,12 @@ done
 grep -Fq 'adoption-confirm' "$HELPER"
 grep -Fq 'adoption-preview' "$HELPER"
 grep -Fq 'profile changes are disabled in adopted-overlay mode' "$HELPER"
-sed -n '/^cmd_xray()/,/^}/p' "$HELPER" | grep -Fq 'require_native_ownership'
-sed -n '/^cmd_device()/,/^}/p' "$HELPER" | grep -Fq 'require_native_ownership'
+sed -n '/^cmd_xray()/,/^}/p' "$HELPER" | grep -Fq 'require_managed_ownership'
+sed -n '/^cmd_device()/,/^}/p' "$HELPER" | grep -Fq 'require_managed_ownership'
 ! sed -n '/^cmd_check()/,/^}/p' "$HELPER" | grep -Fq 'init_state'
 sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'update_mutation_status || exit 0'
-sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'adoption_state_load && exit 0'
+sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'require_adopted_ownership'
+sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'apply_adopted_rules'
 sed -n '/^case "${1:-status}" in/,/^[[:space:]]*status)/p' "$HELPER" |
   grep -Fq 'require_native_ownership'
 grep -Fq "'disabled': isReadonlyView || mutationDisabled" "$VPN_VIEW"

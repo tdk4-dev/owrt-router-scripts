@@ -44,12 +44,49 @@ const writeExecutable = async (file, contents) => {
 try {
 	await Promise.all([
 		fs.mkdir(path.join(fakeRoot, 'etc/xray'), { recursive: true }),
+		fs.mkdir(path.join(fakeRoot, 'etc/xray/vless-profiles.d'), { recursive: true }),
 		fs.mkdir(path.join(fakeRoot, 'etc/premier-router'), { recursive: true }),
 		fs.mkdir(path.join(fakeRoot, 'etc/init.d'), { recursive: true }),
 		fs.mkdir(path.join(fakeRoot, 'tmp'), { recursive: true }),
 		fs.mkdir(path.join(transactionRoot, transactionId), { recursive: true })
 	]);
-	await fs.copyFile(fixture, configPath);
+	const valeraConfig = JSON.parse(await fs.readFile(fixture, 'utf8'));
+	valeraConfig.routing.rules = [
+		{
+			type: 'field',
+			inboundTag: ['socks-in', 'transparent-in'],
+			ip: [
+				'0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
+				'169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16',
+				'224.0.0.0/4', '240.0.0.0/4', '198.51.100.200/32'
+			],
+			outboundTag: 'direct'
+		},
+		valeraConfig.routing.rules[1],
+		valeraConfig.routing.rules[0],
+		valeraConfig.routing.rules[2]
+	];
+	await fs.writeFile(configPath, `${JSON.stringify(valeraConfig, null, 2)}\n`);
+	const profile = values => Object.entries(values)
+		.map(([key, value]) => `${key}='${String(value).replaceAll("'", "'\\''")}'`)
+		.join('\n') + '\n';
+	await fs.writeFile(path.join(fakeRoot, 'etc/xray/vless-profiles.d/current.conf'), profile({
+		P_ID: 'current', P_NAME: 'Current', P_URL: '',
+		P_UUID: '00000000-0000-4000-8000-000000000006', P_HOST: '198.51.100.200',
+		P_PORT: '443', P_VPS_IP: '198.51.100.200', P_NETWORK: 'tcp', P_SECURITY: 'reality',
+		P_FLOW: 'xtls-rprx-vision', P_PUBLIC_KEY: 'sanitized-public-key',
+		P_SHORT_ID: '0123456789abcdef', P_SNI: 'example.invalid', P_FINGERPRINT: 'chrome',
+		P_SPIDERX: '/', P_SOURCE_ID: ''
+	}), { mode: 0o600 });
+	await fs.writeFile(path.join(fakeRoot, 'etc/xray/vless-profiles.d/alternate.conf'), profile({
+		P_ID: 'alternate', P_NAME: 'Alternate', P_URL: '',
+		P_UUID: '00000000-0000-4000-8000-000000000007', P_HOST: '198.51.100.201',
+		P_PORT: '8443', P_VPS_IP: '198.51.100.201', P_NETWORK: 'tcp', P_SECURITY: 'reality',
+		P_FLOW: '', P_PUBLIC_KEY: 'next-sanitized-public-key',
+		P_SHORT_ID: 'fedcba9876543210', P_SNI: 'next.example.invalid', P_FINGERPRINT: 'firefox',
+		P_SPIDERX: '/next', P_SOURCE_ID: ''
+	}), { mode: 0o600 });
+	await fs.writeFile(path.join(fakeRoot, 'etc/xray/vless-selected'), 'current\n', { mode: 0o600 });
 	await fs.writeFile(path.join(transactionRoot, 'active-transaction'), `${transactionId}\n`);
 	await fs.writeFile(
 		path.join(transactionRoot, transactionId, 'state.json'),
@@ -70,6 +107,7 @@ case "\${1:-}" in
 esac
 `);
 	await writeExecutable(path.join(fakeRoot, 'etc/init.d/xray-transparent'), `#!/bin/sh
+FIN0_IP="198.51.100.200"
 case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 `);
 
@@ -104,6 +142,8 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	assert.equal(preview.ok, true);
 	assert.equal(preview.adoption.analysis.domain_count, 166);
 	assert.equal(preview.adoption.analysis.ip_count, 14);
+	assert.equal(preview.adoption.analysis.domain_rule_index, 2);
+	assert.equal(preview.adoption.analysis.ip_rule_index, 1);
 	const adopted = JSON.parse(backend([
 		'adoption-confirm',
 		preview.adoption.path,
@@ -196,6 +236,65 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	assert.equal(adoptedStatus.ownership.adopted, true);
 	assert.equal(adoptedStatus.ownership.healthy, true);
 	assert.equal(adoptedStatus.ownership.mutations_allowed, true);
+	const assertEnabled = (tree, predicate, message) => {
+		const control = findElement(tree, predicate);
+		assert.ok(control, `${message} must be rendered`);
+		assert.equal(control.attrs.disabled, null, `${message} must be enabled after healthy adoption`);
+	};
+	assertEnabled(page.renderGlobal(adoptedStatus), node =>
+		node.tag === 'button' && (node.children || []).some(value => value === 'Enable' || value === 'Disable'),
+		'Global VPN control');
+	const renderedProfiles = page.renderProfiles(adoptedStatus);
+	assertEnabled(renderedProfiles, node => node.attrs && node.attrs.id === 'vpn-vless-url', 'VLESS input');
+	assertEnabled(renderedProfiles, node =>
+		node.tag === 'button' && (node.children || []).includes('Add'), 'Profile Add');
+	assertEnabled(renderedProfiles, node =>
+		node.tag === 'button' && (node.children || []).includes('Refresh pings'), 'Refresh pings');
+	assertEnabled(renderedProfiles, node =>
+		node.tag === 'button' && (node.children || []).includes('Use'), 'Profile Use');
+	const renderedSubscriptions = page.renderSubscriptions(adoptedStatus);
+	assertEnabled(renderedSubscriptions, node => node.attrs && node.attrs.id === 'vpn-subscription-url',
+		'Subscription input');
+	assertEnabled(renderedSubscriptions, node =>
+		node.tag === 'button' && (node.children || []).includes('Import'), 'Subscription Import');
+	assertEnabled(page.renderAutoSwitch(adoptedStatus), node =>
+		node.tag === 'button' && (node.children || []).includes('Apply switching settings'),
+		'Automatic switching');
+	assertEnabled(page.renderDevices({
+		...adoptedStatus,
+		devices: [{ hostname: 'fixture', ip: '192.0.2.6', mac: '02:00:00:00:00:06', vpn_disabled: false }]
+	}), node => node.tag === 'button' && (node.children || []).includes('Disable'), 'Device VPN control');
+
+	const selectResult = JSON.parse(backend(['select', 'alternate']).stdout);
+	assert.equal(selectResult.ok, true);
+	assert.equal((await fs.readFile(path.join(fakeRoot, 'etc/xray/vless-selected'), 'utf8')).trim(), 'alternate');
+	let selectedConfig = JSON.parse(await fs.readFile(configPath, 'utf8'));
+	assert.equal(selectedConfig.outbounds[0].settings.vnext[0].address, '198.51.100.201');
+	assert.equal(selectedConfig.outbounds[0].settings.vnext[0].port, 8443);
+	assert.equal(selectedConfig.routing.rules[0].ip[9], '198.51.100.201/32');
+	assert.equal(selectedConfig.routing.rules.length, 4);
+	assert.equal(selectedConfig.inbounds.length, 2);
+	assert.match(await fs.readFile(path.join(fakeRoot, 'etc/init.d/xray-transparent'), 'utf8'),
+		/FIN0_IP="198\.51\.100\.201"/);
+	assert.equal(JSON.parse(backend(['select', 'current']).stdout).ok, true);
+	const exactProfilePreimage = {
+		config: await sha256(configPath),
+		selected: await sha256(path.join(fakeRoot, 'etc/xray/vless-selected')),
+		ownership: await sha256(ownershipPath),
+		transparent: await sha256(path.join(fakeRoot, 'etc/init.d/xray-transparent'))
+	};
+	faultBoundary = 'after-restart';
+	const failedSelect = JSON.parse(backend(['select', 'alternate']).stdout);
+	faultBoundary = '';
+	assert.equal(failedSelect.ok, false);
+	assert.match(failedSelect.error, /exact Xray configuration, route lists, and management state restored/);
+	assert.deepEqual({
+		config: await sha256(configPath),
+		selected: await sha256(path.join(fakeRoot, 'etc/xray/vless-selected')),
+		ownership: await sha256(ownershipPath),
+		transparent: await sha256(path.join(fakeRoot, 'etc/init.d/xray-transparent'))
+	}, exactProfilePreimage);
+
 	const renderedRules = page.renderRules(adoptedStatus);
 	for (const id of ['vpn-direct-domains', 'vpn-direct-ips']) {
 		const textarea = findElement(renderedRules, node => node.attrs && node.attrs.id === id);
@@ -213,14 +312,14 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 		args: ['apply-rules', 'full:one.rc6.invalid\ndomain:two.rc6.invalid', '198.51.100.0/25']
 	});
 	let config = JSON.parse(await fs.readFile(configPath, 'utf8'));
-	assert.deepEqual(config.routing.rules[0].domain, [
+	assert.deepEqual(config.routing.rules[2].domain, [
 		'full:one.rc6.invalid',
 		'domain:two.rc6.invalid'
 	]);
 	assert.deepEqual(config.routing.rules[1].ip, ['198.51.100.0/25']);
 	assert.equal(config.routing.domainStrategy, 'AsIs');
 	assert.equal(config.inbounds.length, 2);
-	assert.equal(config.routing.rules.length, 3);
+	assert.equal(config.routing.rules.length, 4);
 	assert.equal(config.routing.rules.some(rule => rule.port === '8080'), false);
 	assert.equal(config.routing.rules.some(rule => (rule.protocol || []).includes('bittorrent')), false);
 
@@ -228,7 +327,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	textareas['#vpn-direct-ips'].value = '';
 	await page.handleApplyRules();
 	config = JSON.parse(await fs.readFile(configPath, 'utf8'));
-	assert.deepEqual(config.routing.rules[0].domain, []);
+	assert.deepEqual(config.routing.rules[2].domain, []);
 	assert.deepEqual(config.routing.rules[1].ip, []);
 
 	const exactPreimage = {
@@ -270,7 +369,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	assert.ok((await fs.readFile(restartLog, 'utf8')).trim().split('\n').length >= 3,
 		'Xray must restart after apply/removal and exact rollback');
 
-	console.log('LuCI -> RPC/ACL -> adopted structural apply/removal -> Xray restart -> exact rollback passed');
+	console.log('LuCI -> RPC/ACL -> full adopted controls -> profile switch -> rules -> exact rollback passed');
 }
 finally {
 	await fs.rm(fakeRoot, { recursive: true, force: true });
