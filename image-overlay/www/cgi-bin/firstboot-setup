@@ -1,24 +1,14 @@
 #!/bin/ash
 set -u
 
-LAN_IP="${LAN_IP:-10.77.0.1}"
-LAN_CIDR="${LAN_CIDR:-10.77.0.0/24}"
-ROUTER_HOSTNAME="${ROUTER_HOSTNAME:-openwrt-fin0}"
-STATE_DIR="${STATE_DIR:-/etc/firstboot-wizard}"
+LAN_IP="10.77.0.1"
+LAN_CIDR="10.77.0.0/24"
+HOSTNAME="openwrt-fin0"
+STATE_DIR="/etc/firstboot-wizard"
 COMPLETE_FILE="$STATE_DIR/complete"
-IN_PROGRESS_FILE="$STATE_DIR/in-progress"
-PHASE_DIR="$STATE_DIR/phases"
+APPLY_LOCK="$STATE_DIR/apply.lock"
 PAYLOAD="/tmp/firstboot-setup.$$.json"
 FILTERS_FILE="/tmp/firstboot-adguard-filters.$$"
-ADGUARD_PACKAGE="${ADGUARD_PACKAGE:-adguardhome}"
-ADGUARD_ESTIMATE_BYTES="${ADGUARD_ESTIMATE_BYTES:-33554432}"
-ADGUARD_INSTALL_LOCK="${ADGUARD_INSTALL_LOCK:-/tmp/firstboot-adguard-install.lock}"
-FIRSTBOOT_HARDWARE_PROFILE="${FIRSTBOOT_HARDWARE_PROFILE:-}"
-ROUTER_RESET_STATE="${ROUTER_RESET_STATE:-/tmp/router-reset-to-setup.state}"
-VPN_UI_BIN="${VPN_UI_BIN:-/usr/sbin/vpn-ui}"
-JSONFILTER_BIN="${JSONFILTER_BIN:-jsonfilter}"
-UBUS_BIN="${UBUS_BIN:-ubus}"
-VPN_PROFILE_ID=""
 
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' | tr '\n' ' '
@@ -44,31 +34,12 @@ fail() {
 }
 
 ok_status() {
-  local first phase reset_state
   header_json "200 OK"
   if [ -f "$COMPLETE_FILE" ]; then
-    printf '{"ok":true,"complete":true,"inProgress":false,"completedPhases":'
+    printf '{"ok":true,"complete":true}\n'
   else
-    printf '{"ok":true,"complete":false,"inProgress":'
-    [ -f "$IN_PROGRESS_FILE" ] && printf true || printf false
-    printf ',"completedPhases":'
+    printf '{"ok":true,"complete":false}\n'
   fi
-  printf '['
-  first=1
-  for phase in account network wifi adguard vpn tailscale; do
-    [ -f "$PHASE_DIR/$phase" ] || continue
-    [ "$first" = "1" ] || printf ','
-    first=0
-    json_string "$phase"
-  done
-  reset_state="$(sed -n '1p' "$ROUTER_RESET_STATE" 2>/dev/null || true)"
-  case "$reset_state" in
-    requested|stopping-services|clearing-configuration|resetting-storage|rebooting|failed) ;;
-    *) reset_state="idle" ;;
-  esac
-  printf '],"reset":{"state":'
-  json_string "$reset_state"
-  printf '}}\n'
 }
 
 read_body() {
@@ -78,11 +49,11 @@ read_body() {
 }
 
 json_get() {
-  "$JSONFILTER_BIN" -i "$PAYLOAD" -e "$1" 2>/dev/null | sed -n '1p'
+  jsonfilter -i "$PAYLOAD" -e "$1" 2>/dev/null | sed -n '1p'
 }
 
 json_list() {
-  "$JSONFILTER_BIN" -i "$PAYLOAD" -e "$1" 2>/dev/null
+  jsonfilter -i "$PAYLOAD" -e "$1" 2>/dev/null
 }
 
 bool_true() {
@@ -92,221 +63,10 @@ bool_true() {
   return 1
 }
 
-phase_done() {
-  [ -f "$PHASE_DIR/$1" ]
-}
-
-mark_phase_done() {
-  mkdir -p "$PHASE_DIR"
-  : > "$PHASE_DIR/$1"
-  sync
-}
-
-wifi_radios_json() {
-  local first device band label hwmode
-  if [ -f /etc/router-prep/placeholder-wifi ]; then
-    printf '%s' '[{"device":"placeholder2g","band":"2g","label":"2.4 GHz preview"},{"device":"placeholder5g","band":"5g","label":"5 GHz preview"}]'
-    return 0
-  fi
-  first=1
-  printf '['
-  for device in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-    band="$(uci -q get "wireless.$device.band" || true)"
-    hwmode="$(uci -q get "wireless.$device.hwmode" || true)"
-    case "$band" in
-      2g) label="2.4 GHz" ;;
-      5g) label="5 GHz" ;;
-      *)
-        case "$hwmode" in
-          *a*) band="5g"; label="5 GHz" ;;
-          *) band="2g"; label="2.4 GHz" ;;
-        esac
-        ;;
-    esac
-    [ "$first" = "1" ] || printf ','
-    first=0
-    printf '{"device":'
-    json_string "$device"
-    printf ',"band":'
-    json_string "$band"
-    printf ',"label":'
-    json_string "$label"
-    printf '}'
-  done
-  printf ']'
-}
-
-adguard_available() {
-  [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1
-}
-
-hardware_profile() {
-  local board="${FIRSTBOOT_HARDWARE_PROFILE:-}"
-  if [ -z "$board" ]; then
-    board="$(sed -n '1p' /tmp/sysinfo/board_name 2>/dev/null || true)"
-  fi
-  if [ -z "$board" ] && command -v "$UBUS_BIN" >/dev/null 2>&1; then
-    board="$($UBUS_BIN call system board 2>/dev/null | $JSONFILTER_BIN -e '@.board_name' 2>/dev/null || true)"
-  fi
-  case "$board" in
-    xiaomi-ax3000t-rd23|*xiaomi*ax3000t*|*mi-router-ax3000t*|*rd23*) printf '%s' xiaomi-ax3000t-rd23 ;;
-    *) printf '%s' generic ;;
-  esac
-}
-
-adguard_allowed_for_hardware() {
-  [ "$(hardware_profile)" != "xiaomi-ax3000t-rd23" ]
-}
-
-measure_adguard_storage() {
-  local estimate="${1:-$ADGUARD_ESTIMATE_BYTES}"
-  local values total_kb used_kb free_kb projected_tenths used_tenths
-
-  values="$(df -Pk /overlay 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
-  [ -n "$values" ] || values="$(df -Pk / 2>/dev/null | awk 'NR == 2 { print $2, $3, $4 }')"
-  set -- $values
-  total_kb="${1:-0}"
-  used_kb="${2:-0}"
-  free_kb="${3:-0}"
-  case "$total_kb:$used_kb:$free_kb:$estimate" in
-    *[!0-9:]*) total_kb=0; used_kb=0; free_kb=0; estimate=0 ;;
-  esac
-
-  ADGUARD_TOTAL_BYTES=$((total_kb * 1024))
-  ADGUARD_USED_BYTES=$((used_kb * 1024))
-  ADGUARD_FREE_BYTES=$((free_kb * 1024))
-  ADGUARD_ESTIMATED_BYTES="$estimate"
-  ADGUARD_PROJECTED_BYTES=$((ADGUARD_USED_BYTES + estimate))
-  ADGUARD_CAN_INSTALL=false
-  ADGUARD_STORAGE_RISK=unknown
-  ADGUARD_USED_PERCENT=0.0
-  ADGUARD_PROJECTED_PERCENT=0.0
-
-  if [ "$ADGUARD_TOTAL_BYTES" -gt 0 ]; then
-    used_tenths=$(((ADGUARD_USED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
-    projected_tenths=$(((ADGUARD_PROJECTED_BYTES * 1000 + ADGUARD_TOTAL_BYTES - 1) / ADGUARD_TOTAL_BYTES))
-    ADGUARD_USED_PERCENT="$(awk -v value="$used_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
-    ADGUARD_PROJECTED_PERCENT="$(awk -v value="$projected_tenths" 'BEGIN { printf "%.1f", value / 10 }')"
-    if [ "$projected_tenths" -gt 950 ]; then
-      ADGUARD_STORAGE_RISK=blocked
-    elif [ "$projected_tenths" -ge 900 ]; then
-      ADGUARD_STORAGE_RISK=warning
-      ADGUARD_CAN_INSTALL=true
-    else
-      ADGUARD_STORAGE_RISK=safe
-      ADGUARD_CAN_INSTALL=true
-    fi
-  fi
-}
-
-adguard_storage_json() {
-  printf '{"totalBytes":%s,"usedBytes":%s,"freeBytes":%s,"estimatedInstallBytes":%s,"projectedUsedBytes":%s,"usedPercent":%s,"projectedUsedPercent":%s,"risk":' \
-    "$ADGUARD_TOTAL_BYTES" "$ADGUARD_USED_BYTES" "$ADGUARD_FREE_BYTES" "$ADGUARD_ESTIMATED_BYTES" \
-    "$ADGUARD_PROJECTED_BYTES" "$ADGUARD_USED_PERCENT" "$ADGUARD_PROJECTED_PERCENT"
-  json_string "$ADGUARD_STORAGE_RISK"
-  printf '}'
-}
-
-cleanup_adguard_install() {
-  [ -z "${ADGUARD_INSTALL_TMP:-}" ] || rm -rf "$ADGUARD_INSTALL_TMP"
-  rm -rf "$ADGUARD_INSTALL_LOCK"
-}
-
-acquire_adguard_install_lock() {
-  local owner=""
-  if [ -d "$ADGUARD_INSTALL_LOCK" ]; then
-    owner="$(sed -n '1p' "$ADGUARD_INSTALL_LOCK/pid" 2>/dev/null || true)"
-    if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$ADGUARD_INSTALL_LOCK"
-    fi
-  fi
-  mkdir "$ADGUARD_INSTALL_LOCK" 2>/dev/null || return 1
-  printf '%s\n' "$$" > "$ADGUARD_INSTALL_LOCK/pid"
-}
-
-adguard_install_fail() {
-  cleanup_adguard_install
-  fail "$1"
-}
-
-install_adguard() {
-  local installed_size storage_json
-
-  [ ! -f "$COMPLETE_FILE" ] || fail "Initial setup is already complete."
-  adguard_allowed_for_hardware || fail "AdGuardHome is deferred for Xiaomi AX3000T/RD23 because its flash budget is reserved for the core router software."
-  if adguard_available; then
-    measure_adguard_storage 0
-    storage_json="$(adguard_storage_json)"
-    header_json "200 OK"
-    printf '{"ok":true,"data":{"adguard":{"available":true,"canInstall":false,"storage":%s}}}\n' "$storage_json"
-    return 0
-  fi
-
-  measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
-  [ "$ADGUARD_CAN_INSTALL" = true ] || fail "AdGuardHome would use more than 95% of persistent storage and cannot be installed safely."
-  acquire_adguard_install_lock || fail "Another AdGuardHome installation is already running."
-  ADGUARD_INSTALL_TMP="/tmp/firstboot-adguard-install.$$"
-  mkdir -p "$ADGUARD_INSTALL_TMP"
-  trap 'cleanup_adguard_install' EXIT INT TERM
-  command -v opkg >/dev/null 2>&1 || adguard_install_fail "The OpenWrt package manager is unavailable."
-
-  opkg update >"$ADGUARD_INSTALL_TMP/opkg.log" 2>&1 ||
-    adguard_install_fail "Could not refresh the signed OpenWrt package feed. Check the router internet connection and try again."
-  installed_size="$(opkg info "$ADGUARD_PACKAGE" 2>/dev/null | sed -n 's/^Installed-Size:[[:space:]]*//p' | tail -n 1 | tr -d '\r')"
-  case "$installed_size" in
-    ''|*[!0-9]*) installed_size="$ADGUARD_ESTIMATE_BYTES" ;;
-  esac
-  [ "$installed_size" -ge "$ADGUARD_ESTIMATE_BYTES" ] || installed_size="$ADGUARD_ESTIMATE_BYTES"
-  measure_adguard_storage "$installed_size"
-  [ "$ADGUARD_CAN_INSTALL" = true ] ||
-    adguard_install_fail "The current AdGuardHome package would use more than 95% of persistent storage and cannot be installed safely."
-
-  opkg install "$ADGUARD_PACKAGE" >>"$ADGUARD_INSTALL_TMP/opkg.log" 2>&1 ||
-    adguard_install_fail "AdGuardHome package installation failed. No global package upgrade was attempted."
-  adguard_available || adguard_install_fail "AdGuardHome installed but its executable or service definition is missing."
-  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
-  /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
-
-  cleanup_adguard_install
-  trap - EXIT INT TERM
-  ADGUARD_INSTALL_TMP=""
-  measure_adguard_storage 0
-  storage_json="$(adguard_storage_json)"
-  header_json "200 OK"
-  printf '{"ok":true,"data":{"adguard":{"available":true,"canInstall":false,"storage":%s}}}\n' "$storage_json"
-}
-
 bootstrap() {
-  local radios adguard_available_json adguard_can_install_json adguard_visible_json storage_json router_hostname profile firmware_label deferred_reason
-  radios="$(wifi_radios_json)"
-  profile="$(hardware_profile)"
-  if [ "$profile" = "xiaomi-ax3000t-rd23" ]; then
-    firmware_label="OpenWrt 24.10.5 / Xiaomi AX3000T RD23"
-  else
-    firmware_label="OpenWrt 24.10.5 x86/64"
-  fi
-  adguard_visible_json=true
-  deferred_reason=""
-  adguard_available_json=false
-  if ! adguard_allowed_for_hardware; then
-    adguard_visible_json=false
-    deferred_reason="Deferred for Xiaomi AX3000T/RD23: persistent flash is reserved for core router functions."
-    measure_adguard_storage 0
-    adguard_can_install_json=false
-  elif adguard_available; then
-    adguard_available_json=true
-    measure_adguard_storage 0
-    adguard_can_install_json=false
-  else
-    measure_adguard_storage "$ADGUARD_ESTIMATE_BYTES"
-    adguard_can_install_json="$ADGUARD_CAN_INSTALL"
-  fi
-  storage_json="$(adguard_storage_json)"
-  router_hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || true)"
-  [ -n "$router_hostname" ] || router_hostname="$ROUTER_HOSTNAME"
   header_json "200 OK"
-  cat <<EOF
-{"ok":true,"data":{"router":{"hostname":"$(json_escape "$router_hostname")","lanIp":"10.77.0.1","firmware":"$(json_escape "$firmware_label")","luciPath":"/cgi-bin/luci/","hardwareProfile":"$(json_escape "$profile")"},"defaults":{"accountLogin":"root","wifiEnabled":false,"wifiSsid":"OpenWrt","wifiCountry":"US","vpnEnabled":true,"adguardEnabled":false,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"wifi":{"radios":$radios},"adguard":{"visible":$adguard_visible_json,"deferredReason":"$(json_escape "$deferred_reason")","available":$adguard_available_json,"canInstall":$adguard_can_install_json,"storage":$storage_json,"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
+  cat <<'EOF'
+{"ok":true,"data":{"router":{"hostname":"openwrt-fin0","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","vpnEnabled":true,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"adguard":{"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
 EOF
 }
 
@@ -350,27 +110,10 @@ write_selected_filters_yaml() {
   done < "$FILTERS_FILE"
 }
 
-validate_router_hostname() {
-  local value="$1"
-  [ -n "$value" ] && [ "${#value}" -le 63 ] ||
-    fail "Router name must be 1 to 63 characters."
-  printf '%s' "$value" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$|^[A-Za-z0-9]$' ||
-    fail "Router name may contain letters, numbers, and hyphens, and cannot begin or end with a hyphen."
-}
-
-configure_router_hostname() {
-  validate_router_hostname "$ROUTER_HOSTNAME"
-  uci set system.@system[0].hostname="$ROUTER_HOSTNAME" 2>/dev/null || true
-  uci commit system 2>/dev/null || true
-  if command -v hostname >/dev/null 2>&1; then
-    hostname "$ROUTER_HOSTNAME" 2>/dev/null || true
-  elif [ -w /proc/sys/kernel/hostname ]; then
-    printf '%s\n' "$ROUTER_HOSTNAME" > /proc/sys/kernel/hostname 2>/dev/null || true
-  fi
-}
-
 configure_network() {
-  configure_router_hostname
+  uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
+  uci commit system 2>/dev/null || true
+  hostname "$HOSTNAME" 2>/dev/null || true
 
   uci set network.lan.ipaddr="$LAN_IP"
   uci set network.lan.netmask="255.255.255.0"
@@ -389,121 +132,13 @@ configure_network() {
   uci commit firewall
 }
 
-wifi_device_for_band() {
-  local wanted="$1"
-  local device band hwmode
-  for device in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-    band="$(uci -q get "wireless.$device.band" || true)"
-    hwmode="$(uci -q get "wireless.$device.hwmode" || true)"
-    if [ -z "$band" ]; then
-      case "$hwmode" in
-        *a*) band="5g" ;;
-        *) band="2g" ;;
-      esac
-    fi
-    [ "$band" = "$wanted" ] && {
-      printf '%s\n' "$device"
-      return 0
-    }
-  done
-  return 1
-}
-
-configure_wifi_band() {
-  local band="$1"
-  local device="$2"
-  local ssid="$3"
-  local security="$4"
-  local password="$5"
-  local country="$6"
-  local channel="$7"
-  local hidden="$8"
-  local isolate="$9"
-  local section="firstboot_${band}"
-
-  uci set "wireless.$device.disabled=0"
-  uci set "wireless.$device.country=$country"
-  uci set "wireless.$device.channel=$channel"
-  uci -q delete "wireless.$section"
-  uci set "wireless.$section=wifi-iface"
-  uci set "wireless.$section.device=$device"
-  uci set "wireless.$section.mode=ap"
-  uci set "wireless.$section.network=lan"
-  uci set "wireless.$section.ssid=$ssid"
-  uci set "wireless.$section.encryption=$security"
-  uci set "wireless.$section.hidden=$hidden"
-  uci set "wireless.$section.isolate=$isolate"
-  if [ "$security" = "none" ]; then
-    uci -q delete "wireless.$section.key"
-  else
-    uci set "wireless.$section.key=$password"
-  fi
-}
-
-configure_wifi() {
-  local enabled="$1"
-  local enable_2g="$2"
-  local enable_5g="$3"
-  local ssid="$4"
-  local security="$5"
-  local password="$6"
-  local country="$7"
-  local channel_2g="$8"
-  local channel_5g="$9"
-  local hidden="${10}"
-  local isolate="${11}"
-  local device_2g="" device_5g="" device
-
-  if ! bool_true "$enabled"; then
-    uci -q delete wireless.firstboot_2g
-    uci -q delete wireless.firstboot_5g
-    for device in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-      uci set "wireless.$device.disabled=1"
-    done
-    uci commit wireless 2>/dev/null || true
-    wifi reload >/dev/null 2>&1 || true
-    return 0
-  fi
-
-  [ -n "$ssid" ] && [ "${#ssid}" -le 32 ] || fail "Wi-Fi network name must be 1 to 32 characters."
-  case "$security" in
-    sae-mixed|psk2|sae|none) ;;
-    *) fail "Unsupported Wi-Fi security mode." ;;
-  esac
-  if [ "$security" != "none" ]; then
-    [ "${#password}" -ge 8 ] && [ "${#password}" -le 63 ] ||
-      fail "Wi-Fi password must be 8 to 63 characters."
-  fi
-  printf '%s' "$country" | grep -Eq '^[A-Za-z]{2}$' || fail "Wi-Fi country code must contain two letters."
-  country="$(printf '%s' "$country" | tr 'a-z' 'A-Z')"
-  case "$channel_2g" in auto|[1-9]|1[0-3]) ;; *) fail "Invalid 2.4 GHz channel." ;; esac
-  case "$channel_5g" in auto|[0-9][0-9]|1[0-9][0-9]) ;; *) fail "Invalid 5 GHz channel." ;; esac
-
-  bool_true "$enable_2g" && device_2g="$(wifi_device_for_band 2g || true)"
-  bool_true "$enable_5g" && device_5g="$(wifi_device_for_band 5g || true)"
-  if bool_true "$enable_2g" && [ -z "$device_2g" ]; then
-    fail "2.4 GHz Wi-Fi was requested but no matching radio was detected."
-  fi
-  if bool_true "$enable_5g" && [ -z "$device_5g" ]; then
-    fail "5 GHz Wi-Fi was requested but no matching radio was detected."
-  fi
-  [ -n "$device_2g" ] || [ -n "$device_5g" ] || fail "Enable at least one detected Wi-Fi band."
-
-  uci -q delete wireless.firstboot_2g
-  uci -q delete wireless.firstboot_5g
-  [ -z "$device_2g" ] || configure_wifi_band 2g "$device_2g" "$ssid" "$security" "$password" "$country" "$channel_2g" "$hidden" "$isolate"
-  [ -z "$device_5g" ] || configure_wifi_band 5g "$device_5g" "$ssid" "$security" "$password" "$country" "$channel_5g" "$hidden" "$isolate"
-  uci commit wireless
-  wifi reload >/dev/null 2>&1 || fail "Wi-Fi configuration was saved but the radios did not reload."
-}
-
 configure_account() {
   local login="$1"
   local password="$2"
   local confirm="$3"
   local keys="$4"
 
-  [ "$login" = "root" ] || fail "The administrator account is fixed to root on this OpenWrt image."
+  [ "$login" = "root" ] || fail "This image supports root SSH login only."
   [ "${#password}" -ge 8 ] || fail "SSH password must be at least 8 characters."
   [ "$password" = "$confirm" ] || fail "Password confirmation does not match."
   printf '%s\n%s\n' "$password" "$password" | passwd root >/tmp/firstboot-passwd.log 2>&1 ||
@@ -514,20 +149,6 @@ configure_account() {
   chmod 600 /etc/dropbear/authorized_keys
   /etc/init.d/dropbear enable >/dev/null 2>&1 || true
   /etc/init.d/dropbear restart >/dev/null 2>&1 || true
-  verify_root_login "$password" ||
-    fail "Root password was written, but OpenWrt could not authenticate it."
-}
-
-verify_root_login() {
-  local password="$1"
-  local password_json payload response session
-
-  password_json="$(json_escape "$password")"
-  payload="{\"username\":\"root\",\"password\":\"$password_json\",\"timeout\":2}"
-  response="$("$UBUS_BIN" call session login "$payload" 2>/dev/null)" || return 1
-  session="$(printf '%s' "$response" |
-    "$JSONFILTER_BIN" -e '@.ubus_rpc_session' 2>/dev/null | sed -n '1p')"
-  [ -n "$session" ]
 }
 
 wait_http() {
@@ -580,19 +201,10 @@ rewrite_adguard_filters() {
 }
 
 configure_adguard() {
-  local enabled="$1"
-  local user="$2"
-  local password="$3"
-  local selected="$4"
+  local user="$1"
+  local password="$2"
+  local selected="$3"
   local user_json password_json payload
-
-  if ! bool_true "$enabled"; then
-    printf 'AdGuardHome was not selected; existing service and DNS state were left unchanged.\n' > /tmp/firstboot-adguard-skip.log
-    return 0
-  fi
-  if ! adguard_available; then
-    fail "AdGuardHome was selected but is not installed on this router."
-  fi
 
   /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
   [ -f /etc/adguardhome.yaml ] && cp /etc/adguardhome.yaml "/etc/adguardhome.yaml.bak.firstboot.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
@@ -713,75 +325,35 @@ configure_xray_service() {
   uci commit xray
 }
 
-import_vless_profile() {
-  local vless="$1"
-  local id validate_result add_result
-
-  validate_result="/tmp/firstboot-vpn-validate.$$.json"
-  add_result="/tmp/firstboot-vpn-add.$$.json"
-  rm -f "$validate_result" "$add_result"
-
-  "$VPN_UI_BIN" validate-vless "$vless" >"$validate_result" 2>&1
-  grep -q '"ok":true' "$validate_result" ||
-    fail "Could not validate VLESS profile: $("$JSONFILTER_BIN" -i "$validate_result" -e '@.error' 2>/dev/null)"
-
-  id="$("$JSONFILTER_BIN" -i "$validate_result" -e '@.profile.id' 2>/dev/null)"
-  [ -n "$id" ] || fail "VLESS validation did not return a profile ID."
-
-  "$VPN_UI_BIN" add "$vless" >"$add_result" 2>&1
-  grep -q '"ok":true' "$add_result" ||
-    fail "Could not add VLESS profile: $("$JSONFILTER_BIN" -i "$add_result" -e '@.error' 2>/dev/null)"
-
-  rm -f "$validate_result" "$add_result"
-  VPN_PROFILE_ID="$id"
-}
-
-import_subscription_profile() {
-  local url="$1"
-  local id add_result
-
-  add_result="/tmp/firstboot-vpn-subscription.$$.json"
-  rm -f "$add_result"
-
-  "$VPN_UI_BIN" subscription-add "$url" >"$add_result" 2>&1
-  grep -q '"ok":true' "$add_result" ||
-    fail "Could not import subscription: $("$JSONFILTER_BIN" -i "$add_result" -e '@.error' 2>/dev/null)"
-
-  id="$("$JSONFILTER_BIN" -i "$add_result" -e '@.selected' 2>/dev/null)"
-  [ -n "$id" ] || fail "Subscription import did not return a selected profile ID."
-
-  rm -f "$add_result"
-  VPN_PROFILE_ID="$id"
-}
-
 configure_vpn() {
   local enabled="$1"
   local vpn_url="$2"
-  local id select_result connection_state
+  local id add_result select_result
 
   configure_xray_service
-  "$VPN_UI_BIN" init >/tmp/firstboot-vpn-init.log 2>&1 || true
+  /usr/sbin/vpn-ui init >/tmp/firstboot-vpn-init.log 2>&1 || true
 
   if bool_true "$enabled"; then
+    case "$vpn_url" in vless://*|https://*) ;; *) fail "A VLESS link or HTTPS subscription link is required when VPN is enabled." ;; esac
+    add_result="/tmp/firstboot-vpn-add.json"
     case "$vpn_url" in
-      vless://*) import_vless_profile "$vpn_url" ;;
-      https://*) import_subscription_profile "$vpn_url" ;;
-      *) fail "A VLESS link or HTTPS subscription link is required when VPN is enabled." ;;
+      vless://*)
+        /usr/sbin/vpn-ui add "$vpn_url" >"$add_result" 2>&1
+        grep -q '"ok":true' "$add_result" || fail "Could not add VLESS profile: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
+        id="$(jsonfilter -i "$add_result" -e '@.profile.id' 2>/dev/null)"
+        ;;
+      https://*)
+        /usr/sbin/vpn-ui subscription-add "$vpn_url" >"$add_result" 2>&1
+        grep -q '"ok":true' "$add_result" || fail "Could not import subscription: $(jsonfilter -i "$add_result" -e '@.error' 2>/dev/null)"
+        id="$(jsonfilter -i "$add_result" -e '@.selected' 2>/dev/null)"
+        ;;
     esac
-    id="$VPN_PROFILE_ID"
+    [ -n "$id" ] || fail "VPN profile import did not return an ID."
     /etc/init.d/xray enable >/dev/null 2>&1 || true
     /etc/init.d/xray-transparent enable >/dev/null 2>&1 || true
-    select_result="/tmp/firstboot-vpn-select.$$.json"
-    "$VPN_UI_BIN" select "$id" >"$select_result" 2>&1
-    grep -q '"ok":true' "$select_result" ||
-      fail "Could not enable the selected VLESS profile: $("$JSONFILTER_BIN" -i "$select_result" -e '@.error' 2>/dev/null)"
-    connection_state="$("$JSONFILTER_BIN" -i "$select_result" -e '@.connection_state' 2>/dev/null | sed -n '1p')"
-    [ "$connection_state" = "connected" ] || {
-      rm -f "$select_result"
-      "$VPN_UI_BIN" xray off >/tmp/firstboot-vpn-connectivity-rollback.log 2>&1 || true
-      fail "The VPN profile was saved, but it could not reach the internet. Check whether the link is expired or the server is unavailable, then try another link or leave VPN disabled."
-    }
-    rm -f "$select_result"
+    select_result="/tmp/firstboot-vpn-select.json"
+    /usr/sbin/vpn-ui select "$id" >"$select_result" 2>&1
+    grep -q '"ok":true' "$select_result" || fail "Could not enable the selected VLESS profile: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
   else
     /etc/init.d/xray disable >/dev/null 2>&1 || true
     /etc/init.d/xray-transparent disable >/dev/null 2>&1 || true
@@ -794,7 +366,6 @@ configure_tailscale() {
   local enabled="$1"
   local login_server="$2"
   local auth_key="$3"
-  local log="/tmp/firstboot-tailscale.$$"
 
   if ! bool_true "$enabled"; then
     /etc/init.d/tailscale stop >/dev/null 2>&1 || true
@@ -818,146 +389,60 @@ configure_tailscale() {
   set -- \
     "--login-server=$login_server" \
     "--auth-key=$auth_key" \
-    "--hostname=$ROUTER_HOSTNAME" \
+    "--hostname=$HOSTNAME" \
     "--advertise-exit-node" \
     "--advertise-routes=$LAN_CIDR" \
     "--accept-dns=false" \
     "--netfilter-mode=off"
-  if ! tailscale up "$@" >"$log" 2>&1; then
-    tailscale up --reset "$@" >"$log" 2>&1 || {
-      rm -f "$log"
-      fail "tailscale up failed. Check the login server, TLS, and preauth key."
-    }
-  fi
-  rm -f "$log"
-
-  verify_tailscale_registration ||
-    fail "Tailscale accepted the command but did not reach a registered Running state. Check the login server, TLS, and preauth key."
-}
-
-verify_tailscale_registration() {
-  local attempt=0 backend ip
-  while [ "$attempt" -lt 20 ]; do
-    backend="$(tailscale status --json 2>/dev/null | "$JSONFILTER_BIN" -e '@.BackendState' 2>/dev/null || true)"
-    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
-    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
-    attempt=$((attempt + 1))
-    sleep 1
-  done
-  return 1
+  tailscale up "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
+    tailscale up --reset "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
+    fail "tailscale up failed."
 }
 
 apply_setup() {
-  local router_hostname login password confirm keys
-  local wifi_enabled wifi_2g wifi_5g wifi_ssid wifi_security wifi_password wifi_country
-  local wifi_channel_2g wifi_channel_5g wifi_hidden wifi_isolate
-  local vpn_enabled vless adguard_enabled selected tailscale_enabled tailscale_url tailscale_key now
+  local login password confirm keys vpn_enabled vless selected tailscale_enabled tailscale_url tailscale_key now
 
-  [ ! -f "$COMPLETE_FILE" ] || fail "Initial setup is already complete."
+  mkdir -p "$STATE_DIR" || fail "Could not initialize first-boot setup state."
+  [ ! -f "$COMPLETE_FILE" ] ||
+    fail "Initial setup is already complete. Sign in to LuCI to make changes."
+  mkdir "$APPLY_LOCK" 2>/dev/null ||
+    fail "Initial setup is already complete or another setup request is in progress."
+  trap 'rm -f "$PAYLOAD" "$FILTERS_FILE"; rmdir "$APPLY_LOCK" 2>/dev/null || true' EXIT
+  [ ! -f "$COMPLETE_FILE" ] ||
+    fail "Initial setup is already complete. Sign in to LuCI to make changes."
+
   read_body > "$PAYLOAD"
-  router_hostname="$(json_get '@.router.hostname')"
-  validate_router_hostname "$router_hostname"
-  ROUTER_HOSTNAME="$router_hostname"
   login="$(json_get '@.account.login')"
   password="$(json_get '@.account.password')"
   confirm="$(json_get '@.account.passwordConfirm')"
   keys="$(json_get '@.account.authorizedKeys')"
-  wifi_enabled="$(json_get '@.wifi.enabled')"
-  wifi_2g="$(json_get '@.wifi.enable2g')"
-  wifi_5g="$(json_get '@.wifi.enable5g')"
-  wifi_ssid="$(json_get '@.wifi.ssid')"
-  wifi_security="$(json_get '@.wifi.security')"
-  wifi_password="$(json_get '@.wifi.password')"
-  wifi_country="$(json_get '@.wifi.country')"
-  wifi_channel_2g="$(json_get '@.wifi.channel2g')"
-  wifi_channel_5g="$(json_get '@.wifi.channel5g')"
-  wifi_hidden="$(json_get '@.wifi.hidden')"
-  wifi_isolate="$(json_get '@.wifi.isolate')"
   vpn_enabled="$(json_get '@.vpn.enabled')"
   vless="$(json_get '@.vpn.vlessUrl')"
-  adguard_enabled="$(json_get '@.adguard.enabled')"
-  if bool_true "$adguard_enabled" && ! adguard_allowed_for_hardware; then
-    fail "AdGuardHome is deferred for Xiaomi AX3000T/RD23 and cannot be enabled by first-boot setup."
-  fi
   selected="$(json_list '@.adguard.selectedFilterIds[*]' | tr '\n' ' ')"
   tailscale_enabled="$(json_get '@.tailscale.enabled')"
   tailscale_url="$(json_get '@.tailscale.loginServer')"
   tailscale_key="$(json_get '@.tailscale.authKey')"
 
-  mkdir -p "$STATE_DIR" "$PHASE_DIR"
-  : > "$IN_PROGRESS_FILE"
-  sync
-
-  # Credentials are intentionally reapplied on every resumed submission.
-  # A phase marker must never cause a newly entered password to be skipped.
-  # Hostname is also reapplied so a resumed setup uses the latest explicit name.
-  configure_router_hostname
   configure_account "$login" "$password" "$confirm" "$keys"
-  mark_phase_done account
-  if ! phase_done network; then
-    configure_network
-    mark_phase_done network
-  fi
-  if ! phase_done wifi; then
-    configure_wifi "$wifi_enabled" "$wifi_2g" "$wifi_5g" "$wifi_ssid" "$wifi_security" \
-      "$wifi_password" "$wifi_country" "$wifi_channel_2g" "$wifi_channel_5g" "$wifi_hidden" "$wifi_isolate"
-    mark_phase_done wifi
-  fi
-  if ! phase_done adguard; then
-    configure_adguard "$adguard_enabled" "$login" "$password" "$selected"
-    mark_phase_done adguard
-  fi
-  if ! phase_done vpn; then
-    configure_vpn "$vpn_enabled" "$vless"
-    mark_phase_done vpn
-  fi
-  if ! phase_done tailscale; then
-    configure_tailscale "$tailscale_enabled" "$tailscale_url" "$tailscale_key"
-    mark_phase_done tailscale
-  fi
+  configure_network
+  configure_adguard "$login" "$password" "$selected"
+  configure_vpn "$vpn_enabled" "$vless"
+  configure_tailscale "$tailscale_enabled" "$tailscale_url" "$tailscale_key"
 
   touch "$COMPLETE_FILE"
-  rm -f "$IN_PROGRESS_FILE"
-  sync
   /etc/init.d/firewall restart >/dev/null 2>&1 || true
 
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   header_json "200 OK"
   cat <<EOF
-{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"hostname":"$(json_escape "$ROUTER_HOSTNAME")","lanIp":"$LAN_IP"},"wifi":{"enabled":$(bool_true "$wifi_enabled" && printf true || printf false)},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"adguard":{"enabled":$(bool_true "$adguard_enabled" && printf true || printf false),"available":$(adguard_available && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set router name and root account","Configure LAN on $LAN_IP","Configure Wi-Fi if requested","Configure or skip optional AdGuardHome","Configure VPN and verify internet connectivity","Configure Tailscale and verify registration if requested","Mark first-boot setup complete"]}}
+{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"lanIp":"$LAN_IP","luciUrl":"http://$LAN_IP/cgi-bin/luci/","vpnUrl":"http://$LAN_IP/cgi-bin/luci/admin/network/vpn","adguardUrl":"http://$LAN_IP:3000/"},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set root account and SSH keys","Configure LAN on $LAN_IP","Write AdGuardHome filters","Configure VPN panel and Xray","Configure Tailscale if requested","Mark first-boot setup complete"]}}
 EOF
 }
 
-finish_redirect() {
-  local target="$1"
-  local host="${HTTP_HOST:-$LAN_IP}"
-  host="${host%%:*}"
-
-  [ -f "$COMPLETE_FILE" ] || {
-    printf 'Status: 302 Found\r\nLocation: /setup/?v=0.8.0RC2-ux-health-4\r\nCache-Control: no-store\r\n\r\n'
-    exit 0
-  }
-
-  case "$target" in
-    luci) location="/cgi-bin/luci/" ;;
-    vpn) location="/cgi-bin/luci/admin/network/vpn" ;;
-    adguard) location="${REQUEST_SCHEME:-http}://$host:3000/" ;;
-    *) location="/cgi-bin/luci/" ;;
-  esac
-  printf 'Status: 302 Found\r\nLocation: %s\r\nCache-Control: no-store\r\n\r\n' "$location"
-}
-
-if [ "${FIRSTBOOT_SETUP_LIB_ONLY:-0}" != "1" ]; then
-  action="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*action=\([^&]*\).*/\1/p')"
-  case "${action:-status}" in
-    status) ok_status ;;
-    bootstrap) bootstrap ;;
-    adguard-install) install_adguard ;;
-    apply) apply_setup ;;
-    finish)
-      target="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*target=\([^&]*\).*/\1/p')"
-      finish_redirect "${target:-luci}"
-      ;;
-    *) fail "Unknown setup action." ;;
-  esac
-fi
+action="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*action=\([^&]*\).*/\1/p')"
+case "${action:-status}" in
+  status) ok_status ;;
+  bootstrap) bootstrap ;;
+  apply) apply_setup ;;
+  *) fail "Unknown setup action." ;;
+esac

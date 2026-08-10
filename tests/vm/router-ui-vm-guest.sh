@@ -57,7 +57,8 @@ measure() {
 protected_hash() {
   work="/tmp/router-ui-protected.$$"
   : > "$work"
-  for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root; do
+  for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root \
+    /root/router-ui-preserved-fixture.txt; do
     if [ -f "$path" ]; then
       sha256sum "$path" >> "$work"
     elif [ -d "$path" ]; then
@@ -86,6 +87,19 @@ install_non_secret_test_profile() {
   chmod 700 /etc/xray/vless-profiles.d
   chmod 600 /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
     /etc/xray/vless-selected /etc/xray/direct-domains.txt
+  for config in network firewall; do
+    printf '\n# router-ui-rc synthetic %s marker for %s\n' "$config" "$source_version" >> "/etc/config/$config"
+  done
+  {
+    printf "config settings 'test'\n"
+    printf "\toption state 'synthetic-not-enrolled'\n"
+    printf "\toption source_version '%s'\n" "$source_version"
+  } > /etc/config/tailscale
+  printf "# router-ui-rc synthetic updater marker for %s\n" "$source_version" >> /etc/vpn-ui-update.conf
+  printf 'synthetic unrelated user file for Router UI %s\n' "$source_version" > \
+    /root/router-ui-preserved-fixture.txt
+  chmod 600 /etc/config/tailscale /etc/vpn-ui-update.conf \
+    /root/router-ui-preserved-fixture.txt
 }
 
 install_baseline() {
@@ -119,7 +133,9 @@ validate_baseline() {
     /usr/sbin/vpn-ui-update \
     /etc/xray/vless-profiles.d/disposable-vm-fixture.conf \
     /etc/xray/vless-selected \
-    /etc/xray/direct-domains.txt; do
+    /etc/xray/direct-domains.txt \
+    /etc/config/tailscale \
+    /root/router-ui-preserved-fixture.txt; do
     [ -f "$path" ] || die "baseline filesystem contract missing: $path"
   done
   set +e
@@ -168,14 +184,24 @@ old_status_is() {
   [ "$(sed -n '1p' /tmp/vpn-ui-update/status 2>/dev/null)" = "$wanted" ]
 }
 
+old_version_is() {
+  wanted="$1"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version 2>/dev/null)" = "$wanted" ]
+}
+
+old_target_succeeded() {
+  old_version_is "$1" && old_status_is success
+}
+
 run_old_worker() {
-  origin="$1" source="$2"
+  origin="$1" source="$2" target_app="$3"
   before="$(protected_hash)"
   VPN_UI_RELEASE_BASE="$origin/releases/latest/download" /usr/sbin/vpn-ui-update check-start >/tmp/old-check-start.json
   wait_for "old-worker check" old_status_is success
   VPN_UI_RELEASE_BASE="$origin/releases/latest/download" /usr/sbin/vpn-ui-update apply-start >/tmp/old-apply-start.json
-  wait_for "old-worker completion" old_status_is success
-  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.11 ] || die "old worker did not install 0.7.11"
+  wait_for "old-worker successful target installation" old_target_succeeded "$target_app"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$target_app" ] ||
+    die "old worker did not install $target_app"
   transaction="$(sed -n '1p' /root/premier-router-updates/active-transaction)"
   journal="/root/premier-router-updates/$transaction/state.json"
   [ "$(jget "$journal" '@.state')" = committed_pending_reboot_validation ] || die "old worker hid pending reboot validation"
@@ -193,23 +219,25 @@ run_old_worker() {
 }
 
 run_rescue() {
-  origin="$1" source="$2"
+  origin="$1" source="$2" target_app="$3" target_tag="$4"
   before="$(protected_hash)"
-  curl -fsSL --proto '=https' "$origin/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh" -o /tmp/rescue-router-ui.sh
+  release_base="$origin/releases/download/$target_tag"
+  curl -fsSL --proto '=https' "$release_base/rescue-router-ui.sh" -o /tmp/rescue-router-ui.sh
   chmod 700 /tmp/rescue-router-ui.sh
-  ROUTER_UI_RELEASE_BASE="$origin/releases/download/vpn-panel-v0.7.11" sh /tmp/rescue-router-ui.sh
-  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.11 ] || die "rescue from $source did not install 0.7.11"
+  ROUTER_UI_RELEASE_BASE="$release_base" sh /tmp/rescue-router-ui.sh
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$target_app" ] ||
+    die "rescue from $source did not install $target_app"
   grep -qx 'UPDATER_PROTOCOL=2' /usr/share/premier-router/build-info || die "rescue did not install protocol 2"
   [ "$(protected_hash)" = "$before" ] || die "rescue changed protected configuration"
   sed -n '1p' /root/premier-router-updates/active-transaction
 }
 
 verify_target() {
-  expected="$1" source="$2" phase="${3:-post-reboot}"
+  expected="$1" expected_package="$2" source="$3" phase="${4:-post-reboot}"
   [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$expected" ] || die "target version mismatch"
   for package in premier-router-core luci-app-premier-router premier-router-setup; do
     actual="$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')"
-    [ "$actual" = "$expected-1" ] || die "$package version mismatch: $actual"
+    [ "$actual" = "$expected_package" ] || die "$package version mismatch: $actual"
   done
   transaction="$(sed -n '1p' /root/premier-router-updates/active-transaction)"
   journal="/root/premier-router-updates/$transaction/state.json"
@@ -224,18 +252,24 @@ verify_target() {
 }
 
 run_rollback() {
-  transaction="$1" expected="$2"
+  transaction="$1" expected="$2" expected_package="${3:-}"
   sh "/root/premier-router-updates/$transaction/rollback.sh"
   [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$expected" ] || die "rollback did not restore $expected"
+  if [ -n "$expected_package" ]; then
+    for package in premier-router-core luci-app-premier-router premier-router-setup; do
+      actual="$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')"
+      [ "$actual" = "$expected_package" ] || die "rollback package mismatch: $package $actual"
+    done
+  fi
   [ "$(jget "/root/premier-router-updates/$transaction/state.json" '@.state')" = rolled_back ] || die "rollback state is false"
   sh "/root/premier-router-updates/$transaction/rollback.sh"
 }
 
 verify_clean_image() {
-  expected_fingerprint="$1"
-  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.11 ] || die "clean image version mismatch"
+  expected_fingerprint="$1" expected_app="$2" expected_package="$3"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$expected_app" ] || die "clean image version mismatch"
   for package in premier-router-core luci-app-premier-router premier-router-setup; do
-    [ "$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')" = 0.7.11-1 ] ||
+    [ "$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')" = "$expected_package" ] ||
       die "clean image package version mismatch: $package"
   done
   /usr/sbin/vpn-ui-update status > /tmp/clean-status.json
@@ -260,6 +294,150 @@ verify_clean_image() {
     done < "$list"
   done
   dmesg | grep -Eqi 'out of memory|oom-killer|killed process' && die "clean image experienced OOM"
+}
+
+verify_update_available() {
+  expected_current="$1" expected_current_package="$2"
+  expected_latest="$3" expected_latest_package="$4"
+  opkg compare-versions "$expected_current_package" lt "$expected_latest_package" ||
+    die "opkg does not order $expected_latest_package after $expected_current_package"
+  /usr/sbin/vpn-ui update-status > /tmp/router-ui-update-available.json
+  [ "$(jget /tmp/router-ui-update-available.json '@.current')" = "$expected_current" ] ||
+    die "update status current version mismatch"
+  [ "$(jget /tmp/router-ui-update-available.json '@.latest')" = "$expected_latest" ] ||
+    die "update status latest version mismatch"
+  [ "$(jget /tmp/router-ui-update-available.json '@.available')" = true ] ||
+    die "stable successor is not offered to the RC"
+}
+
+dual_daemon_xray_pid() {
+  xray_pid="$(pidof xray 2>/dev/null || true)"
+  [ -n "$xray_pid" ] || xray_pid="$(pidof xray-latest 2>/dev/null || true)"
+  [ -n "$xray_pid" ] || return 1
+  printf '%s\n' "$xray_pid" | awk '{print $1}'
+}
+
+dual_daemon_running() {
+  pidof tailscaled >/dev/null 2>&1 && [ -n "$(dual_daemon_xray_pid 2>/dev/null || true)" ]
+}
+
+dual_daemon_setup() {
+  expected_app="$1" expected_package="$2"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$expected_app" ] ||
+    die "dual-daemon image app version mismatch"
+  for package in premier-router-core luci-app-premier-router premier-router-setup; do
+    [ "$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')" = "$expected_package" ] ||
+      die "dual-daemon project package version mismatch: $package"
+  done
+  opkg status tailscale xray-core >/tmp/router-ui-dual-daemon-dependencies.txt
+  command -v tailscaled >/dev/null 2>&1 || die "installed tailscaled binary is missing"
+  xray_binary="$(command -v xray || command -v xray-latest || true)"
+  [ -n "$xray_binary" ] || die "installed Xray binary is missing"
+
+  mkdir -p /etc/xray
+  cat > /etc/xray/router-ui-vm-local-only.json <<'EOF'
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/tmp/router-ui-vm-xray-access.log",
+    "error": "/tmp/router-ui-vm-xray-error.log"
+  },
+  "inbounds": [{
+    "listen": "127.0.0.1",
+    "port": 11080,
+    "protocol": "socks",
+    "settings": {"auth": "noauth", "udp": false}
+  }],
+  "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+}
+EOF
+  chmod 600 /etc/xray/router-ui-vm-local-only.json
+  "$xray_binary" run -test -config /etc/xray/router-ui-vm-local-only.json \
+    >/tmp/router-ui-vm-xray-config-test.log 2>&1 || die "local-only Xray config failed validation"
+  [ -x /etc/init.d/xray ] || die "installed Xray init service is missing"
+  uci set xray.enabled=xray
+  uci set xray.enabled.enabled='1'
+  uci set xray.config=xray
+  uci set xray.config.conffiles='/etc/xray/router-ui-vm-local-only.json'
+  uci set xray.config.format='json'
+  uci -q delete xray.config.confdir
+  uci commit xray
+  /etc/init.d/xray enable
+  /etc/init.d/xray restart
+  [ -x /etc/init.d/tailscale ] || die "installed Tailscale init service is missing"
+  /etc/init.d/tailscale enable
+  /etc/init.d/tailscale restart
+  wait_for "real Xray and un-enrolled tailscaled processes" dual_daemon_running
+}
+
+dual_daemon_sample() {
+  phase="$1" expected_app="$2" expected_package="$3" probe_url="$4"
+  tailscale_status_json=/tmp/router-ui-dual-tailscale-cli-status.json
+  wait_for "dual-daemon processes during $phase" dual_daemon_running
+  tailscale_pid="$(pidof tailscaled | awk '{print $1}')"
+  xray_pid="$(dual_daemon_xray_pid)"
+  [ -r "/proc/$tailscale_pid/status" ] && [ -r "/proc/$xray_pid/status" ] ||
+    die "dual-daemon process status disappeared during $phase"
+  [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$expected_app" ] ||
+    die "app version drifted during dual-daemon $phase"
+  for package in premier-router-core luci-app-premier-router premier-router-setup; do
+    [ "$(opkg status "$package" | sed -n 's/^Version: //p' | sed -n '1p')" = "$expected_package" ] ||
+      die "package version drifted during dual-daemon $phase: $package"
+  done
+  probe="$(curl -fsSL --socks5-hostname 127.0.0.1:11080 "$probe_url")" ||
+    die "Xray local-only traffic probe failed during $phase"
+  [ "$probe" = router-ui-dual-daemon-ok ] || die "Xray traffic probe returned unexpected bytes"
+  netstat -lnt 2>/dev/null | grep -Eq '127\.0\.0\.1:11080[[:space:]]' ||
+    die "Xray SOCKS listener is not loopback-only"
+  ! netstat -lnt 2>/dev/null | grep -Eq '(0\.0\.0\.0|:::?):11080[[:space:]]' ||
+    die "Xray test listener escaped loopback"
+  /usr/sbin/vpn-ui vpn-summary > /tmp/router-ui-dual-vpn-summary.json
+  /usr/sbin/vpn-ui tailscale-status > /tmp/router-ui-dual-tailscale-status.json
+  tailscale debug prefs >/dev/null 2>&1 ||
+    die "tailscaled local API is unresponsive during $phase"
+  tailscale status --json > "$tailscale_status_json" 2>/dev/null ||
+    die "tailscale status JSON is unavailable during $phase"
+  tailscale_backend_state="$(jget "$tailscale_status_json" '@.BackendState')"
+  printf '%s' "$tailscale_backend_state" | grep -Eq '^[A-Za-z][A-Za-z0-9_-]*$' ||
+    die "tailscale backend state is malformed during $phase"
+  [ "$tailscale_backend_state" = NeedsLogin ] ||
+    die "dual-daemon VM is not in the expected unauthenticated NeedsLogin state during $phase"
+  tailscale_ips="$(jsonfilter -i "$tailscale_status_json" -e '@.TailscaleIPs[*]' 2>/dev/null |
+    sed '/^[[:space:]]*$/d' || true)"
+  [ -z "$tailscale_ips" ] ||
+    die "dual-daemon VM unexpectedly has Tailscale IPs during $phase"
+  [ "$(jget /tmp/router-ui-dual-vpn-summary.json '@.xray')" = running ] ||
+    die "Router UI does not report Xray running during $phase"
+  [ "$(jget /tmp/router-ui-dual-tailscale-status.json '@.tailscale.running')" = true ] ||
+    die "Router UI does not report tailscaled running during $phase"
+  ! dmesg | grep -Eqi 'out of memory|oom-killer|killed process' ||
+    die "kernel OOM evidence found during dual-daemon $phase"
+  ! logread 2>/dev/null | grep -Eqi 'out of memory|oom-killer|killed process' ||
+    die "system log OOM evidence found during dual-daemon $phase"
+
+  mem_total="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+  mem_available="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)"
+  tailscale_rss="$(awk '/^VmRSS:/ {print $2}' "/proc/$tailscale_pid/status")"
+  xray_rss="$(awk '/^VmRSS:/ {print $2}' "/proc/$xray_pid/status")"
+  tailscale_starttime="$(awk '{print $22}' "/proc/$tailscale_pid/stat")"
+  xray_starttime="$(awk '{print $22}' "/proc/$xray_pid/stat")"
+  tmp_free="$(df -Pk /tmp | awk 'NR == 2 {print $4}')"
+  overlay_free="$(df -Pk /overlay | awk 'NR == 2 {print $4}')"
+  printf '{"phase":"%s","boot_id":"%s","app_version":"%s",' \
+    "$phase" "$(cat /proc/sys/kernel/random/boot_id)" "$expected_app"
+  printf '"package_version":"%s","mem_total_kib":%s,"mem_available_kib":%s,' \
+    "$expected_package" "$mem_total" "$mem_available"
+  printf '"tailscaled":{"pid":%s,"starttime_ticks":%s,"rss_kib":%s,"running":true},' \
+    "$tailscale_pid" "$tailscale_starttime" "${tailscale_rss:-0}"
+  printf '"xray":{"pid":%s,"starttime_ticks":%s,"rss_kib":%s,"running":true,"loopback_only":true,' \
+    "$xray_pid" "$xray_starttime" "${xray_rss:-0}"
+  printf '"traffic_probe_ok":true},"tmp_free_kib":%s,"overlay_free_kib":%s,' \
+    "$tmp_free" "$overlay_free"
+  printf '"router_ui_status_ok":true,"tailscale_local_api_ok":true,'
+  printf '"tailscale_backend_state":"%s","tailscale_ips_present":false,' \
+    "$tailscale_backend_state"
+  printf '"tailscale_enrollment_observed":"not-enrolled",'
+  printf '"oom_detected":false,"hardware_verified":false}\n'
 }
 
 fill_to_free() {
@@ -295,11 +473,15 @@ case "${1:-}" in
   measure) shift; measure "$@" ;;
   protected-hash) protected_hash ;;
   install-baseline) shift; install_baseline "$@" ;;
+  install-test-profile) shift; install_non_secret_test_profile "$@" ;;
   validate-baseline) shift; validate_baseline "$@" ;;
   old-worker) shift; run_old_worker "$@" ;;
   rescue) shift; run_rescue "$@" ;;
   verify-target) shift; verify_target "$@" ;;
   verify-clean-image) shift; verify_clean_image "$@" ;;
+  verify-update-available) shift; verify_update_available "$@" ;;
+  dual-daemon-setup) shift; dual_daemon_setup "$@" ;;
+  dual-daemon-sample) shift; dual_daemon_sample "$@" ;;
   rollback) shift; run_rollback "$@" ;;
   fill-to-free) shift; fill_to_free "$@" ;;
   concurrency-race) shift; concurrency_race "$@" ;;

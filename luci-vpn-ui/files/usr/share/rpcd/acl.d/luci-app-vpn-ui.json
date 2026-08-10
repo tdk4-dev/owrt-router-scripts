@@ -3,7 +3,7 @@
 		"description": "Grant access to VPN connectivity controls",
 		"read": {
 			"file": {
-				"/usr/sbin/vpn-ui": [ "exec" ]
+				"/usr/sbin/vpn-ui-readonly": [ "exec" ]
 			},
 			"ubus": {
 				"file": [ "exec" ]
@@ -11,7 +11,8 @@
 		},
 		"write": {
 			"file": {
-				"/usr/sbin/vpn-ui": [ "exec" ]
+				"/usr/sbin/vpn-ui": [ "exec" ],
+				"/usr/sbin/vpn-ui-readonly": [ "exec" ]
 			},
 			"ubus": {
 				"file": [ "exec" ]
