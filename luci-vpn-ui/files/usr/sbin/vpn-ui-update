@@ -73,6 +73,28 @@ J_WORKER_TOKEN=""
 J_INVOCATION=""
 J_NEEDS_REBOOT_VALIDATION=false
 
+RC5_BRIDGE_APP_VERSION='0.7.11-rc.5'
+RC5_BRIDGE_PACKAGE_VERSION='0.7.11~rc5-1'
+RC5_BRIDGE_SOURCE_COMMIT='d02b3bcd187a44d366469ed1f37bb1b273e60529'
+RC5_BRIDGE_SOURCE_DATE_EPOCH='1785839862'
+RC5_BRIDGE_SIGNING_KEY_ID='production-2026-07'
+RC5_BRIDGE_SIGNING_KEY_FINGERPRINT='d055711acf1d9a5b'
+RC5_BRIDGE_MANIFEST_SHA256='52c6c4321d08ce5763a2472ac4d2b093b8547c2da7f5be857ea4986f63041365'
+RC5_BRIDGE_SIGNATURE_SHA256='814922b2647b486ac49ae9688b054170077a1f00476587bbad6ccabe22975517'
+RC5_BRIDGE_UPDATER_SHA256='14c15b6e3bfc38e8cb8f87a0ac57b4ab11270f9b4d31445719f1c04b7bc6681e'
+RC5_BRIDGE_UPDATE_LIB_SHA256='fb18f1f65970baa29f41acc6f727f75829eba0d6fce0934b84ff82bdbc200f0a'
+RC5_BRIDGE_VALIDATOR_SHA256='2cfca674925ada88a31e94c0b7a7870e5d0cb1148aa2af9315eb214a0fc65669'
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  RC5_BRIDGE_SOURCE_DATE_EPOCH="${VPN_UI_TEST_RC5_SOURCE_DATE_EPOCH:-$RC5_BRIDGE_SOURCE_DATE_EPOCH}"
+  RC5_BRIDGE_SIGNING_KEY_ID="${VPN_UI_TEST_RC5_SIGNING_KEY_ID:-$RC5_BRIDGE_SIGNING_KEY_ID}"
+  RC5_BRIDGE_SIGNING_KEY_FINGERPRINT="${VPN_UI_TEST_RC5_SIGNING_KEY_FINGERPRINT:-$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT}"
+  RC5_BRIDGE_MANIFEST_SHA256="${VPN_UI_TEST_RC5_MANIFEST_SHA256:-$RC5_BRIDGE_MANIFEST_SHA256}"
+  RC5_BRIDGE_SIGNATURE_SHA256="${VPN_UI_TEST_RC5_SIGNATURE_SHA256:-$RC5_BRIDGE_SIGNATURE_SHA256}"
+  RC5_BRIDGE_UPDATER_SHA256="${VPN_UI_TEST_RC5_UPDATER_SHA256:-$RC5_BRIDGE_UPDATER_SHA256}"
+  RC5_BRIDGE_UPDATE_LIB_SHA256="${VPN_UI_TEST_RC5_UPDATE_LIB_SHA256:-$RC5_BRIDGE_UPDATE_LIB_SHA256}"
+  RC5_BRIDGE_VALIDATOR_SHA256="${VPN_UI_TEST_RC5_VALIDATOR_SHA256:-$RC5_BRIDGE_VALIDATOR_SHA256}"
+fi
+
 now() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 boot_id() {
   pr_read_first "${VPN_UI_BOOT_ID_FILE:-${ROOT_PREFIX}/proc/sys/kernel/random/boot_id}"
@@ -545,6 +567,256 @@ fingerprint_paths() {
   done < "$list"
 }
 
+regular_nonsymlink_file() {
+  [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+rc5_expected_protected_paths() {
+  local manifest="$1" source_dir="$2" out="$3"
+  local index=0 count=0 package expected_package filename version architecture size sha ipk member control_name install_order
+  local names="$out.names" members="$out.members"
+  : > "$out"
+  : > "$names"
+  printf '%s\n' \
+    /etc/config \
+    /etc/crontabs/root \
+    /etc/vpn-ui-update.conf \
+    /etc/xray \
+    /usr/lib/opkg/status >> "$out"
+  while [ "$index" -lt 16 ]; do
+    package="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$package" ] || break
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    version="$(pr_json_get "$manifest" "@.packages[$index].version" ".packages[$index].version // empty")"
+    architecture="$(pr_json_get "$manifest" "@.packages[$index].architecture" ".packages[$index].architecture // empty")"
+    size="$(pr_json_get "$manifest" "@.packages[$index].size" ".packages[$index].size // empty")"
+    sha="$(pr_json_get "$manifest" "@.packages[$index].sha256" ".packages[$index].sha256 // empty")"
+    install_order="$(pr_json_get "$manifest" "@.packages[$index].install_order" ".packages[$index].install_order // empty")"
+    expected_package="$(printf '%s\n' $PR_PROJECT_PACKAGES | sed -n "$((index + 1))p")"
+    [ "$package" = "$expected_package" ] || return 1
+    grep -Fqx "$package" "$names" 2>/dev/null && return 1
+    [ "$version" = "$RC5_BRIDGE_PACKAGE_VERSION" ] || return 1
+    [ "$architecture" = all ] && [ "$install_order" = "$((index + 1))" ] &&
+      [ "$filename" = "${package}_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk" ] || return 1
+    pr_safe_asset_name "$filename" || return 1
+    ipk="$source_dir/$filename"
+    regular_nonsymlink_file "$ipk" || return 1
+    pr_validate_ipk "$ipk" "$package" "$version" "$architecture" "$size" "$sha" || return 1
+    tar -xzOf "$ipk" ./control.tar.gz 2>/dev/null | tar -tzf - > "$members" || return 1
+    while IFS= read -r member; do
+      member="${member#./}"
+      [ -n "$member" ] || continue
+      case "$member" in
+        control|conffiles|preinst|prerm|postrm)
+          control_name="$member"
+          printf '/usr/lib/opkg/info/%s.%s\n' "$package" "$control_name" >> "$out"
+          ;;
+        postinst) ;;
+        */) ;;
+        *) return 1 ;;
+      esac
+    done < "$members"
+    printf '/usr/lib/opkg/info/%s.list\n' "$package" >> "$out"
+    printf '%s\n' "$package" >> "$names"
+    count=$((count + 1))
+    index=$((index + 1))
+  done
+  [ "$count" = 3 ] || return 1
+  printf '%s\n' $PR_PROJECT_PACKAGES | LC_ALL=C sort > "$names.expected"
+  LC_ALL=C sort "$names" -o "$names"
+  cmp -s "$names.expected" "$names" || return 1
+  LC_ALL=C sort -u "$out" -o "$out"
+  rm -f "$names" "$names.expected" "$members"
+}
+
+rc5_source_evidence_validate() {
+  local expected_paths="$1" rollback="$TXN_DIR/rollback"
+  local manifest="$rollback/source-manifest.json" signature="$rollback/source-manifest.json.sig"
+  local path_file="$rollback/source-known-good-path" source_hash source_dir
+  local cached_manifest cached_signature validator extracted_validator core_ipk core_filename
+  local source_supervisor source_lib extracted_updater extracted_lib usign_bin
+  [ "$J_SOURCE_APP_VERSION" = "$RC5_BRIDGE_APP_VERSION" ] &&
+    [ "$J_SOURCE_PACKAGE_VERSION" = "$RC5_BRIDGE_PACKAGE_VERSION" ] &&
+    [ "$J_SOURCE_UPDATER_PROTOCOL" = 2 ] && [ "$J_SOURCE_TYPE" = ipk ] || return 1
+  regular_nonsymlink_file "$manifest" && regular_nonsymlink_file "$signature" &&
+    regular_nonsymlink_file "$path_file" || return 1
+  [ "$(wc -l < "$path_file" | tr -d ' ')" = 1 ] || return 1
+  [ "$(pr_sha256 "$manifest")" = "$RC5_BRIDGE_MANIFEST_SHA256" ] &&
+    [ "$(pr_sha256 "$signature")" = "$RC5_BRIDGE_SIGNATURE_SHA256" ] || return 1
+  usign_bin="${PR_USIGN_BIN:-usign}"
+  [ -x "$usign_bin" ] || command -v "$usign_bin" >/dev/null 2>&1 || return 1
+  [ "$("$usign_bin" -F -p "$PUBLIC_KEY" 2>/dev/null)" = "$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT" ] || return 1
+  pr_verify_signature "$manifest" "$signature" "$PUBLIC_KEY" || return 1
+  [ "$(pr_json_get "$manifest" '@.schema_version' '.schema_version // empty')" = 1 ] &&
+    [ "$(pr_json_get "$manifest" '@.kind' '.kind // empty')" = installed-package-set ] &&
+    [ "$(pr_json_get "$manifest" '@.app_version' '.app_version // empty')" = "$RC5_BRIDGE_APP_VERSION" ] &&
+    [ "$(pr_json_get "$manifest" '@.package_version' '.package_version // empty')" = "$RC5_BRIDGE_PACKAGE_VERSION" ] &&
+    [ "$(pr_json_get "$manifest" '@.source_commit' '.source_commit // empty')" = "$RC5_BRIDGE_SOURCE_COMMIT" ] &&
+    [ "$(pr_json_get "$manifest" '@.source_dirty' '.source_dirty')" = false ] &&
+    [ "$(pr_json_get "$manifest" '@.source_date_epoch' '.source_date_epoch // empty')" = "$RC5_BRIDGE_SOURCE_DATE_EPOCH" ] &&
+    [ "$(pr_json_get "$manifest" '@.signing_key_id' '.signing_key_id // empty')" = "$RC5_BRIDGE_SIGNING_KEY_ID" ] &&
+    [ "$(pr_json_get "$manifest" '@.signing_key_fingerprint' '.signing_key_fingerprint // empty')" = "$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT" ] || return 1
+  source_hash="$(pr_sha256 "$manifest")"
+  source_dir="$(pr_read_first "$path_file")"
+  [ "$source_hash" = "$RC5_BRIDGE_MANIFEST_SHA256" ] &&
+    [ -d "$PERSIST_ROOT" ] && [ ! -L "$PERSIST_ROOT" ] &&
+    [ -d "$KNOWN_GOOD" ] && [ ! -L "$KNOWN_GOOD" ] &&
+    [ "$source_dir" = "$KNOWN_GOOD/$source_hash" ] && [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+  cached_manifest="$source_dir/router-release-manifest.json"
+  cached_signature="$source_dir/router-release-manifest.json.sig"
+  regular_nonsymlink_file "$cached_manifest" && regular_nonsymlink_file "$cached_signature" || return 1
+  cmp -s "$manifest" "$cached_manifest" && cmp -s "$signature" "$cached_signature" || return 1
+  rc5_expected_protected_paths "$manifest" "$source_dir" "$expected_paths" || return 1
+  core_filename="premier-router-core_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk"
+  core_ipk="$source_dir/$core_filename"
+  validator="$source_dir/router-candidate-validator"
+  extracted_validator="$expected_paths.validator"
+  extracted_updater="$expected_paths.updater"
+  extracted_lib="$expected_paths.update-lib"
+  source_supervisor="$rollback/source-supervisor"
+  source_lib="$rollback/update-lib.sh"
+  regular_nonsymlink_file "$validator" && [ -x "$validator" ] &&
+    regular_nonsymlink_file "$source_supervisor" && [ -x "$source_supervisor" ] &&
+    regular_nonsymlink_file "$source_lib" && [ -x "$source_lib" ] || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/libexec/premier-router/candidate-validator > "$extracted_validator" || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/sbin/vpn-ui-update > "$extracted_updater" || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/libexec/premier-router/update-lib.sh > "$extracted_lib" || return 1
+  [ "$(pr_sha256 "$extracted_validator")" = "$RC5_BRIDGE_VALIDATOR_SHA256" ] &&
+    [ "$(pr_sha256 "$extracted_updater")" = "$RC5_BRIDGE_UPDATER_SHA256" ] &&
+    [ "$(pr_sha256 "$extracted_lib")" = "$RC5_BRIDGE_UPDATE_LIB_SHA256" ] &&
+    cmp -s "$extracted_validator" "$validator" &&
+    cmp -s "$extracted_updater" "$source_supervisor" &&
+    cmp -s "$extracted_lib" "$source_lib" || return 1
+  rm -f "$extracted_validator" "$extracted_updater" "$extracted_lib"
+}
+
+rc5_fingerprint_syntax_validate() {
+  local list="$1" fingerprint="$2" logical_paths="$3"
+  awk '
+    NR == FNR { roots[$0] = 1; next }
+    NF != 4 { exit 1 }
+    {
+      kind=$1; mode=$2; value=$3; path=$4
+      if (path !~ /^\/[A-Za-z0-9._+:\/-]+$/) exit 1
+      if (kind == "file") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (length(value) != 64 || value ~ /[^0-9a-f]/) exit 1
+      } else if (kind == "dir") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (value != "-") exit 1
+      } else if (kind == "missing") {
+        if (mode != "-" || value != "-") exit 1
+      } else if (kind == "link") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (value !~ /^\/?[A-Za-z0-9._+:\/-]+$/) exit 1
+      } else exit 1
+      covered=0
+      for (root in roots) {
+        if (path == root || ((root == "/etc/config" || root == "/etc/xray") &&
+            index(path, root "/") == 1)) covered=1
+      }
+      if (!covered) exit 1
+      if (seen[path]++) exit 1
+      print path
+    }
+    END { if (NR == FNR) exit 1 }
+  ' "$list" "$fingerprint" > "$logical_paths" || return 1
+  LC_ALL=C sort -u "$logical_paths" > "$logical_paths.sorted"
+  cmp -s "$logical_paths" "$logical_paths.sorted" || return 1
+  while IFS= read -r path; do
+    grep -Fqx "$path" "$logical_paths" || return 1
+  done < "$list"
+  rm -f "$logical_paths.sorted"
+}
+
+rc5_legacy_protected_validate_and_materialize_inner() {
+  local temp="$1"
+  local rollback="$TXN_DIR/rollback" legacy_list="$rollback/protected.paths.list"
+  local legacy_fingerprint="$rollback/protected-source.fingerprint"
+  local protected_sha="$rollback/protected.sha256"
+  local expected="$temp/expected-protected.paths"
+  local logical="$temp/protected-logical.paths"
+  local stable_list="$temp/stable.paths" stable_source="$temp/stable-source.fingerprint"
+  local stable_current="$temp/stable-current.fingerprint"
+  local expected_hashes="$temp/protected-hashes.expected"
+  local actual_hashes="$temp/protected-hashes.actual"
+  local new_list="$rollback/protected-validation.paths.list" new_source="$rollback/protected-validation-source.fingerprint"
+  local new_list_tmp="$temp/protected-validation.paths.list" new_source_tmp="$temp/protected-validation-source.fingerprint"
+  regular_nonsymlink_file "$legacy_list" && regular_nonsymlink_file "$legacy_fingerprint" &&
+    regular_nonsymlink_file "$protected_sha" || return 1
+  rc5_source_evidence_validate "$expected" || return 1
+  cmp -s "$expected" "$legacy_list" || return 1
+  rc5_fingerprint_syntax_validate "$legacy_list" "$legacy_fingerprint" "$logical" || return 1
+  printf '%s\n' /etc/config /etc/crontabs/root /etc/vpn-ui-update.conf /etc/xray |
+    LC_ALL=C sort > "$stable_list"
+  awk '$4 == "/etc/config" || index($4, "/etc/config/") == 1 ||
+    $4 == "/etc/crontabs/root" || $4 == "/etc/vpn-ui-update.conf" ||
+    $4 == "/etc/xray" || index($4, "/etc/xray/") == 1 { print }' \
+    "$legacy_fingerprint" > "$stable_source"
+  fingerprint_paths "$stable_list" "$stable_current" || return 1
+  cmp -s "$stable_source" "$stable_current" || return 1
+  awk '$1 == "file" { print $3 " " substr($4, 2) }' "$stable_source" |
+    LC_ALL=C sort > "$expected_hashes"
+  awk '
+    NF != 2 || length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 !~ /^(etc\/config\/|etc\/xray\/|etc\/vpn-ui-update\.conf$|etc\/crontabs\/root$)/ { exit 1 }
+    { print $1 " " $2 }
+  ' "$protected_sha" | LC_ALL=C sort > "$actual_hashes" || return 1
+  cmp -s "$expected_hashes" "$actual_hashes" || return 1
+  [ -d "${ROOT_PREFIX}/etc/config" ] && [ ! -L "${ROOT_PREFIX}/etc/config" ] || return 1
+  [ ! -L "${ROOT_PREFIX}/etc/xray" ] || return 1
+  [ ! -e "${ROOT_PREFIX}/etc/xray" ] || [ -d "${ROOT_PREFIX}/etc/xray" ] || return 1
+  for path in "${ROOT_PREFIX}/etc/vpn-ui-update.conf" "${ROOT_PREFIX}/etc/crontabs/root"; do
+    [ ! -L "$path" ] || return 1
+  done
+  [ ! -e "${ROOT_PREFIX}/etc/premier-router/xray-ownership.json" ] &&
+    [ ! -L "${ROOT_PREFIX}/etc/premier-router/xray-ownership.json" ] || return 1
+  [ ! -e "$new_list" ] && [ ! -L "$new_list" ] &&
+    [ ! -e "$new_source" ] && [ ! -L "$new_source" ] || return 1
+  protected_validation_path_list | LC_ALL=C sort -u > "$new_list_tmp" || return 1
+  fingerprint_paths "$new_list_tmp" "$new_source_tmp" || return 1
+  grep -Fqx 'missing - - /etc/premier-router/xray-ownership.json' "$new_source_tmp" || return 1
+  chmod 600 "$new_list_tmp" "$new_source_tmp" || return 1
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
+  mv "$new_source_tmp" "$new_source" || return 1
+  mv "$new_list_tmp" "$new_list" || return 1
+}
+
+rc5_legacy_protected_validate_and_materialize() {
+  local rollback="$TXN_DIR/rollback" temp rc=0
+  [ -d "$rollback" ] && [ ! -L "$rollback" ] || return 1
+  temp="$(mktemp -d "$rollback/.rc5-protected.XXXXXX")" || return 1
+  [ -d "$temp" ] && [ ! -L "$temp" ] || return 1
+  rc5_legacy_protected_validate_and_materialize_inner "$temp" || rc=$?
+  rm -rf "$temp"
+  return "$rc"
+}
+
+target_protected_state_validate() {
+  local phase="$1" rollback="$TXN_DIR/rollback"
+  local list="$rollback/protected-validation.paths.list"
+  local source="$rollback/protected-validation-source.fingerprint"
+  local temp expected current rc=0
+  [ -d "$rollback" ] && [ ! -L "$rollback" ] || return 1
+  temp="$(mktemp -d "$rollback/.target-protected.XXXXXX")" || return 1
+  [ -d "$temp" ] && [ ! -L "$temp" ] || return 1
+  expected="$temp/protected-validation.paths.expected"
+  current="$temp/$phase-protected-validation.fingerprint"
+  if [ -e "$list" ] || [ -L "$list" ] || [ -e "$source" ] || [ -L "$source" ]; then
+    regular_nonsymlink_file "$list" && regular_nonsymlink_file "$source" || rc=1
+    [ "$rc" != 0 ] || protected_validation_path_list | LC_ALL=C sort -u > "$expected" || rc=1
+    [ "$rc" != 0 ] || cmp -s "$expected" "$list" || rc=1
+  else
+    rc5_legacy_protected_validate_and_materialize || rc=1
+  fi
+  [ "$rc" != 0 ] || fingerprint_paths "$list" "$current" || rc=1
+  [ "$rc" != 0 ] || cmp -s "$source" "$current" || rc=1
+  rm -rf "$temp"
+  return "$rc"
+}
+
 snapshot_legacy() {
   local rollback list existing path rel
   rollback="$TXN_DIR/rollback"
@@ -980,7 +1252,8 @@ restart_local_services() {
 }
 
 candidate_validate() {
-  local manifest="$1" assets="$2" phase="$3" validator output current
+  local manifest="$1" assets="$2" phase="$3" validator output
+  regular_nonsymlink_file "$TXN_DIR/rollback/protected.sha256" || return 1
   if [ "$phase" = candidate ] && [ -f "$TEST_MARKER.force-candidate-failure" ]; then
     rm -f "$TEST_MARKER.force-candidate-failure"
     return 1
@@ -999,9 +1272,7 @@ candidate_validate() {
     --phase "$phase" --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
     > "$output" 2>> "$LOG_FILE" || return 1
   [ "$(pr_json_get "$output" '@.ok' '.ok // false')" = true ] || return 1
-  current="$TXN_DIR/rollback/candidate-protected-validation.fingerprint"
-  fingerprint_paths "$TXN_DIR/rollback/protected-validation.paths.list" "$current"
-  cmp -s "$TXN_DIR/rollback/protected-validation-source.fingerprint" "$current"
+  target_protected_state_validate "$phase"
 }
 
 commit_target() {
@@ -1598,7 +1869,8 @@ cleanup_successful_storage() {
 }
 
 target_state_validate() {
-  local phase="$1" validator="$TXN_DIR/downloads/router-candidate-validator" current
+  local phase="$1" validator="$TXN_DIR/downloads/router-candidate-validator"
+  regular_nonsymlink_file "$TXN_DIR/rollback/protected.sha256" || return 1
   if [ ! -x "$validator" ]; then
     validator="$(pr_json_get "$TXN_DIR/router-release-manifest.json" \
       '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
@@ -1614,9 +1886,7 @@ target_state_validate() {
     --source-version "$J_SOURCE_APP_VERSION" --phase "$phase" \
     --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
     >> "$LOG_FILE" 2>&1 || return 1
-  current="$TXN_DIR/rollback/$phase-protected-validation.fingerprint"
-  fingerprint_paths "$TXN_DIR/rollback/protected-validation.paths.list" "$current"
-  cmp -s "$TXN_DIR/rollback/protected-validation-source.fingerprint" "$current"
+  target_protected_state_validate "$phase"
 }
 
 recover_transaction() {
