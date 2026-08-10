@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "audited_at": "2026-08-04",
+  "target": "0.7.11-rc.5",
+  "package_version": "0.7.11~rc5-1",
+  "release_channel": "candidate",
+  "baselines": [
+    {"version":"0.7.0","tag_commit":"067b4eb8a399e96a8bd071f802cdbcd066a4ba61","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.1","tag_commit":"fc839b3288f91414b183f66e9d5d0761dae3b15d","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.2","tag_commit":"9c8e41e1262850617d363f8f25dbb9908b8a55c8","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.3","tag_commit":"3559ab565228277d92c1ef82da438b4fed143d8d","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.4","tag_commit":"2467951df54ada347c0ac2ae7d3723ee117f8f42","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.5","tag_commit":"bd690d3ae1c8f607d9fd6cc9131c25a2f0dabafe","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.6","tag_commit":"ddc7feeb146b72be8343df0c74174653029f7967","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.7","tag_commit":"cb67957a3292cf8e3d8fd211f673215d1e1d3cad","published_release":false,"support":"unsupported","adapter":"none","reason":"tag-only identity has no immutable published installation artifact"},
+    {"version":"0.7.8","tag_commit":"bd3ee5fb562fa9dafcbad0c490cc2c0213f6a585","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
+    {"version":"0.7.9","tag_commit":"aec4591dc0ae6bfcc2fb295e3235d060327d32a4","published_release":true,"support":"supported-through-adapter","adapter":"0.7.9-status-card-path","evidence":"vm-pending"},
+    {"version":"0.7.10","tag_commit":"ce758c54ca37daa64bb1a738ae5dee20dcf8bddd","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"}
+  ]
+}

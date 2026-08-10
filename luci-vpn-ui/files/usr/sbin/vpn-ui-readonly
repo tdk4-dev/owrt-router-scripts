@@ -1,0 +1,30 @@
+#!/bin/ash
+set -u
+
+HELPER="/usr/sbin/vpn-ui"
+
+json_escape() {
+  printf '%s' "$1" |
+    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' |
+    awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
+
+deny() {
+  printf '{"ok":false,"error":"%s"}\n' \
+    "$(json_escape "read-only access cannot run command: ${1:-unknown}")"
+  exit 0
+}
+
+case "${1:-status}" in
+  status|vpn-summary|tailscale-status|update-status)
+    exec "$HELPER" "$@"
+    ;;
+  tailscale-ping|test-domain)
+    [ -n "${2:-}" ] || deny "${1:-unknown}"
+    [ "$#" -eq 2 ] || deny "${1:-unknown}"
+    exec "$HELPER" "$@"
+    ;;
+  *)
+    deny "${1:-unknown}"
+    ;;
+esac

@@ -26,6 +26,11 @@ patching input. The builder commit remains separate provenance in the baseline
 descriptor and manifest. Every baseline guest must match the Xray binary hash
 derived from the exact locked Xray IPK before its own legacy validator can pass.
 
+Post-0.7.11 CI improvement: split immutable baseline-content compatibility
+from consumer-harness identity. The 0.7.11 release deliberately retains the
+single digest contract, so a VM gate or guest harness change requires one new
+self-validated baseline pack.
+
 Every VM is serial. QEMU receives `-m 256`; the harness records only the PID it
 started, terminates and waits for that PID, and does not inspect other host QEMU
 processes. Baseline consumers inject a fresh disposable SSH key and TLS CA over
@@ -34,11 +39,20 @@ the serial console, so no private key is stored in the baseline artifact.
 ## Manual selectors
 
 `ROUTER_UI_VM_CASE` accepts `old-worker`, `rescue`, `protocol-v2`,
-`clean-image`, `concurrency`, `storage`, `fault`, or `full`.
+`clean-image`, `dual-daemon`, `concurrency`, `storage`, `fault`, or `full`.
 `ROUTER_UI_VM_SOURCE_VERSION` narrows old-worker or rescue runs. Storage phases
 are `normal`, `near-reservation`, `below-reservation`, and `rd23-ubootmod`.
 `ROUTER_UI_VM_FAULT_BOUNDARY` selects one power-loss boundary. Blank selectors
 expand only inside an explicitly dispatched case.
+
+The `dual-daemon` case boots the exact candidate x86 image with 256 MiB RAM,
+runs the installed `tailscaled` process without enrolling it, and runs the
+installed Xray binary with a non-secret loopback-only SOCKS configuration. It
+samples process RSS, available memory, writable-space headroom, Router UI
+status, local Xray traffic, and OOM evidence before and after a real reboot.
+This is x86 VM resource and persistence evidence only. It is not RD23 hardware
+proof, does not prove a Tailscale control-plane session, and does not authorize
+contact with a physical router.
 
 The shared `fail-closed-runner.sh` logs every phase through one exact `tee`
 child without a pipeline around the tested command. On failure it returns the
