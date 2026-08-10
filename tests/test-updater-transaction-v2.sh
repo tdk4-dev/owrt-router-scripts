@@ -25,6 +25,20 @@ cleanup() {
 trap cleanup EXIT INT TERM
 stage() { printf 'transaction-test stage: %s\n' "$1"; }
 
+# RC5's exact vpn-summary helper discovers Xray through PATH. Keep that source
+# validation hermetic on hosts that do not have a router Xray binary installed.
+HOST_TEST_BIN="$TMP_ROOT/host-test-bin"
+fake_xray="$HOST_TEST_BIN/xray"
+mkdir -p "$HOST_TEST_BIN"
+cat > "$fake_xray" <<'EOF'
+#!/bin/sh
+[ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] &&
+  jq -e . "$4" >/dev/null 2>&1
+EOF
+chmod 755 "$fake_xray"
+PATH="$HOST_TEST_BIN:$PATH"
+export PATH
+
 SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" show -s --format=%ct HEAD)"
 SECRET="$TMP_ROOT/test.sec"
@@ -186,8 +200,33 @@ EOS
       tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx ./postinst; then
       tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - ./postinst > "$package_script"
       if grep -Fq PREMIER_ROUTER_PACKAGE_ROOT "$package_script"; then
+        recovery_init="$FAKE_ROOT/etc/init.d/premier-router-update-recovery"
+        recovery_saved="$FAKE_ROOT/tmp/premier-router-update-recovery.packaged"
+        recovery_marker="$FAKE_ROOT/tmp/premier-router-update-recovery.enable-called"
+        [ -f "$recovery_init" ] && [ ! -L "$recovery_init" ] || exit 65
+        recovery_sha="$(sha256sum "$recovery_init" | awk '{ print $1 }')"
+        rm -f "$recovery_saved" "$recovery_marker"
+        mv "$recovery_init" "$recovery_saved"
+        cat > "$recovery_init" <<'EOS'
+#!/bin/sh
+set -eu
+[ "${1:-}" = enable ]
+printf '%s\n' "$1" > "$FAKE_ROOT/tmp/premier-router-update-recovery.enable-called"
+EOS
+        chmod 755 "$recovery_init"
+        postinst_rc=0
         PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$FAKE_ROOT" \
-          PKG_UPGRADE=0 sh "$package_script" configure
+          PKG_UPGRADE=0 sh "$package_script" configure || postinst_rc=$?
+        rm -f "$recovery_init"
+        mv "$recovery_saved" "$recovery_init"
+        [ -f "$recovery_init" ] && [ ! -L "$recovery_init" ] &&
+          [ -x "$recovery_init" ] || exit 66
+        [ "$(sha256sum "$recovery_init" | awk '{ print $1 }')" = "$recovery_sha" ] || exit 67
+        if [ "$postinst_rc" = 0 ]; then
+          grep -Fqx enable "$recovery_marker" || exit 68
+        fi
+        rm -f "$recovery_marker"
+        [ "$postinst_rc" = 0 ] || exit "$postinst_rc"
       fi
     fi
     rm -f "$package_script"
@@ -773,8 +812,6 @@ BUSYBOX_SORT_REJECT_OUTPUT=1
 run_supervisor_env recover PATH="$PATH"
 [ -s "$BUSYBOX_SORT_LOG" ]
 [ -s "$BUSYBOX_STAT_LOG" ]
-PATH="$ORIGINAL_PATH"
-export PATH
 [ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
 [ -s "$RC5_ROLLBACK/protected-validation.paths.list" ]
 [ -s "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
@@ -787,6 +824,8 @@ run_supervisor rollback "$RC5_TRANSACTION"
 [ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
 [ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{ print $1 }')" = \
   "$RC5_SOURCE_CRON_SHA" ]
+PATH="$ORIGINAL_PATH"
+export PATH
 stage exact-rc5-reboot-metadata-bridge-busybox-sort
 
 prepare_rc5_reboot_transaction missing
@@ -878,13 +917,6 @@ mkdir -p "$FAKE_ROOT/etc/xray"
 cp "$ROOT_DIR/tests/fixtures/xray/valera-manual-config.json" \
   "$FAKE_ROOT/etc/xray/config.json"
 manual_config_sha="$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')"
-fake_xray="$TMP_ROOT/fake-xray"
-cat > "$fake_xray" <<'EOF'
-#!/bin/sh
-[ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] &&
-  jq -e . "$4" >/dev/null 2>&1
-EOF
-chmod 755 "$fake_xray"
 manual_env() {
   env PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
     VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/config.json \
