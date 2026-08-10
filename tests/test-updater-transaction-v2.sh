@@ -117,10 +117,41 @@ case "${1:-}" in
     pkg="$(printf '%s\n' "$control" | sed -n 's/^Package: //p')"
     version="$(printf '%s\n' "$control" | sed -n 's/^Version: //p')"
     [ "${FAKE_OPKG_FAIL_PACKAGE:-}" != "$pkg" ] || exit 42
+    upgrade=0
+    [ ! -f "$db/$pkg" ] || upgrade=1
+    package_script="$FAKE_ROOT/tmp/$pkg.package-script"
+    if [ "$pkg" = premier-router-core ] &&
+      tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx ./preinst; then
+      tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - ./preinst > "$package_script"
+      if grep -Fq PREMIER_ROUTER_PACKAGE_ROOT "$package_script"; then
+        PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$FAKE_ROOT" \
+          PKG_UPGRADE="$upgrade" sh "$package_script"
+      fi
+    fi
+    if [ "$pkg" = premier-router-core ] && [ "$upgrade" = 1 ] &&
+      [ -f "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postrm" ]; then
+      old_postrm="$FAKE_ROOT/usr/lib/opkg/info/$pkg.postrm"
+      if grep -Fq PREMIER_ROUTER_PACKAGE_ROOT "$old_postrm"; then
+        PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$FAKE_ROOT" \
+          PKG_UPGRADE=0 sh "$old_postrm" remove
+      elif [ -f "$FAKE_ROOT/etc/crontabs/root" ]; then
+        awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+          index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' \
+          "$FAKE_ROOT/etc/crontabs/root" > "$FAKE_ROOT/etc/crontabs/root.old-postrm"
+        mv "$FAKE_ROOT/etc/crontabs/root.old-postrm" "$FAKE_ROOT/etc/crontabs/root"
+      fi
+    fi
+    rm -f "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.conffiles" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.preinst" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.prerm" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postinst" \
+      "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postrm"
     keep="$FAKE_ROOT/tmp/conffile.keep"
-    [ ! -f "$FAKE_ROOT/etc/vpn-ui-update.conf" ] || cp "$FAKE_ROOT/etc/vpn-ui-update.conf" "$keep"
+    [ ! -f "$FAKE_ROOT/etc/vpn-ui-update.conf" ] || cp -p "$FAKE_ROOT/etc/vpn-ui-update.conf" "$keep"
     tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$FAKE_ROOT"
-    [ ! -f "$keep" ] || { cp "$keep" "$FAKE_ROOT/etc/vpn-ui-update.conf"; rm -f "$keep"; }
+    [ ! -f "$keep" ] || { cp -p "$keep" "$FAKE_ROOT/etc/vpn-ui-update.conf"; rm -f "$keep"; }
     printf '%s\n' "$version" > "$db/$pkg"
     printf '%s\n' "$control" > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control"
     tar -xzOf "$ipk" ./data.tar.gz | tar -tzf - > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list"
@@ -144,11 +175,22 @@ case "${1:-}" in
     elif [ "$pkg" = premier-router-core ]; then
       cat > "$FAKE_ROOT/usr/sbin/vpn-ui" <<'EOS'
 #!/bin/sh
-[ "${1:-}" = check ] || exit 1
-printf '{"ok":true}\n'
+case "${1:-}" in
+  check|vpn-summary) printf '{"ok":true}\n' ;;
+  *) exit 1 ;;
+esac
 EOS
       chmod 755 "$FAKE_ROOT/usr/sbin/vpn-ui"
     fi
+    if [ "$pkg" = premier-router-core ] &&
+      tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx ./postinst; then
+      tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - ./postinst > "$package_script"
+      if grep -Fq PREMIER_ROUTER_PACKAGE_ROOT "$package_script"; then
+        PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$FAKE_ROOT" \
+          PKG_UPGRADE=0 sh "$package_script" configure
+      fi
+    fi
+    rm -f "$package_script"
     ;;
   *) exit 2 ;;
 esac
@@ -206,7 +248,9 @@ EOF
   printf 'boot-test-id\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
   printf "DISTRIB_RELEASE='24.10.5'\nDISTRIB_TARGET='x86/64'\n" > "$FAKE_ROOT/etc/openwrt_release"
   : > "$FAKE_ROOT/etc/premier-router/test-mode"
-  for service in cron rpcd uhttpd xray-transparent; do make_service "$service"; done
+  for service in cron rpcd uhttpd xray-transparent premier-router-update-recovery; do
+    make_service "$service"
+  done
   SOURCE_FINGERPRINT="$(cd "$FAKE_ROOT" && find etc usr www -type f -print | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}')"
   export SOURCE_FINGERPRINT
 }
@@ -368,6 +412,135 @@ run_exact_space_case() {
   fi
 }
 
+test_core_package_cron_scripts() {
+  local core_ipk control package_root cron before expected signal_bin
+  core_ipk="$(find "$TMP_ROOT/ipk" -maxdepth 1 -type f \
+    -name 'premier-router-core_*_all.ipk' -print -quit)"
+  [ -n "$core_ipk" ]
+  control="$TMP_ROOT/core-package-control"
+  package_root="$TMP_ROOT/core-package-root"
+  mkdir -p "$control"
+  tar -xzOf "$core_ipk" ./control.tar.gz | tar -xzf - -C "$control"
+  [ ! -e "$control/preinst" ]
+  for script in postinst postrm; do
+    [ -x "$control/$script" ]
+    sh -n "$control/$script"
+  done
+
+  reset_package_root() {
+    rm -rf "$package_root"
+    mkdir -p "$package_root/etc/crontabs" "$package_root/etc/init.d"
+    tar -xzOf "$core_ipk" ./data.tar.gz | tar -xzf - -C "$package_root"
+    cat > "$package_root/etc/init.d/premier-router-update-recovery" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = enable ]
+EOF
+    chmod 755 "$package_root/etc/init.d/premier-router-update-recovery"
+  }
+  run_package_script() {
+    local script="$1" action="${4:-}"
+    if [ -n "$action" ]; then
+      PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$package_root" \
+        PREMIER_ROUTER_PRESERVE_CRON="${3:-0}" VPN_UI_UPDATE_RESTART_CRON=0 \
+        PKG_UPGRADE="${2:-1}" sh "$control/$script" "$action"
+    else
+      PREMIER_ROUTER_HOST_TEST=1 PREMIER_ROUTER_PACKAGE_ROOT="$package_root" \
+        PREMIER_ROUTER_PRESERVE_CRON="${3:-0}" VPN_UI_UPDATE_RESTART_CRON=0 \
+        PKG_UPGRADE="${2:-1}" sh "$control/$script"
+    fi
+  }
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  printf '%s\n' 'legacy cron bytes must remain exact' > "$cron"
+  chmod 640 "$cron"
+  before="$(sha256sum "$cron" | awk '{ print $1 }')"
+  run_package_script postinst 0 1
+  [ "$(sha256sum "$cron" | awk '{ print $1 }')" = "$before" ]
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  printf "AUTO_UPDATE='1'\nAUTO_SCHEDULE='Sunday 04:17'\n" > \
+    "$package_root/etc/vpn-ui-update.conf"
+  printf '%s\n' \
+    '5 1 * * * /usr/bin/operator-job --preserve-exactly' \
+    '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+    '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+    > "$cron"
+  chmod 640 "$cron"
+  run_package_script postinst
+  expected="$TMP_ROOT/core-package-existing.expected"
+  printf '%s\n' \
+    '5 1 * * * /usr/bin/operator-job --preserve-exactly' \
+    '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+    '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+    > "$expected"
+  cmp -s "$expected" "$cron"
+  before="$(sha256sum "$cron" | awk '{ print $1 }')"
+  run_package_script postrm 1 0 upgrade
+  [ "$(sha256sum "$cron" | awk '{ print $1 }')" = "$before" ]
+  run_package_script postrm 0 0 remove
+  grep -Fqx '5 1 * * * /usr/bin/operator-job --preserve-exactly' "$cron"
+  [ "$(wc -l < "$cron" | tr -d ' ')" = 1 ]
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  printf "AUTO_UPDATE='0'\nAUTO_SCHEDULE='Sunday 04:17'\n" > \
+    "$package_root/etc/vpn-ui-update.conf"
+  run_package_script postinst
+  grep -Fqx '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' "$cron"
+  [ "$(wc -l < "$cron" | tr -d ' ')" = 1 ]
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  ln -s /dev/null "$cron"
+  if run_package_script postinst >/dev/null 2>&1; then
+    printf 'core postinst accepted a symlinked cron file\n' >&2
+    exit 1
+  fi
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  mkfifo "$cron"
+  if run_package_script postinst >/dev/null 2>&1; then
+    printf 'core postinst accepted a FIFO cron path\n' >&2
+    exit 1
+  fi
+
+  reset_package_root
+  cron="$package_root/etc/crontabs/root"
+  printf '%s\n' 'operator cron bytes must survive an interrupted postinst' > "$cron"
+  before="$(sha256sum "$cron" | awk '{ print $1 }')"
+  signal_bin="$TMP_ROOT/core-package-signal-bin"
+  mkdir -p "$signal_bin"
+  cat > "$signal_bin/awk" <<'EOF'
+#!/bin/sh
+set -eu
+"$SIGNAL_TEST_REAL_AWK" "$@"
+kill -TERM "$PPID"
+exit 0
+EOF
+  chmod 755 "$signal_bin/awk"
+  SIGNAL_TEST_REAL_AWK="$(command -v awk)"
+  export SIGNAL_TEST_REAL_AWK
+  if (
+    PATH="$signal_bin:$PATH"
+    export PATH
+    run_package_script postinst
+  ) >/dev/null 2>&1; then
+    printf 'core postinst survived TERM after cron filtering\n' >&2
+    exit 1
+  fi
+  [ "$(sha256sum "$cron" | awk '{ print $1 }')" = "$before" ]
+  if find "$package_root/etc/crontabs" -maxdepth 1 \
+    -name 'root.new.*' -print | grep -q .; then
+    printf 'core postinst left a temporary cron file after TERM\n' >&2
+    exit 1
+  fi
+}
+
+test_core_package_cron_scripts
+stage core-package-managed-cron-scripts
 probe_exact_space_requirements
 run_exact_space_case persistent-below "$((PERSISTENT_REQUIRED_BYTES - 1))" "$TMP_REQUIRED_BYTES" fail
 run_exact_space_case exact-both "$PERSISTENT_REQUIRED_BYTES" "$TMP_REQUIRED_BYTES" pass
@@ -382,6 +555,7 @@ chmod 600 "$TMP_ROOT/release/router-candidate-validator"
 reset_source 0.7.0
 legacy_status="$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn-0-7-0.js"
 legacy_status_sha="$(sha256sum "$legacy_status" | awk '{print $1}')"
+legacy_cron_sha="$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')"
 if ! run_update manual > "$TMP_ROOT/070-success.log" 2> "$TMP_ROOT/070-success.err"; then
   cat "$TMP_ROOT/070-success.err" >&2
   cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
@@ -389,6 +563,7 @@ if ! run_update manual > "$TMP_ROOT/070-success.log" 2> "$TMP_ROOT/070-success.e
   exit 1
 fi
 stage 070-applied
+[ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')" = "$legacy_cron_sha" ]
 [ ! -e "$legacy_status" ]
 [ -s "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
@@ -404,8 +579,10 @@ run_supervisor rollback "$transaction"
 stage 070-rolled-back
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
 [ "$(sha256sum "$legacy_status" | awk '{print $1}')" = "$legacy_status_sha" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')" = "$legacy_cron_sha" ]
 
 reset_source 0.7.9
+legacy_cron_sha="$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')"
 if ! run_update manual > "$TMP_ROOT/079-success.log" 2> "$TMP_ROOT/079-success.err"; then
   cat "$TMP_ROOT/079-success.err" >&2
   cat "$FAKE_ROOT/tmp/premier-router-update.log" >&2 2>/dev/null || true
@@ -413,6 +590,7 @@ if ! run_update manual > "$TMP_ROOT/079-success.log" 2> "$TMP_ROOT/079-success.e
   exit 1
 fi
 stage 079-applied
+[ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')" = "$legacy_cron_sha" ]
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = "$APP_VERSION" ]
 [ -s "$FAKE_ROOT/www/luci-static/resources/view/status/include/35_vpn.js" ]
 grep -q PREMIER_ROUTER_079_COMPAT_NOOP \
@@ -425,6 +603,7 @@ printf 'boot-after-079\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 run_supervisor recover
 stage 079-recovered
 [ "$(jq -r .state "$journal")" = committed ]
+[ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{print $1}')" = "$legacy_cron_sha" ]
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
@@ -432,9 +611,43 @@ stage 079-recovered
 # the exact signed bootstrap lineage and must materialize the current pair
 # after proving the stable protected state is unchanged.
 prepare_rc5_reboot_transaction() {
+  local cron_shape="${1:-existing}"
+  local cron_source="$TMP_ROOT/rc5-source-root.cron"
+  local cron_expected="$TMP_ROOT/rc6-expected-root.cron"
   seed_rc5_source
+  case "$cron_shape" in
+    existing)
+      printf '%s\n' \
+        '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+        '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+        >> "$FAKE_ROOT/etc/crontabs/root"
+      chmod 600 "$FAKE_ROOT/etc/crontabs/root"
+      cp "$FAKE_ROOT/etc/crontabs/root" "$cron_source"
+      ;;
+    missing)
+      rm -f "$FAKE_ROOT/etc/crontabs/root"
+      : > "$cron_source"
+      ;;
+    *) printf 'unsupported RC5 cron fixture: %s\n' "$cron_shape" >&2; exit 1 ;;
+  esac
+  RC5_SOURCE_CRON_SHAPE="$cron_shape"
+  if [ "$cron_shape" = existing ]; then
+    RC5_SOURCE_CRON_SHA="$(sha256sum "$cron_source" | awk '{ print $1 }')"
+  else
+    RC5_SOURCE_CRON_SHA=missing
+  fi
+  export RC5_SOURCE_CRON_SHAPE RC5_SOURCE_CRON_SHA
+  awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+    index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' \
+    "$cron_source" > "$cron_expected"
+  printf '%s\n' \
+    '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+    '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+    >> "$cron_expected"
   run_update_from_rc5 > "$TMP_ROOT/rc5-bridge-apply.log" \
     2> "$TMP_ROOT/rc5-bridge-apply.err"
+  [ -f "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
+  cmp -s "$cron_expected" "$FAKE_ROOT/etc/crontabs/root"
   RC5_TRANSACTION="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
   RC5_TRANSACTION_DIR="$FAKE_ROOT/root/premier-router-updates/$RC5_TRANSACTION"
   RC5_JOURNAL="$RC5_TRANSACTION_DIR/state.json"
@@ -445,6 +658,28 @@ prepare_rc5_reboot_transaction() {
   [ ! -e "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
   [ "$(sha256sum "$RC5_ROLLBACK/source-supervisor" | awk '{print $1}')" = "$RC5_TEST_UPDATER_SHA" ]
   [ "$(sha256sum "$RC5_ROLLBACK/update-lib.sh" | awk '{print $1}')" = "$RC5_TEST_UPDATE_LIB_SHA" ]
+  printf '%s\n' /etc/config /etc/crontabs/root /etc/vpn-ui-update.conf /etc/xray |
+    LC_ALL=C sort > "$TMP_ROOT/rc5-stable.paths"
+  awk '$4 == "/etc/config" || index($4, "/etc/config/") == 1 ||
+    $4 == "/etc/crontabs/root" || $4 == "/etc/vpn-ui-update.conf" ||
+    $4 == "/etc/xray" || index($4, "/etc/xray/") == 1 { print }' \
+    "$RC5_ROLLBACK/protected-source.fingerprint" > "$TMP_ROOT/rc5-stable.source"
+  env VPN_UI_UPDATE_SOURCE_ONLY=1 VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_UPDATE_LIB="$TMP_ROOT/release/router-update-lib.sh" \
+    sh -c '. "$1"; fingerprint_paths "$2" "$3"' sh \
+    "$TMP_ROOT/release/router-update-supervisor" "$TMP_ROOT/rc5-stable.paths" \
+    "$TMP_ROOT/rc5-stable.current"
+  awk '$4 != "/etc/crontabs/root" { print }' "$TMP_ROOT/rc5-stable.source" \
+    > "$TMP_ROOT/rc5-stable-source-without-cron"
+  awk '$4 != "/etc/crontabs/root" { print }' "$TMP_ROOT/rc5-stable.current" \
+    > "$TMP_ROOT/rc5-stable-current-without-cron"
+  cmp -s "$TMP_ROOT/rc5-stable-source-without-cron" \
+    "$TMP_ROOT/rc5-stable-current-without-cron" || {
+    diff -u "$TMP_ROOT/rc5-stable-source-without-cron" \
+      "$TMP_ROOT/rc5-stable-current-without-cron" >&2 || true
+    return 1
+  }
+  cmp -s "$cron_expected" "$FAKE_ROOT/etc/crontabs/root"
   printf 'boot-after-rc5-bridge\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 }
 
@@ -455,6 +690,27 @@ expect_rc5_bridge_rejected() {
   state="$(jq -r .state "$RC5_JOURNAL")"
   [ "$state" != committed ] || {
     printf 'RC5 reboot bridge accepted negative case: %s\n' "$label" >&2
+    exit 1
+  }
+}
+
+expect_rc5_target_drift_rolled_back() {
+  local label="$1" state lock
+  run_supervisor_env recover FAKE_OPKG_KEEP_REAL_VPN_UI=1 \
+    > "$TMP_ROOT/rc5-bridge-$label.log" 2> "$TMP_ROOT/rc5-bridge-$label.err" || true
+  state="$(jq -r .state "$RC5_JOURNAL")"
+  [ "$state" = rolled_back ] || {
+    printf 'RC5 target drift did not roll back safely: %s (%s)\n' "$label" "$state" >&2
+    exit 1
+  }
+  [ ! -e "$FAKE_ROOT/etc/crontabs/root" ] && \
+    [ ! -L "$FAKE_ROOT/etc/crontabs/root" ] || {
+    printf 'RC5 target drift did not restore missing source cron: %s\n' "$label" >&2
+    exit 1
+  }
+  lock="$FAKE_ROOT/root/premier-router-updates/update.lock"
+  [ ! -e "$lock" ] && [ ! -L "$lock" ] || {
+    printf 'RC5 target drift left the update lock behind: %s\n' "$label" >&2
     exit 1
   }
 }
@@ -527,7 +783,34 @@ grep -Fqx '/etc/premier-router/xray-ownership.json' \
 grep -Fqx 'missing - - /etc/premier-router/xray-ownership.json' \
   "$RC5_ROLLBACK/protected-validation-source.fingerprint"
 [ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+run_supervisor rollback "$RC5_TRANSACTION"
+[ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
+[ "$(sha256sum "$FAKE_ROOT/etc/crontabs/root" | awk '{ print $1 }')" = \
+  "$RC5_SOURCE_CRON_SHA" ]
 stage exact-rc5-reboot-metadata-bridge-busybox-sort
+
+prepare_rc5_reboot_transaction missing
+run_supervisor recover
+[ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
+[ -f "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
+run_supervisor rollback "$RC5_TRANSACTION"
+[ "$(jq -r .state "$RC5_JOURNAL")" = rolled_back ]
+[ ! -e "$FAKE_ROOT/etc/crontabs/root" ] && [ ! -L "$FAKE_ROOT/etc/crontabs/root" ]
+stage exact-rc5-reboot-missing-cron-preservation
+
+prepare_rc5_reboot_transaction missing
+printf '%s\n' 'unauthorized operator cron drift' >> "$FAKE_ROOT/etc/crontabs/root"
+expect_rc5_target_drift_rolled_back unexpected-cron-line
+
+prepare_rc5_reboot_transaction missing
+chmod 644 "$FAKE_ROOT/etc/crontabs/root"
+expect_rc5_target_drift_rolled_back wrong-cron-mode
+
+prepare_rc5_reboot_transaction missing
+rm -f "$FAKE_ROOT/etc/crontabs/root"
+ln -s /dev/null "$FAKE_ROOT/etc/crontabs/root"
+expect_rc5_target_drift_rolled_back symlinked-cron
+stage rc5-reboot-managed-cron-negative-cases
 
 prepare_rc5_reboot_transaction
 printf 'tampered config\n' >> "$FAKE_ROOT/etc/config/network"

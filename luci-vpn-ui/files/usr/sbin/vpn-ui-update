@@ -756,6 +756,77 @@ rc5_fingerprint_syntax_validate() {
   rm -f "$logical_paths.sorted"
 }
 
+rc5_managed_cron_transition_validate() {
+  local stable_source="$1" stable_current="$2" temp="$3"
+  local rollback="$TXN_DIR/rollback" archive="$rollback/protected-state.tar.gz"
+  local source_record current_record source_kind source_sha current_kind
+  local source_cron="$temp/source-root.cron" expected_cron="$temp/expected-root.cron"
+  local archive_members="$temp/protected-archive.members" member_count metadata auto_update
+  [ "$(awk '$4 == "/etc/crontabs/root" { count++ } END { print count + 0 }' \
+    "$stable_source")" = 1 ] || return 1
+  [ "$(awk '$4 == "/etc/crontabs/root" { count++ } END { print count + 0 }' \
+    "$stable_current")" = 1 ] || return 1
+  source_record="$(awk '$4 == "/etc/crontabs/root" { print }' "$stable_source")"
+  current_record="$(awk '$4 == "/etc/crontabs/root" { print }' "$stable_current")"
+  set -- $source_record
+  [ "$#" = 4 ] && [ "$4" = /etc/crontabs/root ] || return 1
+  source_kind="$1"
+  source_sha="$3"
+  set -- $current_record
+  [ "$#" = 4 ] && [ "$4" = /etc/crontabs/root ] || return 1
+  current_kind="$1"
+  [ "$current_kind" = file ] || return 1
+  regular_nonsymlink_file "${ROOT_PREFIX}/etc/crontabs/root" || return 1
+  metadata="$(LC_ALL=C ls -ldn "${ROOT_PREFIX}/etc/crontabs/root" 2>/dev/null |
+    awk 'NR == 1 { sub(/[@+]$/, "", $1); print $1 ":" $3 ":" $4 }')"
+  case "$metadata" in
+    -rw-------:*) ;;
+    *) return 1 ;;
+  esac
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
+    [ "$metadata" = '-rw-------:0:0' ] || return 1
+  fi
+
+  regular_nonsymlink_file "$archive" || return 1
+  # Cap the temporary extraction at one byte beyond the accepted size. Both
+  # temporary copies remain covered by the transaction's 4 MiB evidence reserve.
+  [ "$(wc -c < "${ROOT_PREFIX}/etc/crontabs/root" | tr -d ' ')" -le 65536 ] || return 1
+  tar -tzf "$archive" > "$archive_members" 2>/dev/null || return 1
+  member_count="$(grep -Fxc 'etc/crontabs/root' "$archive_members" 2>/dev/null || true)"
+  case "$source_kind" in
+    file)
+      [ "$member_count" = 1 ] || return 1
+      printf '%s\n' "$source_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+      tar -xzOf "$archive" etc/crontabs/root 2>/dev/null |
+        dd of="$source_cron" bs=1 count=65537 2>/dev/null || return 1
+      [ "$(wc -c < "$source_cron" | tr -d ' ')" -le 65536 ] || return 1
+      [ "$(pr_sha256 "$source_cron")" = "$source_sha" ] || return 1
+      ;;
+    missing)
+      [ "$source_sha" = - ] && [ "$member_count" = 0 ] || return 1
+      : > "$source_cron"
+      ;;
+    *) return 1 ;;
+  esac
+
+  awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+    index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' \
+    "$source_cron" > "$expected_cron" || return 1
+  printf '%s\n' \
+    '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+    >> "$expected_cron"
+  auto_update="$(read_config_value AUTO_UPDATE "$CONFIG_FILE")"
+  case "$auto_update" in 1) ;;
+    *) auto_update=0 ;;
+  esac
+  if [ "$auto_update" = 1 ]; then
+    printf '%s\n' \
+      '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+      >> "$expected_cron"
+  fi
+  cmp -s "$expected_cron" "${ROOT_PREFIX}/etc/crontabs/root"
+}
+
 rc5_legacy_protected_validate_and_materialize_inner() {
   local temp="$1"
   local rollback="$TXN_DIR/rollback" legacy_list="$rollback/protected.paths.list"
@@ -765,6 +836,8 @@ rc5_legacy_protected_validate_and_materialize_inner() {
   local logical="$temp/protected-logical.paths"
   local stable_list="$temp/stable.paths" stable_source="$temp/stable-source.fingerprint"
   local stable_current="$temp/stable-current.fingerprint"
+  local stable_source_without_cron="$temp/stable-source-without-cron.fingerprint"
+  local stable_current_without_cron="$temp/stable-current-without-cron.fingerprint"
   local expected_hashes="$temp/protected-hashes.expected"
   local actual_hashes="$temp/protected-hashes.actual"
   local new_list="$rollback/protected-validation.paths.list" new_source="$rollback/protected-validation-source.fingerprint"
@@ -781,7 +854,10 @@ rc5_legacy_protected_validate_and_materialize_inner() {
     $4 == "/etc/xray" || index($4, "/etc/xray/") == 1 { print }' \
     "$legacy_fingerprint" > "$stable_source"
   fingerprint_paths "$stable_list" "$stable_current" || return 1
-  cmp -s "$stable_source" "$stable_current" || return 1
+  awk '$4 != "/etc/crontabs/root" { print }' "$stable_source" > "$stable_source_without_cron"
+  awk '$4 != "/etc/crontabs/root" { print }' "$stable_current" > "$stable_current_without_cron"
+  cmp -s "$stable_source_without_cron" "$stable_current_without_cron" || return 1
+  rc5_managed_cron_transition_validate "$stable_source" "$stable_current" "$temp" || return 1
   awk '$1 == "file" { print $3 " " substr($4, 2) }' "$stable_source" |
     LC_ALL=C sort > "$expected_hashes"
   awk '
@@ -1224,7 +1300,8 @@ prepare_rollback() {
 }
 
 install_packages() {
-  local manifest="$1" assets="$2" order=1 index name filename found
+  local manifest="$1" assets="$2" order=1 index name filename found preserve_cron=0
+  [ "$J_SOURCE_TYPE" != legacy ] || preserve_cron=1
   while [ "$order" -le 3 ]; do
     index=0
     found=false
@@ -1233,7 +1310,8 @@ install_packages() {
       [ -n "$name" ] || break
       if [ "$(pr_json_get "$manifest" "@.packages[$index].install_order" ".packages[$index].install_order // empty")" = "$order" ]; then
         filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
-        "$OPKG_BIN" install --force-reinstall "$assets/$filename" >> "$LOG_FILE" 2>&1 ||
+        PREMIER_ROUTER_PRESERVE_CRON="$preserve_cron" \
+          "$OPKG_BIN" install --force-reinstall "$assets/$filename" >> "$LOG_FILE" 2>&1 ||
           return 1
         test_boundary "after-$name" || return 1
         found=true
