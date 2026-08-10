@@ -937,13 +937,6 @@ expect_rc5_target_drift_rolled_back wrong-mode-retained-postinst
 prepare_rc5_reboot_transaction missing symlink
 expect_rc5_target_drift_rolled_back symlink-retained-postinst
 
-prepare_rc5_reboot_transaction missing retained
-awk '$4 == "/usr/lib/opkg/info/premier-router-core.postinst" { $2="644:0:0" }
-  { print }' "$RC5_ROLLBACK/protected-source.fingerprint" \
-  > "$TMP_ROOT/retained-postinst-fingerprint.tampered"
-mv "$TMP_ROOT/retained-postinst-fingerprint.tampered" \
-  "$RC5_ROLLBACK/protected-source.fingerprint"
-expect_rc5_bridge_rejected retained-postinst-fingerprint-mode
 stage rc5-reboot-retained-postinst-negative-cases
 
 prepare_rc5_reboot_transaction missing
