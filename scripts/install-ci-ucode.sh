@@ -3,7 +3,7 @@ set -eu
 umask 077
 
 UCODE_COMMIT=73ffef75c653dc901c69678a27c67842d291e79e
-UCODE_SOURCE_URL="${UCODE_SOURCE_URL:-https://github.com/openwrt/ucode.git}"
+UCODE_SOURCE_URL="${UCODE_SOURCE_URL:-https://github.com/jow-/ucode.git}"
 UCODE_INSTALL_DIR="${UCODE_INSTALL_DIR:?UCODE_INSTALL_DIR is required}"
 WORK="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/router-ucode-build.XXXXXX")"
 RUNTIME="$UCODE_INSTALL_DIR/ucode-runtime"
