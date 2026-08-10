@@ -164,12 +164,43 @@ set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
-mkdir -p /etc/crontabs
-touch /etc/crontabs/root
-sed -i '\|/usr/sbin/vpn-ui auto-tick|d' /etc/crontabs/root 2>/dev/null || true
-printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> /etc/crontabs/root
-/usr/sbin/vpn-ui-update configure-cron
-/etc/init.d/premier-router-update-recovery enable
+root_prefix=""
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
+fi
+case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+if [ "${PREMIER_ROUTER_PRESERVE_CRON:-0}" = 1 ]; then
+  "$root_prefix/etc/init.d/premier-router-update-recovery" enable
+  exit 0
+fi
+
+cron="$root_prefix/etc/crontabs/root"
+cron_dir="$(dirname "$cron")"
+if [ -e "$cron_dir" ] || [ -L "$cron_dir" ]; then
+  [ -d "$cron_dir" ] && [ ! -L "$cron_dir" ] || exit 1
+else
+  mkdir -p "$cron_dir"
+fi
+if [ -e "$cron" ] || [ -L "$cron" ]; then
+  [ -f "$cron" ] && [ ! -L "$cron" ] || exit 1
+fi
+touch "$cron"
+tmp="$cron.new.$$"
+[ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+cleanup_cron_tmp() {
+  [ -z "${tmp:-}" ] || rm -f "$tmp"
+}
+trap cleanup_cron_tmp EXIT
+trap 'exit 1' HUP INT TERM
+awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 { print }' "$cron" > "$tmp"
+printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$cron"
+tmp=""
+VPN_UI_ROOT_PREFIX="$root_prefix" \
+  "$root_prefix/usr/sbin/vpn-ui-update" configure-cron
+"$root_prefix/etc/init.d/premier-router-update-recovery" enable
 exit 0
 EOF
   cat > "$control_dir/postrm" <<'EOF'
@@ -177,9 +208,28 @@ EOF
 set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
+[ "${1:-}" != upgrade ] || exit 0
 
-if [ -f /etc/crontabs/root ]; then
-  sed -i '\|/usr/sbin/vpn-ui auto-tick|d;\|/usr/sbin/vpn-ui-update auto|d' /etc/crontabs/root 2>/dev/null || true
+root_prefix=""
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
+fi
+case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+cron="$root_prefix/etc/crontabs/root"
+if [ -f "$cron" ] && [ ! -L "$cron" ]; then
+  tmp="$cron.new.$$"
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+  cleanup_cron_tmp() {
+    [ -z "${tmp:-}" ] || rm -f "$tmp"
+  }
+  trap cleanup_cron_tmp EXIT
+  trap 'exit 1' HUP INT TERM
+  awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+    index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' "$cron" > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$cron"
+  tmp=""
 fi
 exit 0
 EOF
