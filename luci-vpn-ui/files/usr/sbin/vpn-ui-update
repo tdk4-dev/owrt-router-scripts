@@ -631,11 +631,10 @@ rc5_expected_protected_paths() {
       member="${member#./}"
       [ -n "$member" ] || continue
       case "$member" in
-        control|conffiles|preinst|prerm|postrm)
+        control|conffiles|preinst|prerm|postinst|postrm)
           control_name="$member"
           printf '/usr/lib/opkg/info/%s.%s\n' "$package" "$control_name" >> "$out"
           ;;
-        postinst) ;;
         */) ;;
         *) return 1 ;;
       esac
@@ -756,6 +755,60 @@ rc5_fingerprint_syntax_validate() {
   rm -f "$logical_paths.sorted"
 }
 
+rc5_retained_postinst_snapshot_validate() {
+  local fingerprint="$1" temp="$2"
+  local rollback="$TXN_DIR/rollback" archive="$rollback/protected-state.tar.gz"
+  local source_path="$rollback/source-known-good-path" source_dir archive_members archive_listing
+  local package member logical record fingerprint_mode fingerprint_sha ipk ipk_postinst archived_postinst
+  regular_nonsymlink_file "$archive" && regular_nonsymlink_file "$source_path" || return 1
+  source_dir="$(pr_read_first "$source_path")"
+  [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+  archive_members="$temp/protected-archive.members"
+  archive_listing="$temp/protected-archive.listing"
+  tar -tzf "$archive" > "$archive_members" 2>/dev/null || return 1
+  tar -tvzf "$archive" > "$archive_listing" 2>/dev/null || return 1
+  for package in $PR_PROJECT_PACKAGES; do
+    member="usr/lib/opkg/info/$package.postinst"
+    logical="/$member"
+    [ "$(grep -Fxc "$member" "$archive_members" 2>/dev/null || true)" = 1 ] || return 1
+    if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+      [ "$(awk -v path="$member" '$1 == "-rwxr-xr-x" && $NF == path { count++ }
+        END { print count + 0 }' "$archive_listing")" = 1 ] || return 1
+    else
+      [ "$(awk -v path="$member" '$1 == "-rwxr-xr-x" && $2 == "0/0" &&
+        $NF == path { count++ } END { print count + 0 }' "$archive_listing")" = 1 ] || return 1
+    fi
+    [ "$(awk -v path="$logical" '$4 == path { count++ } END { print count + 0 }' \
+      "$fingerprint")" = 1 ] || return 1
+    record="$(awk -v path="$logical" '$4 == path { print }' "$fingerprint")"
+    set -- $record
+    [ "$#" = 4 ] && [ "$1" = file ] && [ "$4" = "$logical" ] || return 1
+    fingerprint_mode="$2"
+    fingerprint_sha="$3"
+    if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+      printf '%s\n' "$fingerprint_mode" |
+        grep -Eq '^(unknown|755:[0-9]+:[0-9]+)$' || return 1
+    else
+      [ "$fingerprint_mode" = 755:0:0 ] || return 1
+    fi
+    printf '%s\n' "$fingerprint_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    ipk="$source_dir/${package}_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk"
+    regular_nonsymlink_file "$ipk" || return 1
+    ipk_postinst="$temp/$package.ipk.postinst"
+    archived_postinst="$temp/$package.archived.postinst"
+    tar -xzOf "$ipk" ./control.tar.gz 2>/dev/null |
+      tar -xzOf - ./postinst 2>/dev/null |
+      dd of="$ipk_postinst" bs=1 count=65537 2>/dev/null || return 1
+    tar -xzOf "$archive" "$member" 2>/dev/null |
+      dd of="$archived_postinst" bs=1 count=65537 2>/dev/null || return 1
+    [ -s "$ipk_postinst" ] && [ -s "$archived_postinst" ] || return 1
+    [ "$(wc -c < "$ipk_postinst" | tr -d ' ')" -le 65536 ] &&
+      [ "$(wc -c < "$archived_postinst" | tr -d ' ')" -le 65536 ] || return 1
+    cmp -s "$ipk_postinst" "$archived_postinst" || return 1
+    [ "$(pr_sha256 "$archived_postinst")" = "$fingerprint_sha" ] || return 1
+  done
+}
+
 rc5_managed_cron_transition_validate() {
   local stable_source="$1" stable_current="$2" temp="$3"
   local rollback="$TXN_DIR/rollback" archive="$rollback/protected-state.tar.gz"
@@ -833,6 +886,7 @@ rc5_legacy_protected_validate_and_materialize_inner() {
   local legacy_fingerprint="$rollback/protected-source.fingerprint"
   local protected_sha="$rollback/protected.sha256"
   local expected="$temp/expected-protected.paths"
+  local expected_without_postinst="$temp/expected-protected-without-postinst.paths"
   local logical="$temp/protected-logical.paths"
   local stable_list="$temp/stable.paths" stable_source="$temp/stable-source.fingerprint"
   local stable_current="$temp/stable-current.fingerprint"
@@ -842,11 +896,21 @@ rc5_legacy_protected_validate_and_materialize_inner() {
   local actual_hashes="$temp/protected-hashes.actual"
   local new_list="$rollback/protected-validation.paths.list" new_source="$rollback/protected-validation-source.fingerprint"
   local new_list_tmp="$temp/protected-validation.paths.list" new_source_tmp="$temp/protected-validation-source.fingerprint"
+  local retained_postinst=0
   regular_nonsymlink_file "$legacy_list" && regular_nonsymlink_file "$legacy_fingerprint" &&
     regular_nonsymlink_file "$protected_sha" || return 1
   rc5_source_evidence_validate "$expected" || return 1
-  cmp -s "$expected" "$legacy_list" || return 1
+  awk '$0 !~ /\.postinst$/' "$expected" > "$expected_without_postinst" || return 1
+  if cmp -s "$expected_without_postinst" "$legacy_list"; then
+    :
+  elif cmp -s "$expected" "$legacy_list"; then
+    retained_postinst=1
+  else
+    return 1
+  fi
   rc5_fingerprint_syntax_validate "$legacy_list" "$legacy_fingerprint" "$logical" || return 1
+  [ "$retained_postinst" != 1 ] ||
+    rc5_retained_postinst_snapshot_validate "$legacy_fingerprint" "$temp" || return 1
   printf '%s\n' /etc/config /etc/crontabs/root /etc/vpn-ui-update.conf /etc/xray |
     LC_ALL=C sort > "$stable_list"
   awk '$4 == "/etc/config" || index($4, "/etc/config/") == 1 ||
