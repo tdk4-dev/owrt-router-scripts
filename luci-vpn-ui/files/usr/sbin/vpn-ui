@@ -764,7 +764,8 @@ overlay_available_bytes() {
     printf '%s\n' "$VPN_UI_TEST_ADOPT_FREE_BYTES"
     return 0
   fi
-  df -Pk "$actual" 2>/dev/null | awk 'NR == 2 {printf "%.0f\n", $4 * 1024}'
+  df -Pk "$(dirname "$actual")" 2>/dev/null |
+    awk 'NR == 2 {printf "%.0f\n", $4 * 1024}'
 }
 
 overlay_storage_gate() {

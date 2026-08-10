@@ -20,6 +20,7 @@ grep -Fq 'UCODE_SOURCE_URL="${UCODE_SOURCE_URL:-https://github.com/jow-/ucode.gi
 grep -Fq 'export LD_LIBRARY_PATH=' "$UCODE_INSTALLER"
 grep -Fq 'export DYLD_LIBRARY_PATH=' "$UCODE_INSTALLER"
 ! grep -Fq -- '-DIO_SUPPORT=OFF' "$UCODE_INSTALLER"
+grep -Fq 'df -Pk "$(dirname "$actual")"' "$VPN_UI"
 
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-adopted-overlay.XXXXXX")"
 cleanup() { rm -rf "$TMP_ROOT"; }
