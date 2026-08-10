@@ -7,11 +7,19 @@ OVERLAY="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc"
 VPN_UI="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 FIXTURE="$ROOT_DIR/tests/fixtures/xray/adopted-overlay.json"
 VALERA_FIXTURE="$ROOT_DIR/tests/fixtures/xray/valera-manual-config.json"
+UCODE_INSTALLER="$ROOT_DIR/scripts/install-ci-ucode.sh"
 UCODE_REAL="${TEST_UCODE_BIN:-$(command -v ucode || true)}"
 [ -x "$UCODE_REAL" ] || {
   printf 'ucode is required for adopted-overlay tests\n' >&2
   exit 1
 }
+
+grep -Fq 'UCODE_COMMIT=3f64c8089bf3ea4847c96b91df09fbfcaec19e1d' "$UCODE_INSTALLER"
+grep -Fq 'UCODE_SOURCE_URL="${UCODE_SOURCE_URL:-https://github.com/jow-/ucode.git}"' \
+  "$UCODE_INSTALLER"
+grep -Fq 'export LD_LIBRARY_PATH=' "$UCODE_INSTALLER"
+grep -Fq 'export DYLD_LIBRARY_PATH=' "$UCODE_INSTALLER"
+! grep -Fq -- '-DIO_SUPPORT=OFF' "$UCODE_INSTALLER"
 
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-adopted-overlay.XXXXXX")"
 cleanup() { rm -rf "$TMP_ROOT"; }

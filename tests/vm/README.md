@@ -16,12 +16,24 @@ The test architecture has four deliberately separate workflows:
    into immutable descriptor files and checked against the downloaded bytes.
    Diagnostic mode rebuilds nothing and has no signing or publication
    permission. Its QEMU results never authorize an RC6 candidate or release.
-4. `publish-router-ui-rc6-virtualbox-evidence.yml` runs only on the protected
-   self-hosted Mac Pro runner. It validates and publishes an already-supervised
-   VirtualBox evidence bundle for the exact source SHA. The protected candidate
-   consumes that immutable artifact and refuses QEMU-backed evidence; the tagged
-   release accepts only a successful pre-tag candidate whose VirtualBox-only job
-   passed.
+4. `publish-router-ui-rc6-virtualbox-evidence.yml` runs from `main` only on a
+   protected, one-job Linux publisher runner hosted in an isolated Mac Pro VM.
+   It never checks out or executes candidate code. It validates and publishes
+   an already-supervised VirtualBox evidence bundle staged under the fixed
+   `/srv/router-ui-evidence` root. The protected candidate binds the artifact to
+   the exact trusted publisher commit, validates it again against the exact
+   signed candidate, and refuses QEMU-backed evidence. The tagged release
+   accepts only a successful pre-tag candidate whose VirtualBox-only job passed.
+
+The publisher workflow must exist on the default branch before it can be
+manually dispatched. For pre-merge RC6 qualification, merge a separate
+workflow-only bootstrap change containing exactly
+`.github/workflows/publish-router-ui-rc6-virtualbox-evidence.yml`; never merge
+RC6 merely to expose the workflow. Dispatch the publisher on `main`, record
+the Mac Pro's independently retained SHA-256 of
+`evidence-files-sha256sums`, and record its exact `head_sha`, artifact ID, and
+artifact ZIP SHA-256. The first value authorizes upload; pass the latter three
+identities to the RC6 protected-candidate workflow.
 
 Baseline compatibility is the digest emitted by
 `baseline-contract-digest.sh`, not equality between the baseline builder and
