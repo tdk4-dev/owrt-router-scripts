@@ -863,8 +863,8 @@ return view.extend({
 
 	renderRules: function(data) {
 		var ownership = data.ownership || {};
-		var rulesDisabled = isReadonlyView || !!ownership.adoption_required || !ownership.healthy ||
-			ownership.mutations_allowed === false;
+		var rulesDisabled = !!(isReadonlyView || ownership.adoption_required || !ownership.healthy ||
+			ownership.mutations_allowed === false) || null;
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
 			this.renderDomainTester(),
