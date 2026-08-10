@@ -32,7 +32,13 @@ grep -q '^  workflow_dispatch:' "$BASELINES" || fail 'baseline workflow is not m
 ! grep -q '^  push:' "$BASELINES" || fail 'baseline workflow is push-triggered'
 grep -q '^  workflow_dispatch:' "$CANDIDATE" || fail 'protected candidate is not manually dispatched'
 ! grep -q '^  workflow_call:' "$CANDIDATE" || fail 'protected candidate can still be invoked automatically'
-for input in virtualbox_evidence_artifact_id virtualbox_evidence_artifact_zip_sha256; do
+grep -q '^  validate-inputs:' "$CANDIDATE" || fail 'candidate lacks no-checkout input validation'
+sed -n '/^  validate-inputs:/,/^  canonical-ipks:/p' "$CANDIDATE" |
+  grep -q "grep -Eq '\^\[0-9a-f\]{64}\$'" || fail 'candidate does not validate evidence ZIP SHA'
+grep -q '^    needs: validate-inputs$' "$CANDIDATE" ||
+  fail 'candidate can check out an unvalidated source input'
+for input in virtualbox_evidence_artifact_id virtualbox_evidence_artifact_zip_sha256 \
+  virtualbox_evidence_publisher_sha; do
   grep -q "^      $input:" "$CANDIDATE" ||
     fail "candidate gate lacks immutable Mac Pro VirtualBox evidence identity: $input"
 done
@@ -42,8 +48,28 @@ for workflow in "$CANDIDATE" "$RELEASE"; do
 done
 grep -q '^  workflow_dispatch:' "$VIRTUALBOX_PUBLISH" ||
   fail 'Mac Pro VirtualBox evidence publisher is not manually dispatched'
-grep -Fq 'runs-on: [self-hosted, macOS, mac-pro, virtualbox]' "$VIRTUALBOX_PUBLISH" ||
-  fail 'VirtualBox evidence publisher is not pinned to the Mac Pro runner boundary'
+grep -q '^      evidence_index_sha256:' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox publisher lacks independently retained evidence index identity'
+grep -Fq "if: \${{ github.ref == 'refs/heads/main' }}" "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox evidence publisher can execute from an untrusted feature ref'
+grep -Fq 'runs-on: [self-hosted, linux, x64, mac-pro-evidence-publisher]' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox evidence publisher is not pinned to the isolated publisher runner'
+! grep -q 'actions/checkout' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox publisher checks out candidate-controlled code on the self-hosted runner'
+! grep -Eq '(\./tests/|\./scripts/)' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox publisher executes repository code on the self-hosted runner'
+grep -Fq 'EVIDENCE_ROOT: /srv/router-ui-evidence' "$VIRTUALBOX_PUBLISH" ||
+  fail 'VirtualBox publisher does not use the fixed staged-evidence root'
+grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' \
+  "$VIRTUALBOX_PUBLISH" || fail 'VirtualBox publisher action is not commit-pinned'
+grep -q 'workflow_run.head_branch == "main"' "$CANDIDATE" ||
+  fail 'candidate does not bind VirtualBox evidence to a trusted main run'
+grep -q 'workflow_run.head_sha == \$publisher' "$CANDIDATE" ||
+  fail 'candidate does not bind VirtualBox evidence to the exact publisher commit'
+grep -q '.event == "workflow_dispatch"' "$CANDIDATE" ||
+  fail 'candidate accepts VirtualBox evidence from a non-manual workflow run'
+grep -q 'publish-router-ui-rc6-virtualbox-evidence.yml' "$CANDIDATE" ||
+  fail 'candidate does not verify the exact VirtualBox publisher workflow path'
 for workflow in "$BASELINES" "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
   grep -q 'group: router-ui-project-vm-global' "$workflow" ||
     fail "VM workflow does not share the no-overlap concurrency group: $workflow"
@@ -106,6 +132,16 @@ grep -q '^  rescue-0-7-0:' "$CANDIDATE" ||
   fail 'candidate no longer retains its explicitly disabled QEMU diagnostic job'
 sed -n '/^  rescue-0-7-0:/,/^  rd23-stock-image:/p' "$CANDIDATE" |
   grep -Fq 'if: ${{ false }}' || fail 'candidate QEMU rescue job can execute'
+sed -n '/^  vm-shards:/,/^  aggregate-vm-evidence:/p' "$CANDIDATE" |
+  grep -Fq 'if: ${{ false }}' || fail 'candidate QEMU shards can execute'
+sed -n '/^  tagged-vm-shards:/,/^  aggregate-tagged-vm-evidence:/p' "$RELEASE" |
+  grep -Fq 'if: ${{ false }}' || fail 'release QEMU shards can execute'
+sed -n '/^  aggregate-tagged-vm-evidence:/,/^  publish-release:/p' "$RELEASE" |
+  grep -Fq 'if: ${{ false }}' || fail 'release QEMU aggregation can execute'
+! sed -n '/^  aggregate-vm-evidence:/,$p' "$CANDIDATE" |
+  grep -q 'needs:.*vm-shards' || fail 'candidate authorizer depends on QEMU evidence'
+! sed -n '/^  publish-release:/,$p' "$RELEASE" |
+  grep -q 'needs:.*tagged-vm-shards' || fail 'release authorizer depends on QEMU evidence'
 grep -q 'pretag-router-ui-transition-candidate-' "$CANDIDATE" ||
   fail 'protected workflow does not preserve reusable signed transition bytes'
 for workflow in "$CANDIDATE" "$DIAGNOSTIC"; do

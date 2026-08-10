@@ -44,6 +44,58 @@ LuCI/RPC direct-rule apply and removal, Xray restart, exact rollback, and
 continuous Tailscale invariants. Same-workstation browser proof must use direct
 localhost access. `validate-rc6-virtualbox-evidence.sh` enforces this contract.
 
+## Pre-merge VirtualBox evidence publication
+
+GitHub can dispatch a manual workflow only after that workflow path exists on
+the default branch. Expose the evidence publisher with a separate bootstrap PR
+from `origin/main` containing exactly
+`.github/workflows/publish-router-ui-rc6-virtualbox-evidence.yml`. Do not merge
+the RC merely to expose its qualification workflow.
+
+Run the publisher on `main`, with the candidate commit supplied only as the
+`source_sha` data input. The publisher must not check out or execute candidate
+code. Its artifact is accepted by the candidate workflow only when GitHub
+metadata proves that it came from the exact manually dispatched publisher path
+on `main` at the operator-supplied publisher commit. The bundle is then checked
+again against the newly built and production-signed candidate.
+
+The Mac Pro host currently runs macOS 10.14 and therefore cannot run a current
+supported GitHub runner; GitHub currently supports self-hosted macOS runners on
+macOS 11 or later. Use a disposable Ubuntu 20.04-or-later x86_64 VM on the Mac
+Pro as a repository-scoped, one-job ephemeral publisher. A fresh dedicated VM
+is preferred over `u-vpn-exit`; the latter contains operational networking state
+and should be used only after an explicit risk decision.
+
+The publisher VM requires:
+
+- the default `self-hosted`, `linux`, and `x64` labels plus the unique
+  `mac-pro-evidence-publisher` label;
+- `jq`, GNU `coreutils` (`sha256sum`), `findutils`, `gawk`, `grep`, `sed`,
+  `sort`, `cmp`, Python 3, and CA certificates;
+- outbound HTTPS to GitHub Actions endpoints;
+- no repository checkout, production signing key, router credentials,
+  VirtualBox control socket, or write access to the evidence source;
+- a root-owned, read-only staged tree at
+  `/srv/router-ui-evidence/rc6-final/<source-sha>` and the matching signed
+  release at
+  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.6`;
+- protected environment approval for
+  `router-ui-mac-pro-virtualbox-evidence`; and
+- external retention of the ephemeral runner diagnostic logs.
+
+Before approval, compute and retain the Mac Pro SHA-256 of
+`evidence-files-sha256sums`. Supply that 64-hex value as the publisher's
+`evidence_index_sha256` input. The publisher rejects writable, linked,
+unexpected, oversized, or secret-shaped evidence and compares the retained
+index before upload. The protected candidate separately binds the resulting
+artifact ID, ZIP SHA-256, publisher commit and signed candidate manifest.
+
+Register it with a repository runner token using `--ephemeral --unattended`
+and `--labels mac-pro-evidence-publisher`, start it only after the protected
+publisher job is queued and approved, and destroy its work directory or the
+entire disposable VM after the one job deregisters. Never reuse the runner for
+pull-request or candidate-controlled jobs.
+
 Storage profiles are derived from the official OpenWrt 24.10.5 RD23 DTS,
 kernel UBI configuration, and the exact candidate payload. The stock DTS has a
 78 MiB raw UBI partition and the ubootmod DTS has a 112 MiB raw UBI partition.
