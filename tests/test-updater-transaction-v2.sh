@@ -56,6 +56,34 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk" FEED_DIR="$TMP_ROOT/feed
   USIGN_BIN="$USIGN_BIN" "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 printf '%s\n' "$KEY_ID" > "$TMP_ROOT/release-key-id"
 
+# Build the exact RC5 bootstrap lineage with the ephemeral host-test key. This
+# lets the current updater consume transaction metadata emitted by the actual
+# d02b3bcd RC5 updater instead of a hand-authored approximation.
+RC5_SOURCE_COMMIT='d02b3bcd187a44d366469ed1f37bb1b273e60529'
+RC5_SOURCE_DATE_EPOCH='1785839862'
+RC5_SOURCE_ROOT="$TMP_ROOT/rc5-source"
+RC5_IPK_DIR="$TMP_ROOT/rc5-ipk"
+RC5_INSTALLED_SET="$TMP_ROOT/rc5-installed-set"
+mkdir -p "$RC5_SOURCE_ROOT"
+git -C "$ROOT_DIR" archive "$RC5_SOURCE_COMMIT" | tar -xf - -C "$RC5_SOURCE_ROOT"
+SOURCE_COMMIT="$RC5_SOURCE_COMMIT" SOURCE_DIRTY=false \
+  SOURCE_DATE_EPOCH="$RC5_SOURCE_DATE_EPOCH" BUILD_DIR="$TMP_ROOT/rc5-build" \
+  OUT_DIR="$RC5_IPK_DIR" FEED_DIR="$TMP_ROOT/rc5-feed" \
+  "$RC5_SOURCE_ROOT/scripts/build-openwrt-ipks.sh" >/dev/null
+IPK_DIR="$RC5_IPK_DIR" OUT_DIR="$RC5_INSTALLED_SET" \
+  SOURCE_COMMIT="$RC5_SOURCE_COMMIT" SOURCE_DIRTY=false \
+  SOURCE_DATE_EPOCH="$RC5_SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
+  "$RC5_SOURCE_ROOT/scripts/stage-installed-package-set.sh" >/dev/null 2>&1
+RC5_TEST_MANIFEST_SHA="$(sha256sum "$RC5_INSTALLED_SET/installed-manifest.json" | awk '{print $1}')"
+RC5_TEST_SIGNATURE_SHA="$(sha256sum "$RC5_INSTALLED_SET/installed-manifest.json.sig" | awk '{print $1}')"
+RC5_TEST_KEY_FINGERPRINT="$($USIGN_BIN -F -p "$PUBLIC")"
+RC5_TEST_UPDATER_SHA="$(sha256sum "$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/sbin/vpn-ui-update" | awk '{print $1}')"
+RC5_TEST_UPDATE_LIB_SHA="$(sha256sum "$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" | awk '{print $1}')"
+RC5_TEST_VALIDATOR_SHA="$(sha256sum "$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator" | awk '{print $1}')"
+export RC5_SOURCE_COMMIT RC5_SOURCE_DATE_EPOCH RC5_SOURCE_ROOT RC5_IPK_DIR RC5_INSTALLED_SET
+export RC5_TEST_MANIFEST_SHA RC5_TEST_SIGNATURE_SHA RC5_TEST_KEY_FINGERPRINT
+export RC5_TEST_UPDATER_SHA RC5_TEST_UPDATE_LIB_SHA RC5_TEST_VALIDATOR_SHA
+
 FAKE_OPKG="$TMP_ROOT/opkg"
 FAKE_SYSUPGRADE="$TMP_ROOT/sysupgrade"
 cat > "$FAKE_OPKG" <<'EOF'
@@ -64,12 +92,13 @@ set -eu
 db="$FAKE_ROOT/var/lib/fake-opkg"
 mkdir -p "$db" "$FAKE_ROOT/usr/lib/opkg/info"
 write_status() {
+  local record status_pkg version
   : > "$FAKE_ROOT/usr/lib/opkg/status"
   for record in "$db"/*; do
     [ -f "$record" ] || continue
-    pkg="$(basename "$record")"
+    status_pkg="$(basename "$record")"
     version="$(cat "$record")"
-    printf 'Package: %s\nVersion: %s\nStatus: install user installed\n\n' "$pkg" "$version" >> "$FAKE_ROOT/usr/lib/opkg/status"
+    printf 'Package: %s\nVersion: %s\nStatus: install user installed\n\n' "$status_pkg" "$version" >> "$FAKE_ROOT/usr/lib/opkg/status"
   done
 }
 case "${1:-}" in
@@ -90,6 +119,13 @@ case "${1:-}" in
     printf '%s\n' "$version" > "$db/$pkg"
     printf '%s\n' "$control" > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control"
     tar -xzOf "$ipk" ./data.tar.gz | tar -tzf - > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list"
+    for control_member in conffiles preinst prerm postrm; do
+      if tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx "./$control_member"; then
+        tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - "./$control_member" \
+          > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.$control_member"
+        case "$control_member" in conffiles) chmod 644 "$FAKE_ROOT/usr/lib/opkg/info/$pkg.$control_member" ;; *) chmod 755 "$FAKE_ROOT/usr/lib/opkg/info/$pkg.$control_member" ;; esac
+      fi
+    done
     write_status
     if [ "$pkg" = premier-router-core ] && [ "${FAKE_OPKG_KEEP_REAL_VPN_UI:-0}" = 1 ]; then
       vpn_ui="$FAKE_ROOT/usr/sbin/vpn-ui"
@@ -198,6 +234,14 @@ run_supervisor() {
     VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" \
     VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
     VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
+    VPN_UI_TEST_RC5_SOURCE_DATE_EPOCH="$RC5_SOURCE_DATE_EPOCH" \
+    VPN_UI_TEST_RC5_SIGNING_KEY_ID="$KEY_ID" \
+    VPN_UI_TEST_RC5_SIGNING_KEY_FINGERPRINT="$RC5_TEST_KEY_FINGERPRINT" \
+    VPN_UI_TEST_RC5_MANIFEST_SHA256="$RC5_TEST_MANIFEST_SHA" \
+    VPN_UI_TEST_RC5_SIGNATURE_SHA256="$RC5_TEST_SIGNATURE_SHA" \
+    VPN_UI_TEST_RC5_UPDATER_SHA256="$RC5_TEST_UPDATER_SHA" \
+    VPN_UI_TEST_RC5_UPDATE_LIB_SHA256="$RC5_TEST_UPDATE_LIB_SHA" \
+    VPN_UI_TEST_RC5_VALIDATOR_SHA256="$RC5_TEST_VALIDATOR_SHA" \
     VPN_UI_UPDATE_RESTART_CRON=0 \
     sh "$TMP_ROOT/release/router-update-supervisor" "$@"
 }
@@ -214,8 +258,55 @@ run_supervisor_env() {
     VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" \
     VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
     VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
+    VPN_UI_TEST_RC5_SOURCE_DATE_EPOCH="$RC5_SOURCE_DATE_EPOCH" \
+    VPN_UI_TEST_RC5_SIGNING_KEY_ID="$KEY_ID" \
+    VPN_UI_TEST_RC5_SIGNING_KEY_FINGERPRINT="$RC5_TEST_KEY_FINGERPRINT" \
+    VPN_UI_TEST_RC5_MANIFEST_SHA256="$RC5_TEST_MANIFEST_SHA" \
+    VPN_UI_TEST_RC5_SIGNATURE_SHA256="$RC5_TEST_SIGNATURE_SHA" \
+    VPN_UI_TEST_RC5_UPDATER_SHA256="$RC5_TEST_UPDATER_SHA" \
+    VPN_UI_TEST_RC5_UPDATE_LIB_SHA256="$RC5_TEST_UPDATE_LIB_SHA" \
+    VPN_UI_TEST_RC5_VALIDATOR_SHA256="$RC5_TEST_VALIDATOR_SHA" \
     VPN_UI_UPDATE_RESTART_CRON=0 "$@" \
     sh "$TMP_ROOT/release/router-update-supervisor" "$command"
+}
+
+seed_rc5_source() {
+  local package source_manifest source_signature source_hash source_dir
+  reset_source 0.7.11-rc.5
+  for package in premier-router-core luci-app-premier-router premier-router-setup; do
+    FAKE_ROOT="$FAKE_ROOT" "$FAKE_OPKG" install --force-reinstall \
+      "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk"
+  done
+  source_manifest="$RC5_INSTALLED_SET/installed-manifest.json"
+  source_signature="$RC5_INSTALLED_SET/installed-manifest.json.sig"
+  source_hash="$(sha256sum "$source_manifest" | awk '{print $1}')"
+  source_dir="$FAKE_ROOT/root/premier-router-updates/known-good/$source_hash"
+  mkdir -p "$source_dir" "$FAKE_ROOT/etc/premier-router"
+  cp "$source_manifest" "$FAKE_ROOT/etc/premier-router/installed-manifest.json"
+  cp "$source_signature" "$FAKE_ROOT/etc/premier-router/installed-manifest.json.sig"
+  cp "$source_manifest" "$source_dir/router-release-manifest.json"
+  cp "$source_signature" "$source_dir/router-release-manifest.json.sig"
+  cp "$RC5_INSTALLED_SET/router-candidate-validator" "$source_dir/router-candidate-validator"
+  chmod 755 "$source_dir/router-candidate-validator"
+  for package in premier-router-core luci-app-premier-router premier-router-setup; do
+    cp "$RC5_IPK_DIR/${package}_0.7.11~rc5-1_all.ipk" "$source_dir/"
+  done
+}
+
+run_update_from_rc5() {
+  env PREMIER_ROUTER_HOST_TEST=1 FAKE_ROOT="$FAKE_ROOT" \
+    PR_USIGN_BIN="$USIGN_BIN" \
+    PR_OPENWRT_RELEASE_FILE="$FAKE_ROOT/etc/openwrt_release" \
+    VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_UPDATE_LIB="$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" \
+    VPN_UI_UPDATE_SELF="$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/sbin/vpn-ui-update" \
+    VPN_UI_RELEASE_PUBLIC_KEY="$PUBLIC" \
+    VPN_UI_RELEASE_KEY_ID_FILE="$TMP_ROOT/release-key-id" \
+    VPN_UI_OPKG_BIN="$FAKE_OPKG" VPN_UI_SYSUPGRADE_BIN="$FAKE_SYSUPGRADE" \
+    VPN_UI_UPDATE_RESTART_CRON=0 \
+    sh "$RC5_SOURCE_ROOT/luci-vpn-ui/files/usr/sbin/vpn-ui-update" apply-local \
+      "$TMP_ROOT/release" "$TMP_ROOT/release/router-release-manifest.json" \
+      "$TMP_ROOT/release/router-release-manifest.json.sig" manual no
 }
 
 probe_exact_space_requirements() {
@@ -331,6 +422,126 @@ stage 079-recovered
 [ "$(jq -r .state "$journal")" = committed ]
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
+
+# RC5 wrote no protected-validation pair. The RC6 reboot path may bridge only
+# the exact signed bootstrap lineage and must materialize the current pair
+# after proving the stable protected state is unchanged.
+prepare_rc5_reboot_transaction() {
+  seed_rc5_source
+  run_update_from_rc5 > "$TMP_ROOT/rc5-bridge-apply.log" \
+    2> "$TMP_ROOT/rc5-bridge-apply.err"
+  RC5_TRANSACTION="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+  RC5_TRANSACTION_DIR="$FAKE_ROOT/root/premier-router-updates/$RC5_TRANSACTION"
+  RC5_JOURNAL="$RC5_TRANSACTION_DIR/state.json"
+  RC5_ROLLBACK="$RC5_TRANSACTION_DIR/rollback"
+  export RC5_TRANSACTION RC5_TRANSACTION_DIR RC5_JOURNAL RC5_ROLLBACK
+  [ "$(jq -r .state "$RC5_JOURNAL")" = committed_pending_reboot_validation ]
+  [ ! -e "$RC5_ROLLBACK/protected-validation.paths.list" ]
+  [ ! -e "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
+  [ "$(sha256sum "$RC5_ROLLBACK/source-supervisor" | awk '{print $1}')" = "$RC5_TEST_UPDATER_SHA" ]
+  [ "$(sha256sum "$RC5_ROLLBACK/update-lib.sh" | awk '{print $1}')" = "$RC5_TEST_UPDATE_LIB_SHA" ]
+  printf 'boot-after-rc5-bridge\n' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
+}
+
+expect_rc5_bridge_rejected() {
+  local label="$1" state
+  run_supervisor_env recover FAKE_OPKG_KEEP_REAL_VPN_UI=1 \
+    > "$TMP_ROOT/rc5-bridge-$label.log" 2> "$TMP_ROOT/rc5-bridge-$label.err" || true
+  state="$(jq -r .state "$RC5_JOURNAL")"
+  [ "$state" != committed ] || {
+    printf 'RC5 reboot bridge accepted negative case: %s\n' "$label" >&2
+    exit 1
+  }
+}
+
+prepare_rc5_reboot_transaction
+cat > "$TMP_ROOT/rc5-protected.paths.expected" <<'EOF'
+/etc/config
+/etc/crontabs/root
+/etc/vpn-ui-update.conf
+/etc/xray
+/usr/lib/opkg/info/luci-app-premier-router.control
+/usr/lib/opkg/info/luci-app-premier-router.list
+/usr/lib/opkg/info/luci-app-premier-router.postrm
+/usr/lib/opkg/info/premier-router-core.conffiles
+/usr/lib/opkg/info/premier-router-core.control
+/usr/lib/opkg/info/premier-router-core.list
+/usr/lib/opkg/info/premier-router-core.postrm
+/usr/lib/opkg/info/premier-router-setup.control
+/usr/lib/opkg/info/premier-router-setup.list
+/usr/lib/opkg/info/premier-router-setup.postrm
+/usr/lib/opkg/info/premier-router-setup.preinst
+/usr/lib/opkg/status
+EOF
+cmp -s "$TMP_ROOT/rc5-protected.paths.expected" "$RC5_ROLLBACK/protected.paths.list"
+run_supervisor recover
+[ "$(jq -r .state "$RC5_JOURNAL")" = committed ]
+[ -s "$RC5_ROLLBACK/protected-validation.paths.list" ]
+[ -s "$RC5_ROLLBACK/protected-validation-source.fingerprint" ]
+grep -Fqx '/etc/premier-router/xray-ownership.json' \
+  "$RC5_ROLLBACK/protected-validation.paths.list"
+grep -Fqx 'missing - - /etc/premier-router/xray-ownership.json' \
+  "$RC5_ROLLBACK/protected-validation-source.fingerprint"
+[ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+stage exact-rc5-reboot-metadata-bridge
+
+prepare_rc5_reboot_transaction
+printf 'tampered config\n' >> "$FAKE_ROOT/etc/config/network"
+expect_rc5_bridge_rejected protected-config-tamper
+
+prepare_rc5_reboot_transaction
+grep -Fvx '/etc/crontabs/root' "$RC5_ROLLBACK/protected.paths.list" \
+  > "$RC5_ROLLBACK/protected.paths.list.tmp"
+mv "$RC5_ROLLBACK/protected.paths.list.tmp" "$RC5_ROLLBACK/protected.paths.list"
+expect_rc5_bridge_rejected protected-list-tamper
+
+prepare_rc5_reboot_transaction
+printf 'missing - - /etc/not-authorized\n' >> "$RC5_ROLLBACK/protected-source.fingerprint"
+expect_rc5_bridge_rejected protected-fingerprint-tamper
+
+prepare_rc5_reboot_transaction
+jq '.source_app_version = "0.7.11-rc.4"' "$RC5_JOURNAL" > "$RC5_JOURNAL.tmp"
+mv "$RC5_JOURNAL.tmp" "$RC5_JOURNAL"
+expect_rc5_bridge_rejected wrong-source-tuple
+
+prepare_rc5_reboot_transaction
+rm -f "$RC5_ROLLBACK/source-known-good-path"
+expect_rc5_bridge_rejected missing-source-evidence
+
+prepare_rc5_reboot_transaction
+rm -f "$RC5_ROLLBACK/protected.sha256"
+expect_rc5_bridge_rejected missing-protected-hashes
+
+prepare_rc5_reboot_transaction
+cp "$TMP_ROOT/rc5-protected.paths.expected" \
+  "$RC5_ROLLBACK/protected-validation.paths.list"
+expect_rc5_bridge_rejected partial-new-metadata
+
+prepare_rc5_reboot_transaction
+printf '{}\n' > "$FAKE_ROOT/etc/premier-router/xray-ownership.json"
+expect_rc5_bridge_rejected ownership-file-present
+
+prepare_rc5_reboot_transaction
+ln -s ../config/network "$FAKE_ROOT/etc/premier-router/xray-ownership.json"
+expect_rc5_bridge_rejected ownership-symlink-present
+
+prepare_rc5_reboot_transaction
+printf '\n# tampered\n' >> "$RC5_ROLLBACK/source-supervisor"
+expect_rc5_bridge_rejected source-supervisor-tamper
+
+prepare_rc5_reboot_transaction
+printf '\n' >> "$RC5_ROLLBACK/source-manifest.json.sig"
+expect_rc5_bridge_rejected source-signature-tamper
+
+prepare_rc5_reboot_transaction
+printf '\n' >> "$RC5_ROLLBACK/source-manifest.json"
+expect_rc5_bridge_rejected source-manifest-tamper
+
+prepare_rc5_reboot_transaction
+source_known_good="$(cat "$RC5_ROLLBACK/source-known-good-path")"
+printf '\n' >> "$source_known_good/premier-router-core_0.7.11~rc5-1_all.ipk"
+expect_rc5_bridge_rejected cached-core-ipk-tamper
+stage rc5-reboot-bridge-negative-cases
 
 # A Valera-shaped manual configuration must survive candidate and changed-boot
 # validation byte-for-byte.  Ownership may be established only after the
