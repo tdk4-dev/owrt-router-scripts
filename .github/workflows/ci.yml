@@ -24,8 +24,9 @@ jobs:
 
       - name: Install release-test tools
         run: |
-          sudo apt-get update && sudo apt-get install -y jq cmake
+          sudo apt-get update && sudo apt-get install -y jq cmake libjson-c-dev
           USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          UCODE_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-ucode.sh
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Validate shell scripts
@@ -45,6 +46,7 @@ jobs:
             install-friend-vpn-panel.sh \
             make-vpn-ui-release-bundle.sh \
             scripts/build-openwrt-ipks.sh \
+            scripts/install-ci-ucode.sh \
             scripts/release-key-lib.sh \
             scripts/sign-in-linux-build-vm.sh \
             scripts/sign-opkg-feed.sh \
@@ -60,6 +62,8 @@ jobs:
             tests/test-local-signing-key-lifecycle.sh \
             tests/test-recovery-lock-reproducer.sh \
             tests/test-security-boundaries-0.7.11.sh \
+            tests/test-updater-worker-start.sh \
+            tests/test-xray-adopted-overlay.sh \
             tests/test-vm-controller-contract.sh \
             tests/test-vm-listener-normalization.sh \
             tests/vm/build-synthetic-next.sh \
@@ -101,6 +105,8 @@ jobs:
           sh tests/test-router-ui-release-v2.sh
           sh tests/test-security-boundaries-0.7.11.sh
           sh tests/test-updater-transaction-v2.sh
+          sh tests/test-updater-worker-start.sh
+          sh tests/test-xray-adopted-overlay.sh
           sh tests/test-rescue-support-matrix.sh
           sh tests/test-image-package-identity.sh
           sh tests/test-vm-architecture.sh

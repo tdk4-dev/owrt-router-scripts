@@ -1,6 +1,6 @@
 ## Router UI 0.7.11 local RC status
 
-Router UI 0.7.11 RC5 has completed local Mac Pro validation. This is not yet
+Router UI 0.7.11 RC6 has completed local Mac Pro validation. This is not yet
 the stable production installation instruction. The existing 0.7.1 to 0.7.10
 instructions remain historical, and issue #10 must remain open.
 
@@ -13,8 +13,8 @@ instructions remain historical, and issue #10 must remain open.
 - Rescue matrix: `@RESCUE_MATRIX_RESULT@`
 - Vanilla OpenWrt 24.10.5: direct verified IPKs and signed candidate feed both
   passed without a firmware flash or global package upgrade
-- Stable-promotion proof: signed `0.7.11-rc.5` to stable `0.7.11`, exact
-  rollback to `0.7.11-rc.5`, repeat update, and second exact rollback passed
+- Stable-promotion proof: signed `0.7.11-rc.6` to stable `0.7.11`, exact
+  rollback to `0.7.11-rc.6`, repeat update, and second exact rollback passed
 - Physical routers touched: none
 
 Remaining stable-publication blockers:

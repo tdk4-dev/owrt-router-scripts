@@ -1,10 +1,29 @@
-Router UI 0.7.11 RC5
+Router UI 0.7.11 RC6
 
-Router UI `0.7.11-rc.5` is an updater migration bridge built from the 0.7.10
-product baseline. It introduces canonical OpenWrt packages, signed release
-metadata, target-owned validation, persistent recovery, exact rollback, and a
-generic fail-closed legacy rescue path. It intentionally contains no 0.8
-product features.
+Router UI `0.7.11-rc.6` is the constrained repair candidate for RC5. It keeps
+the protocol-2 package, signature, recovery, and rollback foundation while
+repairing real asynchronous update launch and making Xray configuration
+ownership explicit. It intentionally contains no 0.8 product features.
+
+The core package now depends on `coreutils-nohup`, `ucode`, and
+`ucode-mod-fs`, and uses an ownership-bound child-start handshake with
+structured launch errors. Check and Apply remain asynchronous through LuCI;
+the synchronous worker override remains test-only.
+
+Xray ownership has two modes. The existing generated
+`/etc/xray/exit-st-cf.json` path remains `native-generated`. A manual active
+configuration such as `/etc/xray/config.json` requires authenticated preview
+and exact-hash confirmation before becoming `adopted-overlay`. Adoption imports
+only one unambiguous isolated direct-domain array and one isolated direct-IP
+array, and does not rewrite or restart Xray. Later rule application changes
+only those selectors, proves every other JSON semantic is unchanged, validates
+the candidate, atomically installs it, and automatically restores exact private
+preimages if validation, commit, restart, or Tailscale/route invariants fail.
+
+Profile switching and automatic profile mutation are disabled in adopted mode.
+The native renderer no longer adds BitTorrent or TCP 8080 direct bypass rules.
+Existing adopted bypasses remain untouched because all non-managed rules are
+preserved.
 
 The active production identity is the usign key `production-2026-07`. Only its
 public key and derived fingerprint are present in source and release assets;
@@ -15,13 +34,13 @@ public-key bootstrap before they can trust this release.
 This candidate supports the immutable published 0.7.0 through 0.7.6 and 0.7.8
 through 0.7.10 release assets. The tag-only 0.7.7 identity has no published
 installation artifact and is refused. Every supported source converges on one
-canonical set of three `0.7.11~rc5-1` IPKs. A signed initial-install bootstrap
+canonical set of three `0.7.11~rc6-1` IPKs. A signed initial-install bootstrap
 installs those packages on an already-flashed OpenWrt 24.10.5 router and seeds
 the exact known-good package set required for rollback and the later stable
 update. No firmware flash or global `opkg upgrade` is part of that path.
 
 The RC identity is embedded independently as the user-facing version
-`0.7.11-rc.5`, OpenWrt package version `0.7.11~rc5-1`, and release channel
+`0.7.11-rc.6`, OpenWrt package version `0.7.11~rc6-1`, and release channel
 `candidate`. The LuCI Update page labels the build as prerelease software, but
 continues to follow the signed stable channel by default. Stable `0.7.11` is
 therefore considered newer and remains available as the next update.

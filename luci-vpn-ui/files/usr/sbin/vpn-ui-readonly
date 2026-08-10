@@ -16,7 +16,8 @@ deny() {
 }
 
 case "${1:-status}" in
-  status|vpn-summary|tailscale-status|update-status)
+  status|vpn-summary|tailscale-status|update-status|adoption-preview)
+    [ "$#" -eq 1 ] || deny "${1:-unknown}"
     exec "$HELPER" "$@"
     ;;
   tailscale-ping|test-domain)

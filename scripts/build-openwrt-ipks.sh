@@ -333,6 +333,8 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh"
   "$CORE_ROOT/usr/libexec/premier-router/update-lib.sh" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator" \
   "$CORE_ROOT/usr/libexec/premier-router/candidate-validator" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc" \
+  "$CORE_ROOT/usr/libexec/premier-router/xray-overlay.uc" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery" \
   "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
@@ -381,7 +383,7 @@ chmod 600 "$CORE_ROOT/etc/vpn-ui-update.conf"
 write_legacy_manifest "$CORE_ROOT/usr/share/premier-router/legacy-files.list"
 write_control \
   "premier-router-core" \
-  "curl, jsonfilter, usign, nftables-json, coreutils-base64, socat, tailscale, xray-core" \
+  "curl, jsonfilter, usign, nftables-json, coreutils-base64, coreutils-nohup, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
   "Premier Router $APP_VERSION backend, signed updater, validator, rollback, and boot recovery." \
   "$CORE_CONTROL"
 write_core_scripts "$CORE_CONTROL"

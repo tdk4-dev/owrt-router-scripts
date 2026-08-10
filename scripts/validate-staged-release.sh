@@ -47,6 +47,7 @@ case "$RELEASE_CHANNEL" in candidate|stable) ;; *) fail "unsupported release cha
 for file in router-release-manifest.json router-release-manifest.json.sig \
   "$RELEASE_CHANNEL-channel.json" "$RELEASE_CHANNEL-channel.json.sig" release-provenance.json \
   release-provenance.json.sig SHA256SUMS SHA256SUMS.sig router-ui-packages.txt \
+  INSTALLATION-RECOVERY.md \
   install-router-ui-release.sh install-router-ui-release.sh.sha256 \
   bootstrap-router-ui-ipk-install.sh bootstrap-router-ui-ipk-install.sh.sha256 \
   rescue-router-ui.sh rescue-router-ui.sh.sha256 luci-vpn-ui.tar.gz \
@@ -182,16 +183,16 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
   jq -e '
     .app_version == "0.7.11" and .package_version == "0.7.11-1" and
     any(.transitions[];
-      .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
+      .source_version == "0.7.11-rc.6" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC5 protocol-2 transition"
+  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC6 protocol-2 transition"
 else
   jq -e '
-    .app_version == "0.7.11-rc.5" and .package_version == "0.7.11~rc5-1" and
+    .app_version == "0.7.11-rc.6" and .package_version == "0.7.11~rc6-1" and
     any(.transitions[];
-      .source_version == "0.7.11-rc.4" and .source_protocol == 2 and
+      .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "RC5 release does not authorize the RC4 protocol-2 transition"
+  ' "$MANIFEST" >/dev/null || fail "RC6 release does not authorize the exact RC5 protocol-2 transition"
 fi
 [ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
   "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||

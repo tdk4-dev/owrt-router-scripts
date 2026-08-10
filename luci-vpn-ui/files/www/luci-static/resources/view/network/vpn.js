@@ -105,7 +105,8 @@ return view.extend({
 		var command = args && args[0];
 		var readCommand = command === 'status' || command === 'vpn-summary' ||
 			command === 'tailscale-status' || command === 'tailscale-ping' ||
-			command === 'update-status' || command === 'test-domain';
+			command === 'update-status' || command === 'test-domain' ||
+			command === 'adoption-preview';
 
 		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
@@ -124,6 +125,7 @@ return view.extend({
 
 	refresh: function(data) {
 		this.data = data;
+		this.adoptionPreview = null;
 		dom.content(document.querySelector('#vpn-ui-root'), this.renderBody(data));
 	},
 
@@ -242,6 +244,52 @@ return view.extend({
 			domains ? domains.value : '',
 			ips ? ips.value : ''
 		], _('Applying direct routing rules'));
+	},
+
+	handleAdoptionPreview: function() {
+		ui.showModal(_('Inspect active Xray configuration'), [
+			E('p', { 'class': 'spinning' }, _('Discovering the active configuration without changing it...'))
+		]);
+
+		return this.callHelper(['adoption-preview']).then(L.bind(function(data) {
+			ui.hideModal();
+			this.adoptionPreview = data.adoption || null;
+			dom.content(document.querySelector('#vpn-ui-root'), this.renderBody(this.data));
+		}, this)).catch(function(err) {
+			ui.hideModal();
+			this.notify(err.message || err);
+		}.bind(this));
+	},
+
+	handleAdoptionConfirm: function() {
+		var preview = this.adoptionPreview || {};
+		var analysis = preview.analysis || {};
+
+		if (!preview.path || !preview.config_sha256)
+			return;
+
+		ui.showModal(_('Adopt active Xray configuration'), [
+			E('p', {}, _('Adopt %s without rewriting or restarting Xray?').format(preview.path)),
+			E('p', { 'class': 'vpn-muted' }, _('Confirmation is bound to configuration hash %s.').format(preview.config_sha256)),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				E('button', {
+					'class': 'btn cbi-button-positive',
+					'disabled': isReadonlyView,
+					'click': L.bind(function() {
+						ui.hideModal();
+						this.runAction([
+							'adoption-confirm',
+							preview.path,
+							preview.config_sha256,
+							String(analysis.domain_rule_index),
+							String(analysis.ip_rule_index)
+						], _('Adopting active Xray configuration'));
+					}, this)
+				}, _('Adopt'))
+			])
+		]);
 	},
 
 	searchRuleLines: function(query) {
@@ -423,9 +471,70 @@ return view.extend({
 		return this.callHelper(['status']);
 	},
 
+	renderOwnership: function(data) {
+		var ownership = data.ownership || {};
+		var preview = this.adoptionPreview;
+		var analysis = preview ? (preview.analysis || {}) : {};
+		var warnings = analysis.warnings || [];
+		var needsAdoption = !!ownership.adoption_required;
+		var adopted = !!ownership.adopted;
+		var label = adopted ? _('Adopted overlay') : _('Native generated');
+		var body = [
+			E('h3', {}, _('Xray configuration ownership')),
+			E('div', { 'class': 'vpn-service-row' }, [
+				E('span', { 'class': 'label ' + (ownership.healthy ? 'notice' : 'warning') }, label),
+				E('span', { 'class': 'vpn-muted' }, ownership.active_path || ownership.path || '-')
+			])
+		];
+
+		if (needsAdoption)
+			body.push(E('div', { 'class': 'alert-message warning' }, _(
+				'The running Xray service uses a configuration Router UI does not own. Profile, service, and rule changes are disabled until explicit adoption.'
+			)));
+		else if (adopted)
+			body.push(E('div', { 'class': ownership.healthy ? 'vpn-muted vpn-section-note' : 'alert-message warning' },
+				ownership.healthy
+					? _('Only the adopted direct-domain and direct-IP arrays may be changed. Profile and service controls are disabled.')
+					: (ownership.error || _('The adopted configuration drifted; mutations are disabled.'))));
+
+		if (ownership.error && !adopted)
+			body.push(E('div', { 'class': 'vpn-muted vpn-section-note' }, ownership.error));
+
+		if (preview) {
+			body.push(E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, _('Path')), E('td', { 'class': 'td left' }, preview.path) ]),
+				E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, _('Configuration SHA-256')), E('td', { 'class': 'td left vpn-test-log' }, preview.config_sha256) ]),
+				E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, _('Managed arrays')), E('td', { 'class': 'td left' }, _('%d domains, %d IP entries').format(analysis.domain_count || 0, analysis.ip_count || 0)) ]),
+				E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, _('Domain array SHA-256')), E('td', { 'class': 'td left vpn-test-log' }, preview.domain_sha256) ]),
+				E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, _('IP array SHA-256')), E('td', { 'class': 'td left vpn-test-log' }, preview.ip_sha256) ])
+			]));
+			warnings.forEach(function(warning) {
+				body.push(E('div', { 'class': 'vpn-muted vpn-section-note' }, warning));
+			});
+		}
+
+		if (needsAdoption || (adopted && !ownership.healthy) || preview) {
+			body.push(E('div', { 'class': 'vpn-actions' }, [
+				E('button', {
+					'class': 'cbi-button cbi-button-neutral',
+					'click': ui.createHandlerFn(this, 'handleAdoptionPreview')
+				}, preview ? _('Refresh preview') : _('Preview adoption')),
+				preview ? E('button', {
+					'class': 'cbi-button cbi-button-positive',
+					'disabled': isReadonlyView,
+					'click': ui.createHandlerFn(this, 'handleAdoptionConfirm')
+				}, _('Adopt without rewrite')) : ''
+			]));
+		}
+
+		return E('div', { 'class': 'cbi-section' }, body);
+	},
+
 	renderGlobal: function(data) {
 		var services = data.services || {};
+		var ownership = data.ownership || {};
 		var enabled = !!services.vpn_enabled;
+		var mutationDisabled = !!(ownership.adopted || ownership.adoption_required || !ownership.healthy);
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Global VPN')),
@@ -437,7 +546,7 @@ return view.extend({
 				]),
 				E('button', {
 					'class': 'cbi-button ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
-					'disabled': isReadonlyView,
+					'disabled': isReadonlyView || mutationDisabled,
 					'click': L.bind(this.handleToggleXray, this, enabled)
 				}, enabled ? _('Disable') : _('Enable'))
 			])
@@ -542,6 +651,7 @@ return view.extend({
 
 	renderProfileTable: function(data) {
 		var profiles = data.profiles || [];
+		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
 		var subscriptionNames = {};
 		(data.subscriptions || []).forEach(function(subscription) {
 			subscriptionNames[subscription.id] = subscription.name;
@@ -557,13 +667,13 @@ return view.extend({
 						'type': 'checkbox',
 						'data-auto-profile': profile.id,
 						'checked': profile.auto_pool ? '' : null,
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView || profileMutationDisabled
 					})
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('button', {
 						'class': 'cbi-button ' + (selected ? 'cbi-button-positive' : 'cbi-button-action'),
-						'disabled': selected || isReadonlyView,
+						'disabled': selected || isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleSelect, this, profile.id)
 					}, selected ? _('Selected') : _('Use'))
 				]),
@@ -585,7 +695,7 @@ return view.extend({
 				E('td', { 'class': 'td right' }, [
 					E('button', {
 						'class': 'cbi-button cbi-button-remove',
-						'disabled': selected || isReadonlyView,
+						'disabled': selected || isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleDelete, this, profile.id)
 					}, _('Delete'))
 				])
@@ -610,6 +720,7 @@ return view.extend({
 	},
 
 	renderProfiles: function(data) {
+		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('VLESS profiles')),
 			E('div', { 'class': 'vpn-service-row' }, [
@@ -621,15 +732,16 @@ return view.extend({
 					'id': 'vpn-vless-url',
 					'type': 'text',
 					'placeholder': 'vless://...',
-					'disabled': isReadonlyView
+					'disabled': isReadonlyView || profileMutationDisabled
 				}),
 				E('button', {
 					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView,
+					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleAdd')
 				}, _('Add')),
 				E('button', {
 					'class': 'cbi-button cbi-button-neutral',
+					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleRefresh')
 				}, _('Refresh pings'))
 			]),
@@ -639,6 +751,7 @@ return view.extend({
 
 	renderSubscriptions: function(data) {
 		var subscriptions = data.subscriptions || [];
+		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
 		var rows = subscriptions.map(function(subscription) {
 			return E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td left' }, subscription.name || '-'),
@@ -647,13 +760,13 @@ return view.extend({
 				E('td', { 'class': 'td right' }, [
 					E('button', {
 						'class': 'cbi-button cbi-button-action',
-						'disabled': isReadonlyView,
+						'disabled': isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleSyncSubscription, this, subscription.id)
 					}, _('Refresh')),
 					' ',
 					E('button', {
 						'class': 'cbi-button cbi-button-remove',
-						'disabled': isReadonlyView,
+						'disabled': isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleDeleteSubscription, this, subscription.id)
 					}, _('Remove'))
 				])
@@ -669,11 +782,11 @@ return view.extend({
 					'type': 'password',
 					'autocomplete': 'off',
 					'placeholder': 'https://provider.example/sub/...',
-					'disabled': isReadonlyView
+					'disabled': isReadonlyView || profileMutationDisabled
 				}),
 				E('button', {
 					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView,
+					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleAddSubscription')
 				}, _('Import'))
 			]),
@@ -694,6 +807,7 @@ return view.extend({
 
 	renderAutoSwitch: function(data) {
 		var auto = data.auto || {};
+		var profileMutationDisabled = !!((data.ownership || {}).adopted || (data.ownership || {}).adoption_required);
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Automatic server switching')),
 			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Select eligible profiles in the Auto column above. Failover requires three failed one-minute TCP checks. Periodic optimization switches only for a substantial latency improvement.')),
@@ -703,7 +817,7 @@ return view.extend({
 						'id': 'vpn-auto-failover',
 						'type': 'checkbox',
 						'checked': auto.failover ? '' : null,
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView || profileMutationDisabled
 					}),
 					_('Fail over when the current server is unreachable')
 				]),
@@ -712,7 +826,7 @@ return view.extend({
 						'id': 'vpn-auto-periodic',
 						'type': 'checkbox',
 						'checked': auto.periodic ? '' : null,
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView || profileMutationDisabled
 					}),
 					_('Periodically prefer a materially faster server')
 				]),
@@ -724,14 +838,14 @@ return view.extend({
 						'min': '6',
 						'max': '168',
 						'value': auto.periodic_hours || 12,
-						'disabled': isReadonlyView
+						'disabled': isReadonlyView || profileMutationDisabled
 					})
 				])
 			]),
 			E('div', { 'class': 'vpn-actions' }, [
 				E('button', {
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView,
+					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleApplyAuto')
 				}, _('Apply switching settings'))
 			])
@@ -739,6 +853,8 @@ return view.extend({
 	},
 
 	renderRules: function(data) {
+		var ownership = data.ownership || {};
+		var rulesDisabled = isReadonlyView || !!ownership.adoption_required || !ownership.healthy;
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Direct routing rules')),
 			this.renderDomainTester(),
@@ -763,7 +879,7 @@ return view.extend({
 						'id': 'vpn-direct-domains',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': isReadonlyView,
+						'disabled': rulesDisabled,
 						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.domains))
 				]),
@@ -773,7 +889,7 @@ return view.extend({
 						'id': 'vpn-direct-ips',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': isReadonlyView,
+						'disabled': rulesDisabled,
 						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.ips))
 				])
@@ -781,7 +897,7 @@ return view.extend({
 			E('div', { 'class': 'vpn-actions' }, [
 				E('button', {
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView,
+					'disabled': rulesDisabled,
 					'click': ui.createHandlerFn(this, 'handleApplyRules')
 				}, _('Apply rules'))
 			])
@@ -832,6 +948,7 @@ return view.extend({
 
 	renderBody: function(data) {
 		return [
+			this.renderOwnership(data),
 			this.renderGlobal(data),
 			this.renderSubscriptions(data),
 			this.renderProfiles(data),

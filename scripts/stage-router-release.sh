@@ -71,6 +71,7 @@ jq --arg target "$APP_VERSION" --arg package "$PKG_VERSION" \
   "$ROOT_DIR/release/transition-matrix.json" > \
   "$RELEASE_DIR/historical-rescue-support-matrix.json"
 cp "$ROOT_DIR/docs/historical-rescue-support-matrix.md" "$RELEASE_DIR/historical-rescue-support-matrix.md"
+cp "$ROOT_DIR/docs/ordinary-user-ipk-installation.md" "$RELEASE_DIR/INSTALLATION-RECOVERY.md"
 cp "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md" "$RELEASE_DIR/RELEASE-NOTES.md"
 
 for file in installed-manifest.json installed-manifest.json.sig; do
@@ -261,9 +262,9 @@ else
 fi
 
 if [ "$RELEASE_CHANNEL" = candidate ]; then
-  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.4","source_protocol":2,"mode":"package-v2-rc"}]'
+  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"}]'
 else
-  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.4","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"}]'
+  PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.6","source_protocol":2,"mode":"package-v2-rc"}]'
 fi
 TRANSITIONS_JSON="$(jq --argjson protocol2 "$PROTOCOL2_TRANSITIONS" '[.baselines[] | select(.published_release == true) |
   {source_version:.version,source_protocol:1,

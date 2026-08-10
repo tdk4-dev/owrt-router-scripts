@@ -32,7 +32,7 @@ sed -i.bak "s|HELPER=\"/usr/sbin/vpn-ui\"|HELPER=\"$TMP_ROOT/vpn-ui\"|" \
   "$TMP_ROOT/vpn-ui-readonly"
 rm -f "$TMP_ROOT/vpn-ui-readonly.bak"
 
-for command in status vpn-summary tailscale-status update-status; do
+for command in status vpn-summary tailscale-status update-status adoption-preview; do
   sh "$TMP_ROOT/vpn-ui-readonly" "$command" |
     grep -Fq '"ok":true'
 done
@@ -40,9 +40,9 @@ sh "$TMP_ROOT/vpn-ui-readonly" tailscale-ping 100.64.0.1 |
   grep -Fq '"ok":true'
 sh "$TMP_ROOT/vpn-ui-readonly" test-domain example.com |
   grep -Fq '"ok":true'
-[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 6 ]
+[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 7 ]
 
-for command in init refresh-pings add select delete apply-rules check device xray \
+for command in init refresh-pings add select delete adoption-confirm apply-rules check device xray \
   subscription-add subscription-sync subscription-delete subscription-preview \
   validate-vless auto-config auto-tick tailscale-up tailscale-logout \
   tailscale-restart tailscale-stop update-check-start update-apply-start update-auto
@@ -53,6 +53,14 @@ do
   after="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
   [ "$before" = "$after" ]
 done
+
+grep -Fq 'adoption-confirm' "$HELPER"
+grep -Fq 'adoption-preview' "$HELPER"
+grep -Fq 'profile changes are disabled in adopted-overlay mode' "$HELPER"
+sed -n '/^cmd_xray()/,/^}/p' "$HELPER" | grep -Fq 'require_native_ownership'
+grep -Fq "'disabled': isReadonlyView || mutationDisabled" "$VPN_VIEW"
+! grep -Fq '"protocol": ["bittorrent"]' "$HELPER"
+! grep -Fq '"port": "8080"' "$HELPER"
 
 grep -Fq "var readonlyHelper = '/usr/sbin/vpn-ui-readonly';" "$VPN_VIEW"
 grep -Fq "var readonlyHelper = '/usr/sbin/vpn-ui-readonly';" "$TAILSCALE_VIEW"

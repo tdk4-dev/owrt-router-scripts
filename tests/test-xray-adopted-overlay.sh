@@ -1,0 +1,295 @@
+#!/bin/sh
+set -eu
+umask 077
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+OVERLAY="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc"
+VPN_UI="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+FIXTURE="$ROOT_DIR/tests/fixtures/xray/adopted-overlay.json"
+UCODE_REAL="${TEST_UCODE_BIN:-$(command -v ucode || true)}"
+[ -x "$UCODE_REAL" ] || {
+  printf 'ucode is required for adopted-overlay tests\n' >&2
+  exit 1
+}
+
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-adopted-overlay.XXXXXX")"
+cleanup() { rm -rf "$TMP_ROOT"; }
+trap cleanup EXIT INT TERM
+
+UCODE="$TMP_ROOT/ucode"
+cat > "$UCODE" <<'EOF'
+#!/bin/sh
+if [ -n "${TEST_UCODE_LIB:-}" ]; then
+  exec "$TEST_UCODE_BIN" -L "$TEST_UCODE_LIB" "$@"
+fi
+exec "$TEST_UCODE_BIN" "$@"
+EOF
+chmod 755 "$UCODE"
+export TEST_UCODE_BIN="$UCODE_REAL"
+
+SOURCE="$TMP_ROOT/source.json"
+CANDIDATE="$TMP_ROOT/candidate.json"
+DOMAINS="$TMP_ROOT/domains.txt"
+IPS="$TMP_ROOT/ips.txt"
+cp "$FIXTURE" "$SOURCE"
+SOURCE_HASH="$(sha256sum "$SOURCE" | awk '{print $1}')"
+
+"$UCODE" "$OVERLAY" inspect "$SOURCE" > "$TMP_ROOT/inspect.json"
+jq -e '
+  .ok == true and .domain_rule_index == 3 and .ip_rule_index == 4 and
+  .domain_count == 3 and .ip_count == 2 and
+  (.warnings | index("routing.domainStrategy AsIs will be preserved") != null)
+' "$TMP_ROOT/inspect.json" >/dev/null
+"$UCODE" "$OVERLAY" extract "$SOURCE" 3 4 "$DOMAINS" "$IPS" >/dev/null
+[ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
+[ "$(wc -l < "$DOMAINS" | tr -d ' ')" -eq 3 ]
+[ "$(wc -l < "$IPS" | tr -d ' ')" -eq 2 ]
+
+printf '%s\n' 'full:rc6-validation.invalid' 'domain:kept.example' > "$DOMAINS"
+printf '%s\n' '198.51.100.0/25' > "$IPS"
+"$UCODE" "$OVERLAY" patch "$SOURCE" 3 4 "$DOMAINS" "$IPS" "$CANDIDATE" > "$TMP_ROOT/patch.json"
+jq -e '.ok and .non_managed_semantics_unchanged and .domain_count == 2 and .ip_count == 1' \
+  "$TMP_ROOT/patch.json" >/dev/null
+jq -S '(.routing.rules[3].domain) = ["managed"] | (.routing.rules[4].ip) = ["managed"]' \
+  "$SOURCE" > "$TMP_ROOT/source-unmanaged.json"
+jq -S '(.routing.rules[3].domain) = ["managed"] | (.routing.rules[4].ip) = ["managed"]' \
+  "$CANDIDATE" > "$TMP_ROOT/candidate-unmanaged.json"
+cmp -s "$TMP_ROOT/source-unmanaged.json" "$TMP_ROOT/candidate-unmanaged.json"
+jq -e '
+  .routing.domainStrategy == "AsIs" and
+  .routing.rules[0].ip[3] == "203.0.113.10/32" and
+  .routing.rules[1].protocol == ["bittorrent"] and
+  .routing.rules[2].port == "8080" and
+  .outbounds[0].settings.vnext[0].users[0].id == "00000000-0000-4000-8000-000000000006" and
+  .routing.rules[3].domain == ["full:rc6-validation.invalid", "domain:kept.example"] and
+  .routing.rules[4].ip == ["198.51.100.0/25"]
+' "$CANDIDATE" >/dev/null
+[ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
+
+jq '.routing.rules += [.routing.rules[3]]' "$SOURCE" > "$TMP_ROOT/ambiguous.json"
+if "$UCODE" "$OVERLAY" inspect "$TMP_ROOT/ambiguous.json" > "$TMP_ROOT/ambiguous-result.json" 2>/dev/null; then
+  printf 'ambiguous adopted layout unexpectedly passed\n' >&2
+  exit 1
+fi
+jq -e '.ok == false and (.error | contains("exactly one isolated direct domain array"))' \
+  "$TMP_ROOT/ambiguous-result.json" >/dev/null
+
+printf '%s\n' '{not-json' > "$TMP_ROOT/invalid.json"
+if "$UCODE" "$OVERLAY" inspect "$TMP_ROOT/invalid.json" > "$TMP_ROOT/invalid-result.json" 2>/dev/null; then
+  printf 'invalid JSON unexpectedly passed structural inspection\n' >&2
+  exit 1
+fi
+jq -e '.ok == false and (.error | contains("not valid JSON"))' \
+  "$TMP_ROOT/invalid-result.json" >/dev/null
+
+CLEAN_ROOT="$TMP_ROOT/clean-root"
+mkdir -p "$CLEAN_ROOT/etc" "$CLEAN_ROOT/tmp"
+PREMIER_ROUTER_HOST_TEST=1 VPN_UI_SOURCE_ONLY=1 VPN_UI_ROOT_PREFIX="$CLEAN_ROOT" \
+  sh -c '. "$1"; ownership_status_json; require_native_ownership' sh "$VPN_UI" \
+  > "$TMP_ROOT/clean-native.json"
+jq -e '.mode == "native-generated" and .healthy == true and
+  .adoption_required == false and .path == "/etc/xray/exit-st-cf.json"' \
+  "$TMP_ROOT/clean-native.json" >/dev/null
+printf '%s\n' 'full:native-managed.invalid' > "$TMP_ROOT/native-domains"
+printf '%s\n' '198.51.100.0/24' > "$TMP_ROOT/native-ips"
+PREMIER_ROUTER_HOST_TEST=1 VPN_UI_SOURCE_ONLY=1 VPN_UI_ROOT_PREFIX="$CLEAN_ROOT" \
+  sh -c '. "$1"; P_HOST=198.51.100.6; P_SNI=example.invalid; P_FINGERPRINT=chrome;
+    P_PUBLIC_KEY=public-key; P_SHORT_ID=0123456789abcdef; P_SPIDERX=/;
+    P_UUID=00000000-0000-4000-8000-000000000006; P_PORT=443; P_FLOW="";
+    P_VPS_IP=198.51.100.6; LAN_IP=192.0.2.1;
+    render_xray_config "$2" "$3" "$4"' sh "$VPN_UI" "$TMP_ROOT/native.json" \
+      "$TMP_ROOT/native-domains" "$TMP_ROOT/native-ips"
+jq -e '
+  any(.routing.rules[]; .domain == ["full:native-managed.invalid"] and .outboundTag == "direct") and
+  any(.routing.rules[]; (.ip // []) | index("198.51.100.0/24")) and
+  (any(.routing.rules[]; (.protocol // []) | index("bittorrent")) | not) and
+  (any(.routing.rules[]; .port == "8080") | not)
+' "$TMP_ROOT/native.json" >/dev/null
+
+FAKE_ROOT="$TMP_ROOT/root"
+mkdir -p "$FAKE_ROOT/etc/xray" "$FAKE_ROOT/etc/init.d" "$FAKE_ROOT/usr/local/bin" \
+  "$FAKE_ROOT/usr/libexec/premier-router" "$FAKE_ROOT/tmp"
+cp "$FIXTURE" "$FAKE_ROOT/etc/xray/config.json"
+cp "$OVERLAY" "$FAKE_ROOT/usr/libexec/premier-router/xray-overlay.uc"
+chmod 755 "$FAKE_ROOT/usr/libexec/premier-router/xray-overlay.uc"
+
+cat > "$FAKE_ROOT/usr/local/bin/xray-latest" <<'EOF'
+#!/bin/sh
+[ "${VPN_UI_TEST_XRAY_VALIDATE_FAIL:-0}" != 1 ] || exit 42
+[ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] && [ -s "$4" ] &&
+  jq -e . "$4" >/dev/null 2>&1
+EOF
+cat > "$FAKE_ROOT/etc/init.d/xray" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  running) exit 0 ;;
+  restart)
+    if [ "${VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE:-0}" = 1 ] &&
+      [ ! -f "$VPN_UI_ROOT_PREFIX/tmp/restart-failed-once" ]; then
+      : > "$VPN_UI_ROOT_PREFIX/tmp/restart-failed-once"
+      exit 42
+    fi
+    exit 0
+    ;;
+  stop|start) exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+cat > "$FAKE_ROOT/etc/init.d/xray-transparent" <<'EOF'
+#!/bin/sh
+case "${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
+EOF
+chmod 755 "$FAKE_ROOT/usr/local/bin/xray-latest" "$FAKE_ROOT/etc/init.d/xray" \
+  "$FAKE_ROOT/etc/init.d/xray-transparent"
+
+backend() {
+  env \
+    PREMIER_ROUTER_HOST_TEST=1 \
+    VPN_UI_SOURCE_ONLY=1 \
+    VPN_UI_ROOT_PREFIX="$FAKE_ROOT" \
+    VPN_UI_TEST_ACTIVE_XRAY_CONFIG="${VPN_UI_TEST_ACTIVE_XRAY_CONFIG:-/etc/xray/config.json}" \
+    VPN_UI_XRAY_BIN="$FAKE_ROOT/usr/local/bin/xray-latest" \
+    VPN_UI_XRAY_OVERLAY_HELPER="$FAKE_ROOT/usr/libexec/premier-router/xray-overlay.uc" \
+    VPN_UI_UCODE_BIN="$UCODE" \
+    VPN_UI_TEST_TAILSCALE_SNAPSHOT='pid=606;enabled=true;backend=Running;ip4=100.64.0.6;route=unchanged' \
+    VPN_UI_TEST_ADOPT_FREE_BYTES="${VPN_UI_TEST_ADOPT_FREE_BYTES:-10485760}" \
+    VPN_UI_TEST_ADOPT_FAIL_AFTER="${VPN_UI_TEST_ADOPT_FAIL_AFTER:-}" \
+    VPN_UI_TEST_ADOPT_INVALID_AFTER_CONFIG="${VPN_UI_TEST_ADOPT_INVALID_AFTER_CONFIG:-0}" \
+    VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE="${VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE:-}" \
+    VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER="${VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER:-}" \
+    VPN_UI_TEST_XRAY_VALIDATE_FAIL="${VPN_UI_TEST_XRAY_VALIDATE_FAIL:-0}" \
+    VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE="${VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE:-0}" \
+    sh -c '. "$1"; shift; "$@"' sh "$VPN_UI" "$@"
+}
+
+CONFIG="$FAKE_ROOT/etc/xray/config.json"
+CONFIG_PRE_ADOPT_HASH="$(sha256sum "$CONFIG" | awk '{print $1}')"
+mv "$CONFIG" "$CONFIG.real"
+ln -s config.real "$CONFIG"
+backend cmd_adoption_preview > "$TMP_ROOT/symlink-preview.json"
+jq -e '.ok == false and (.error | contains("symlinked"))' "$TMP_ROOT/symlink-preview.json" >/dev/null
+rm "$CONFIG"
+mv "$CONFIG.real" "$CONFIG"
+backend cmd_adoption_preview > "$TMP_ROOT/preview.json"
+jq -e '
+  .ok and .adoption.path == "/etc/xray/config.json" and
+  .adoption.analysis.domain_count == 3 and .adoption.analysis.ip_count == 2 and
+  (.adoption.config_sha256 | test("^[0-9a-f]{64}$")) and
+  (.adoption.domain_sha256 | test("^[0-9a-f]{64}$")) and
+  (.adoption.ip_sha256 | test("^[0-9a-f]{64}$"))
+' "$TMP_ROOT/preview.json" >/dev/null
+! grep -Fq '00000000-0000-4000-8000-000000000006' "$TMP_ROOT/preview.json"
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$CONFIG_PRE_ADOPT_HASH" ]
+
+preview_hash="$(jq -r .adoption.config_sha256 "$TMP_ROOT/preview.json")"
+domain_index="$(jq -r .adoption.analysis.domain_rule_index "$TMP_ROOT/preview.json")"
+ip_index="$(jq -r .adoption.analysis.ip_rule_index "$TMP_ROOT/preview.json")"
+backend cmd_adoption_confirm /etc/xray/config.json "$preview_hash" "$domain_index" "$ip_index" \
+  > "$TMP_ROOT/confirm.json"
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$CONFIG_PRE_ADOPT_HASH" ]
+jq -e '.mode == "adopted-overlay" and .path == "/etc/xray/config.json" and .config_sha256 == $hash' \
+  --arg hash "$CONFIG_PRE_ADOPT_HASH" "$FAKE_ROOT/etc/premier-router/xray-ownership.json" >/dev/null
+[ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-domains.txt")" -eq 3 ]
+[ "$(grep -cv '^#' "$FAKE_ROOT/etc/xray/direct-ips.txt")" -eq 2 ]
+
+cp "$CONFIG" "$FAKE_ROOT/etc/xray/other.json"
+VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/other.json \
+  backend ownership_status_json > "$TMP_ROOT/path-drift.json"
+VPN_UI_TEST_ACTIVE_XRAY_CONFIG=
+jq -e '.mode == "adopted-overlay" and .healthy == false and
+  .active_path == "/etc/xray/other.json" and .selectors_match == false' \
+  "$TMP_ROOT/path-drift.json" >/dev/null
+
+printf '%s\n' 'full:rc6-validation.invalid' > "$TMP_ROOT/new-domains"
+printf '%s\n' '198.51.100.128/25' > "$TMP_ROOT/new-ips"
+backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips"
+jq -e '
+  .routing.rules[3].domain == ["full:rc6-validation.invalid"] and
+  .routing.rules[4].ip == ["198.51.100.128/25"] and
+  .routing.rules[0].ip[3] == "203.0.113.10/32" and
+  .routing.rules[1].protocol == ["bittorrent"] and .routing.rules[2].port == "8080" and
+  .routing.domainStrategy == "AsIs"
+' "$CONFIG" >/dev/null
+jq -e --arg hash "$(sha256sum "$CONFIG" | awk '{print $1}')" '.config_sha256 == $hash' \
+  "$FAKE_ROOT/etc/premier-router/xray-ownership.json" >/dev/null
+
+ROLLBACK_CONFIG_HASH="$(sha256sum "$CONFIG" | awk '{print $1}')"
+ROLLBACK_DOMAIN_HASH="$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')"
+ROLLBACK_IP_HASH="$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')"
+ROLLBACK_STATE_HASH="$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')"
+printf '%s\n' 'full:must-roll-back.invalid' > "$TMP_ROOT/failing-domains"
+for boundary in after-backup after-rules after-config after-restart after-state; do
+  VPN_UI_TEST_ADOPT_FAIL_AFTER="$boundary" \
+    backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+      > "$TMP_ROOT/rollback-$boundary.json"
+  jq -e '.ok == false and (.error | contains("exact Xray configuration, route lists, and management state restored"))' \
+    "$TMP_ROOT/rollback-$boundary.json" >/dev/null
+  [ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+  [ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+  [ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+  [ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+done
+VPN_UI_TEST_ADOPT_FAIL_AFTER=
+
+VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE=prepared \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/journal-prepared.json"
+VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE=
+jq -e '.ok == false and (.error | contains("private apply journal"))' \
+  "$TMP_ROOT/journal-prepared.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE=committed \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/journal-committed.json"
+VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE=
+jq -e '.ok == false and (.error | contains("journal commit failed")) and
+  (.error | contains("exact Xray configuration"))' "$TMP_ROOT/journal-committed.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+
+VPN_UI_TEST_ADOPT_INVALID_AFTER_CONFIG=1 \
+  backend apply_adopted_rules "$TMP_ROOT/failing-domains" "$TMP_ROOT/new-ips" \
+    > "$TMP_ROOT/invalid-installed.json"
+VPN_UI_TEST_ADOPT_INVALID_AFTER_CONFIG=0
+jq -e '.ok == false and (.error | contains("installed Xray validation failed")) and
+  (.error | contains("exact Xray configuration"))' "$TMP_ROOT/invalid-installed.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER='pid=999;enabled=true;backend=Running;ip4=100.64.0.6;route=changed' \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" > "$TMP_ROOT/tailscale-rollback.json"
+VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER=
+jq -e '.ok == false and (.error | contains("Tailscale PID"))' "$TMP_ROOT/tailscale-rollback.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+VPN_UI_TEST_XRAY_VALIDATE_FAIL=1 \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" > "$TMP_ROOT/validation-failure.json"
+VPN_UI_TEST_XRAY_VALIDATE_FAIL=0
+jq -e '.ok == false and (.error | contains("Xray validation failed"))' "$TMP_ROOT/validation-failure.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+
+printf '%s\n' 'full:restart-must-roll-back.invalid' > "$TMP_ROOT/restart-domains"
+VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE=1 \
+  backend apply_adopted_rules "$TMP_ROOT/restart-domains" "$TMP_ROOT/new-ips" > "$TMP_ROOT/restart-failure.json"
+VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE=0
+jq -e '.ok == false and (.error | contains("Xray restart failed")) and (.error | contains("exact Xray configuration"))' \
+  "$TMP_ROOT/restart-failure.json" >/dev/null
+[ "$(sha256sum "$CONFIG" | awk '{print $1}')" = "$ROLLBACK_CONFIG_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-domains.txt" | awk '{print $1}')" = "$ROLLBACK_DOMAIN_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/xray/direct-ips.txt" | awk '{print $1}')" = "$ROLLBACK_IP_HASH" ]
+[ "$(sha256sum "$FAKE_ROOT/etc/premier-router/xray-ownership.json" | awk '{print $1}')" = "$ROLLBACK_STATE_HASH" ]
+
+VPN_UI_TEST_ADOPT_FREE_BYTES=0 \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" > "$TMP_ROOT/storage-zero.json"
+VPN_UI_TEST_ADOPT_FREE_BYTES=10485760
+required="$(jq -r '.error | capture("requires (?<n>[0-9]+) free bytes").n' "$TMP_ROOT/storage-zero.json")"
+[ "$required" -gt 65536 ]
+VPN_UI_TEST_ADOPT_FREE_BYTES="$((required - 1))" \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips" > "$TMP_ROOT/storage-below.json"
+jq -e '.ok == false and (.error | contains("free bytes"))' "$TMP_ROOT/storage-below.json" >/dev/null
+VPN_UI_TEST_ADOPT_FREE_BYTES="$required" \
+  backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips"
+
+printf 'Adopted-overlay preview, exact adoption, structural apply, fail-closed rollback, Tailscale, validation, and storage tests passed\n'

@@ -1,4 +1,4 @@
-# Installing Router UI 0.7.11 RC5 on an existing RD23
+# Installing Router UI 0.7.11 RC6 on an existing RD23
 
 This is the preferred path for a Xiaomi RD23 that already runs clean OpenWrt
 installed with XMiR. It installs three hardware-independent packages and does
@@ -8,9 +8,9 @@ The signed bootstrap accepts OpenWrt `24.10.0` through `24.10.99` on
 `mediatek/filogic` (RD23) or `x86/64`. It refuses other releases and targets
 before changing packages.
 
-Router UI RC5 is prerelease software. LuCI displays `0.7.11-rc.5` and a
+Router UI RC6 is prerelease software. LuCI displays `0.7.11-rc.6` and a
 **Release candidate** warning. The OpenWrt packages use
-`0.7.11~rc5-1`; that ordering lets the signed updater offer the later stable
+`0.7.11~rc6-1`; that ordering lets the signed updater offer the later stable
 `0.7.11` release as an upgrade.
 
 Do this over Ethernet from the LAN side. Do not perform the installation over
@@ -29,15 +29,15 @@ ssh root@ROUTER_ADDRESS 'ubus call system board; free -m; df -h /overlay /tmp; \
   logread | tail -n 120'
 
 ssh root@ROUTER_ADDRESS \
-  'sysupgrade -b /tmp/router-before-0.7.11-rc5.tar.gz'
+  'sysupgrade -b /tmp/router-before-0.7.11-rc6.tar.gz'
 ssh root@ROUTER_ADDRESS \
-  'cat /tmp/router-before-0.7.11-rc5.tar.gz' \
-  > router-before-0.7.11-rc5.tar.gz
-test -s router-before-0.7.11-rc5.tar.gz
-tar -tzf router-before-0.7.11-rc5.tar.gz >/dev/null
+  'cat /tmp/router-before-0.7.11-rc6.tar.gz' \
+  > router-before-0.7.11-rc6.tar.gz
+test -s router-before-0.7.11-rc6.tar.gz
+tar -tzf router-before-0.7.11-rc6.tar.gz >/dev/null
 router_backup_sha="$(ssh root@ROUTER_ADDRESS \
-  "sha256sum /tmp/router-before-0.7.11-rc5.tar.gz | awk '{print \$1}'")"
-local_backup_sha="$(shasum -a 256 router-before-0.7.11-rc5.tar.gz | awk '{print $1}')"
+  "sha256sum /tmp/router-before-0.7.11-rc6.tar.gz | awk '{print \$1}'")"
+local_backup_sha="$(shasum -a 256 router-before-0.7.11-rc6.tar.gz | awk '{print $1}')"
 test -n "$router_backup_sha"
 test "$local_backup_sha" = "$router_backup_sha"
 ```
@@ -70,7 +70,7 @@ ssh root@ROUTER_ADDRESS '
 Stay connected over wired LAN after this point. If stopping a service affects
 the management path, stop and reconnect locally before continuing.
 
-## 2. Copy the signed RC5 package set and first-install bootstrap
+## 2. Copy the signed RC6 package set and first-install bootstrap
 
 Place these ten release files in one directory on the workstation:
 
@@ -78,9 +78,9 @@ Place these ten release files in one directory on the workstation:
 production-2026-07.pub
 SHA256SUMS
 SHA256SUMS.sig
-premier-router-core_0.7.11~rc5-1_all.ipk
-luci-app-premier-router_0.7.11~rc5-1_all.ipk
-premier-router-setup_0.7.11~rc5-1_all.ipk
+premier-router-core_0.7.11~rc6-1_all.ipk
+luci-app-premier-router_0.7.11~rc6-1_all.ipk
+premier-router-setup_0.7.11~rc6-1_all.ipk
 installed-manifest.json
 installed-manifest.json.sig
 router-candidate-validator
@@ -92,9 +92,9 @@ Copy them using a method compatible with the router's Dropbear SSH server:
 ```sh
 for file in \
   production-2026-07.pub SHA256SUMS SHA256SUMS.sig \
-  premier-router-core_0.7.11~rc5-1_all.ipk \
-  luci-app-premier-router_0.7.11~rc5-1_all.ipk \
-  premier-router-setup_0.7.11~rc5-1_all.ipk \
+  premier-router-core_0.7.11~rc6-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc6-1_all.ipk \
+  premier-router-setup_0.7.11~rc6-1_all.ipk \
   installed-manifest.json installed-manifest.json.sig \
   router-candidate-validator bootstrap-router-ui-ipk-install.sh
 do
@@ -114,9 +114,9 @@ usign -q -V \
   -x /tmp/SHA256SUMS.sig
 
 for file in \
-  premier-router-core_0.7.11~rc5-1_all.ipk \
-  luci-app-premier-router_0.7.11~rc5-1_all.ipk \
-  premier-router-setup_0.7.11~rc5-1_all.ipk \
+  premier-router-core_0.7.11~rc6-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc6-1_all.ipk \
+  premier-router-setup_0.7.11~rc6-1_all.ipk \
   installed-manifest.json installed-manifest.json.sig \
   router-candidate-validator bootstrap-router-ui-ipk-install.sh
 do
@@ -129,7 +129,31 @@ done
 Every command must finish successfully. A missing hash, key-fingerprint
 mismatch, or bad signature is a hard stop.
 
-## 4. Install and seed the signed rollback set
+## 4. Install the upstream runtime prerequisites
+
+Use only the OpenWrt feeds already configured for this exact router release
+and target. `opkg` verifies their signed package indexes and selects the
+target-specific package bytes. Install and verify the updater launcher and the
+structural JSON runtime before any Router UI package transaction:
+
+```sh
+opkg update
+opkg install coreutils-nohup ucode ucode-mod-fs
+opkg status coreutils-nohup ucode ucode-mod-fs |
+  sed -n '/^Package:/p;/^Version:/p;/^Architecture:/p;/^Status:/p'
+command -v nohup
+ucode -e 'import { readfile } from "fs"; print(type(readfile), "\n");'
+df -h /overlay /tmp
+```
+
+The final two checks must print a `nohup` path and `function`. Stop if package
+signature verification fails, a feed does not match OpenWrt 24.10.5, or the
+remaining storage no longer meets the RC6 preflight requirement. Do not use
+`--force-depends`. These upstream packages intentionally remain installed if
+the project packages roll back to RC5; retaining `coreutils-nohup` also repairs
+RC5's worker-launch prerequisite.
+
+## 5. Install and seed the signed rollback set
 
 Run on the router:
 
@@ -157,12 +181,12 @@ present its intended first-boot wizard.
 
 The bootstrap refuses an already managed installation or any Router UI package
 with a different version. If power loss or an `opkg` interruption leaves only a
-subset of the exact RC5 packages, rerunning the same verified bootstrap and
+subset of the exact RC6 packages, rerunning the same verified bootstrap and
 asset set resumes the installation. For any other failure, stop and send the
 preflight output for review; do not use `--force-depends`, `--force-overwrite`,
 a blanket `opkg upgrade`, or manual file deletion.
 
-## 5. Verify after the reboot
+## 6. Verify after the reboot
 
 Reconnect by the router's LAN address and run:
 
@@ -202,8 +226,8 @@ dmesg | tail -n 100
 
 Expected identity:
 
-- all three package versions: `0.7.11~rc5-1`;
-- displayed Router UI version: `0.7.11-rc.5`;
+- all three package versions: `0.7.11~rc6-1`;
+- displayed Router UI version: `0.7.11-rc.6`;
 - release channel: `candidate` in build metadata and in Update-page status;
 - both Xray and Tailscale remain healthy if they were configured before the
   installation;
@@ -211,10 +235,45 @@ Expected identity:
 
 Open LuCI from the LAN. The Update page must show the orange release-candidate
 notice. Leave the updater on its default stable channel: when signed stable
-`0.7.11` metadata is published, the page will recognize it as newer than RC5.
+`0.7.11` metadata is published, the page will recognize it as newer than RC6.
 
 If the router reboots unexpectedly or either daemon repeatedly dies, do not
 repeat the installation. Keep it on LAN, capture `logread`, `dmesg`, `free -m`,
 `df -h /overlay /tmp`, and the three `opkg status` results, then send those
 redacted diagnostics with the router model and OpenWrt version. Do not include
 VPN URLs, keys, passwords, or the backup archive.
+
+## 7. Explicitly adopt a manual Xray configuration
+
+If the ownership panel reports that Xray is using a manual configuration such
+as `/etc/xray/config.json`, Router UI keeps profile changes and direct-rule
+editing disabled. Do not press **Use** on a profile and do not try to work
+around the disabled controls.
+
+From the authenticated LuCI VPN page:
+
+1. Select **Preview adoption**.
+2. Confirm the sanitized active path, configuration SHA-256, rule-array counts,
+   rule-array hashes, and compatibility warnings. No credentials or complete
+   configuration are displayed.
+3. Record the current configuration hash independently on the router:
+
+   ```sh
+   sha256sum /etc/xray/config.json
+   ```
+
+4. Select **Adopt without rewrite** and then run the same `sha256sum` command.
+   The hash must be identical. Adoption must not restart Xray.
+5. Confirm the ownership panel says **Adopted overlay** and shows the expected
+   domain/IP counts.
+
+An ambiguous layout, multiple discovered configuration paths, a symlinked or
+drifted path, an unsupported multi-config invocation, or insufficient storage
+is a hard stop. Do not delete the ownership journal or edit its hashes to force
+adoption.
+
+After successful adoption, **Apply rules** may change only the adopted direct
+domain and direct IP arrays. **Use** remains disabled because outbound/profile
+patching is outside RC6's constrained adopted-overlay scope. On any validation,
+restart, or invariant failure, leave Xray stopped if instructed and retain the
+private transaction under `/etc/premier-router/xray-transactions` for recovery.

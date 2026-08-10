@@ -5,8 +5,8 @@ umask 077
 ROOT_DIR=
 VBOXMANAGE=/usr/local/bin/VBoxManage
 USIGN_BIN="${USIGN_BIN:-/Users/mac-pro-host/.local/libexec/premier-router/usign-c4c72b1}"
-EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.5
-EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc5-1
+EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.6
+EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc6-1
 EXPECTED_SUCCESSOR_APP_VERSION=0.7.11
 EXPECTED_SUCCESSOR_PACKAGE_VERSION=0.7.11-1
 MODE=focused
@@ -73,8 +73,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc5-worktree ]] ||
-  fail 'source root is not the isolated RC5 worktree'
+[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc6-worktree ]] ||
+  fail 'source root is not the isolated RC6 worktree'
 ROOT_DIR="$SOURCE_ROOT"
 
 load_signed_manifest() {
@@ -553,26 +553,54 @@ verify_candidate_state() {
 
 run_next_candidate_proof() {
   local before_protected="$1" before_boot after_boot rollback_before rollback_after transaction
+  local poll state
   CURRENT_PHASE=next-candidate-discovery
   CURRENT_COMMAND="discover signed stable $SUCCESSOR_APP_VERSION successor through updater protocol v2"
   (cd "$NEXT_CANDIDATE_DIR" && shasum -a 256 -c SHA256SUMS) \
     > "$EVIDENCE_DIR/next-candidate-sha256.log"
   before_boot="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
-  guest_ssh "
-    set -e
-    export SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem
-    export VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT'
-    export VPN_UI_DISCOVERY_BASE='https://10.0.2.2:$HTTPS_PORT/candidate'
-    export VPN_UI_RELEASE_CHANNEL=stable
-    export VPN_UI_SYNC_WORKER=1
-    /usr/sbin/vpn-ui-update check-start
-    /usr/sbin/vpn-ui-update status
-    /tmp/router-ui-vm-guest.sh verify-update-available \
+  guest_ssh "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem \
+    VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT' \
+    VPN_UI_DISCOVERY_BASE='https://10.0.2.2:$HTTPS_PORT/candidate' \
+    VPN_UI_RELEASE_CHANNEL=stable /usr/sbin/vpn-ui-update check-start" \
+    > "$EVIDENCE_DIR/next-updater-check-start.json"
+  jq -e '.ok and .started and .job == "check"' \
+    "$EVIDENCE_DIR/next-updater-check-start.json" >/dev/null ||
+    fail 'detached stable update check did not start'
+  state=waiting
+  for ((poll=1; poll<=120; poll++)); do
+    if guest_ssh "/tmp/router-ui-vm-guest.sh verify-update-available \
       '$CANDIDATE_APP_VERSION' '$CANDIDATE_PACKAGE_VERSION' \
-      '$SUCCESSOR_APP_VERSION' '$SUCCESSOR_PACKAGE_VERSION'
-    /usr/sbin/vpn-ui-update apply-start
-  " > "$EVIDENCE_DIR/next-updater-apply.log"
-  transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction)"
+      '$SUCCESSOR_APP_VERSION' '$SUCCESSOR_PACKAGE_VERSION'" >/dev/null 2>&1; then
+      state=available
+      break
+    fi
+    sleep 1
+  done
+  [[ "$state" = available ]] || fail 'detached stable update check did not complete'
+  guest_ssh "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem \
+    VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT' \
+    VPN_UI_RELEASE_CHANNEL=stable /usr/sbin/vpn-ui-update apply-start" \
+    > "$EVIDENCE_DIR/next-updater-apply-start.json"
+  jq -e '.ok and .started and .job == "apply"' \
+    "$EVIDENCE_DIR/next-updater-apply-start.json" >/dev/null ||
+    fail 'detached stable update apply did not start'
+  transaction=""
+  state=waiting
+  for ((poll=1; poll<=180; poll++)); do
+    transaction="$(guest_ssh sed -n '1p' /root/premier-router-updates/active-transaction 2>/dev/null || true)"
+    if [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]]; then
+      state="$(guest_ssh "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" 2>/dev/null || true)"
+      if [[ "$state" = committed_pending_reboot_validation ]] &&
+        ! guest_ssh test -d /root/premier-router-updates/update.lock 2>/dev/null; then
+        break
+      fi
+      case "$state" in rollback_failed|recovery_required) fail "detached updater reached unsafe state: $state" ;; esac
+    fi
+    sleep 1
+  done
+  [[ "$state" = committed_pending_reboot_validation ]] ||
+    fail 'detached stable update apply did not reach pending commit'
   [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] || fail "malformed next-candidate transaction ID: $transaction"
   guest_ssh "cat '/root/premier-router-updates/$transaction/state.json'" \
     > "$EVIDENCE_DIR/next-pending-state.json"

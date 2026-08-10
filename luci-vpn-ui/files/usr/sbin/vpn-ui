@@ -1,7 +1,10 @@
 #!/bin/ash
 set -u
+umask 077
 
-XRAY_CONFIG="/etc/xray/exit-st-cf.json"
+ROOT_PREFIX="${VPN_UI_ROOT_PREFIX:-}"
+NATIVE_XRAY_CONFIG="/etc/xray/exit-st-cf.json"
+XRAY_CONFIG="$NATIVE_XRAY_CONFIG"
 PROFILE_DIR="/etc/xray/vless-profiles.d"
 SELECTED_FILE="/etc/xray/vless-selected"
 DOMAINS_FILE="/etc/xray/direct-domains.txt"
@@ -27,10 +30,21 @@ XRAY_ERROR_LOG_MAX_BYTES=262144
 XRAY_ERROR_LOG_KEEP_BYTES=65536
 ADGUARD_CONFIG="/etc/adguardhome.yaml"
 ADGUARD_QUERYLOG="/tmp/lib/adguardhome/data/querylog.json"
+OWNERSHIP_STATE="${VPN_UI_XRAY_OWNERSHIP_STATE:-${ROOT_PREFIX}/etc/premier-router/xray-ownership.json}"
+OWNERSHIP_TXN_ROOT="${VPN_UI_XRAY_TXN_ROOT:-${ROOT_PREFIX}/etc/premier-router/xray-transactions}"
+XRAY_OVERLAY_HELPER="${VPN_UI_XRAY_OVERLAY_HELPER:-${ROOT_PREFIX}/usr/libexec/premier-router/xray-overlay.uc}"
+ADOPT_STORAGE_MARGIN_BYTES="${VPN_UI_ADOPT_STORAGE_MARGIN_BYTES:-65536}"
 
 XRAY_SERVICE=""
 XRAY_BIN=""
 LAN_IP=""
+ACTIVE_XRAY_CONFIG=""
+ACTIVE_XRAY_DISCOVERY_ERROR=""
+OWNERSHIP_MODE="native-generated"
+OWNERSHIP_PATH=""
+OWNERSHIP_CONFIG_HASH=""
+OWNERSHIP_DOMAIN_INDEX=""
+OWNERSHIP_IP_INDEX=""
 
 json_escape() {
   printf '%s' "$1" |
@@ -106,17 +120,20 @@ qs_value() {
 
 detect_xray_paths() {
   if [ -z "$XRAY_SERVICE" ]; then
-    if [ -x /etc/init.d/xray-exit-st ]; then
+    if [ -x "${ROOT_PREFIX}/etc/init.d/xray-exit-st" ]; then
       XRAY_SERVICE="xray-exit-st"
     else
       XRAY_SERVICE="xray"
     fi
   fi
 
-  if [ -z "$XRAY_BIN" ] && [ -x /usr/local/bin/xray-latest ]; then
-    XRAY_BIN="/usr/local/bin/xray-latest"
+  if [ -z "$XRAY_BIN" ] && [ -n "${VPN_UI_XRAY_BIN:-}" ]; then
+    XRAY_BIN="$VPN_UI_XRAY_BIN"
   fi
-  if [ -z "$XRAY_BIN" ] && command -v xray >/dev/null 2>&1; then
+  if [ -z "$XRAY_BIN" ] && [ -x "${ROOT_PREFIX}/usr/local/bin/xray-latest" ]; then
+    XRAY_BIN="${ROOT_PREFIX}/usr/local/bin/xray-latest"
+  fi
+  if [ -z "$XRAY_BIN" ] && [ -z "$ROOT_PREFIX" ] && command -v xray >/dev/null 2>&1; then
     XRAY_BIN="$(command -v xray)"
   fi
   [ -n "$XRAY_BIN" ] && [ -x "$XRAY_BIN" ] ||
@@ -125,10 +142,181 @@ detect_xray_paths() {
   if [ -z "$LAN_IP" ]; then
     LAN_IP="$(uci -q get network.lan.ipaddr 2>/dev/null || true)"
   fi
-  if [ -z "$LAN_IP" ] && [ -f "$XRAY_CONFIG" ]; then
-    LAN_IP="$(json_string_value listen "$XRAY_CONFIG")"
+  if [ -z "$LAN_IP" ] && [ -f "$(host_path "$XRAY_CONFIG")" ]; then
+    LAN_IP="$(json_string_value listen "$(host_path "$XRAY_CONFIG")")"
   fi
   [ -n "$LAN_IP" ] || LAN_IP="0.0.0.0"
+}
+
+host_path() {
+  case "$1" in
+    /*) printf '%s%s' "$ROOT_PREFIX" "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
+json_value() {
+  local file="$1" jsonfilter_expr="$2" jq_expr="$3"
+
+  if command -v jsonfilter >/dev/null 2>&1; then
+    jsonfilter -i "$file" -e "$jsonfilter_expr" 2>/dev/null | sed -n '1p'
+  elif [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] && command -v jq >/dev/null 2>&1; then
+    jq -r "$jq_expr // empty" "$file" 2>/dev/null | sed -n '1p'
+  fi
+}
+
+valid_adopted_config_path() {
+  printf '%s' "$1" | grep -Eq '^/etc/xray/[A-Za-z0-9._-]+\.json$'
+}
+
+safe_adopted_config_file() {
+  local logical="$1" actual parent resolved
+
+  valid_adopted_config_path "$logical" || return 1
+  actual="$(host_path "$logical")" || return 1
+  parent="$(dirname "$actual")"
+  [ -f "$actual" ] && [ ! -L "$actual" ] && [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if [ -z "$ROOT_PREFIX" ]; then
+    resolved="$(readlink -f "$actual" 2>/dev/null || true)"
+    [ "$resolved" = "$actual" ] || return 1
+  fi
+}
+
+config_sha256() {
+  local actual
+  actual="$(host_path "$1")" || return 1
+  sha256sum "$actual" 2>/dev/null | awk '{print $1}'
+}
+
+adoption_state_load() {
+  OWNERSHIP_MODE="native-generated"
+  OWNERSHIP_PATH=""
+  OWNERSHIP_CONFIG_HASH=""
+  OWNERSHIP_DOMAIN_INDEX=""
+  OWNERSHIP_IP_INDEX=""
+  [ -s "$OWNERSHIP_STATE" ] || return 1
+
+  OWNERSHIP_MODE="$(json_value "$OWNERSHIP_STATE" '@.mode' '.mode')"
+  OWNERSHIP_PATH="$(json_value "$OWNERSHIP_STATE" '@.path' '.path')"
+  OWNERSHIP_CONFIG_HASH="$(json_value "$OWNERSHIP_STATE" '@.config_sha256' '.config_sha256')"
+  OWNERSHIP_DOMAIN_INDEX="$(json_value "$OWNERSHIP_STATE" '@.selectors.domain_rule_index' '.selectors.domain_rule_index')"
+  OWNERSHIP_IP_INDEX="$(json_value "$OWNERSHIP_STATE" '@.selectors.ip_rule_index' '.selectors.ip_rule_index')"
+
+  [ "$OWNERSHIP_MODE" = adopted-overlay ] &&
+    valid_adopted_config_path "$OWNERSHIP_PATH" &&
+    printf '%s' "$OWNERSHIP_CONFIG_HASH" | grep -Eq '^[0-9a-f]{64}$' &&
+    printf '%s' "$OWNERSHIP_DOMAIN_INDEX" | grep -Eq '^[0-9]+$' &&
+    printf '%s' "$OWNERSHIP_IP_INDEX" | grep -Eq '^[0-9]+$'
+}
+
+discover_active_xray_config() {
+  local proc_root tmp pid arg expect config found service_file count json_count
+
+  ACTIVE_XRAY_CONFIG=""
+  ACTIVE_XRAY_DISCOVERY_ERROR=""
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ -n "${VPN_UI_TEST_ACTIVE_XRAY_CONFIG:-}" ]; then
+    ACTIVE_XRAY_CONFIG="$VPN_UI_TEST_ACTIVE_XRAY_CONFIG"
+    valid_adopted_config_path "$ACTIVE_XRAY_CONFIG" || {
+      ACTIVE_XRAY_DISCOVERY_ERROR="test active Xray configuration path is invalid"
+      return 1
+    }
+    return 0
+  fi
+
+  proc_root="${VPN_UI_PROC_ROOT:-${ROOT_PREFIX}/proc}"
+  tmp="${ROOT_PREFIX}/tmp/vpn-ui-xray-argv.$$"
+  : > "$tmp" 2>/dev/null || tmp="/tmp/vpn-ui-xray-argv.$$"
+  : > "$tmp" || {
+    ACTIVE_XRAY_DISCOVERY_ERROR="could not allocate Xray discovery state"
+    return 1
+  }
+
+  for pid in $(pidof xray-latest 2>/dev/null || true) $(pidof xray 2>/dev/null || true); do
+    [ -r "$proc_root/$pid/cmdline" ] || continue
+    tr '\000' '\n' < "$proc_root/$pid/cmdline" > "$tmp.args" 2>/dev/null || continue
+    expect=0
+    while IFS= read -r arg || [ -n "$arg" ]; do
+      if [ "$expect" = 1 ]; then
+        printf '%s\n' "$arg" >> "$tmp"
+        expect=0
+        continue
+      fi
+      case "$arg" in
+        -config|--config|-c) expect=1 ;;
+        -config=*|--config=*) printf '%s\n' "${arg#*=}" >> "$tmp" ;;
+        -confdir|--confdir|-confdir=*|--confdir=*)
+          ACTIVE_XRAY_DISCOVERY_ERROR="unsupported multi-config Xray invocation"
+          rm -f "$tmp" "$tmp.args"
+          return 1
+          ;;
+      esac
+    done < "$tmp.args"
+    [ "$expect" = 0 ] || {
+      ACTIVE_XRAY_DISCOVERY_ERROR="Xray configuration argument is incomplete"
+      rm -f "$tmp" "$tmp.args"
+      return 1
+    }
+  done
+  rm -f "$tmp.args"
+
+  if [ ! -s "$tmp" ]; then
+    for service_file in "${ROOT_PREFIX}/etc/init.d/xray-exit-st" "${ROOT_PREFIX}/etc/init.d/xray"; do
+      [ -f "$service_file" ] || continue
+      grep -Eo '/etc/xray/[A-Za-z0-9._-]+\.json' "$service_file" 2>/dev/null >> "$tmp" || true
+    done
+  fi
+  if [ ! -s "$tmp" ] && [ -z "$ROOT_PREFIX" ] && command -v uci >/dev/null 2>&1; then
+    for config in $(uci -q get xray.config.conffiles 2>/dev/null || true); do
+      printf '%s\n' "$config" >> "$tmp"
+    done
+  fi
+
+  found="$(LC_ALL=C sort -u "$tmp" | sed -n '1p')"
+  count="$(LC_ALL=C sort -u "$tmp" | awk 'NF {count++} END {print count+0}')"
+  rm -f "$tmp"
+  if [ "$count" -gt 1 ] 2>/dev/null; then
+    ACTIVE_XRAY_DISCOVERY_ERROR="multiple Xray configuration paths were discovered"
+    return 1
+  fi
+  if [ -z "$found" ] && [ -x "${ROOT_PREFIX}/etc/init.d/xray-exit-st" ] &&
+    [ -f "$(host_path "$NATIVE_XRAY_CONFIG")" ]; then
+    found="$NATIVE_XRAY_CONFIG"
+  fi
+  if [ -z "$found" ]; then
+    json_count="$(find "${ROOT_PREFIX}/etc/xray" -maxdepth 1 -type f -name '*.json' 2>/dev/null |
+      awk 'END {print NR+0}')"
+    [ "$json_count" -eq 0 ] 2>/dev/null && found="$NATIVE_XRAY_CONFIG"
+  fi
+  if [ -z "$found" ]; then
+    ACTIVE_XRAY_DISCOVERY_ERROR="could not prove the active Xray configuration path"
+    return 1
+  fi
+  valid_adopted_config_path "$found" || {
+    ACTIVE_XRAY_DISCOVERY_ERROR="active Xray configuration path is outside the supported layout"
+    return 1
+  }
+  ACTIVE_XRAY_CONFIG="$found"
+}
+
+require_native_ownership() {
+  if adoption_state_load; then
+    die_json "profile changes are disabled in adopted-overlay mode"
+  fi
+  discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+  [ "$ACTIVE_XRAY_CONFIG" = "$NATIVE_XRAY_CONFIG" ] ||
+    die_json "active Xray configuration requires explicit adoption before mutation: $ACTIVE_XRAY_CONFIG"
+  safe_native_config_target ||
+    die_json "native Xray configuration path is unsafe or missing"
+}
+
+safe_native_config_target() {
+  local actual parent
+  actual="$(host_path "$NATIVE_XRAY_CONFIG")" || return 1
+  parent="$(dirname "$actual")"
+  [ ! -L "$actual" ] || return 1
+  [ ! -e "$actual" ] || [ -f "$actual" ] || return 1
+  [ ! -e "$parent" ] || { [ -d "$parent" ] && [ ! -L "$parent" ]; }
 }
 
 json_string_value() {
@@ -360,6 +548,332 @@ ensure_domain_rule_data() {
     [ -s "$datadir/geosite.dat" ] ||
       die_json "geosite rules require $datadir/geosite.dat; install or copy Xray geosite data, then apply rules again"
   fi
+}
+
+validate_domain_rules_file() {
+  awk '
+    function fail(message) { print message > "/dev/stderr"; bad=1 }
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (length($0) > 512) fail("domain rule is longer than 512 bytes")
+      if ($0 ~ /[[:cntrl:]]/ || $0 ~ /[ \t]/) fail("domain rule contains whitespace or a control character")
+      if ($0 ~ /"/) fail("domain rule contains an unsupported quote")
+    }
+    END { exit bad ? 1 : 0 }
+  ' "$1"
+}
+
+validate_ip_rules_file() {
+  awk '
+    function ipv4(value, parts, i) {
+      if (split(value, parts, ".") != 4) return 0
+      for (i=1; i<=4; i++)
+        if (parts[i] !~ /^[0-9]+$/ || parts[i] < 0 || parts[i] > 255) return 0
+      return 1
+    }
+    function valid(value, pieces, mask) {
+      if (value ~ /^geoip:[A-Za-z0-9._-]+$/) return 1
+      if (split(value, pieces, "/") > 2) return 0
+      mask=pieces[2]
+      if (index(pieces[1], ":") > 0) {
+        if (pieces[1] !~ /^[0-9A-Fa-f:]+$/) return 0
+        return mask == "" || (mask ~ /^[0-9]+$/ && mask >= 0 && mask <= 128)
+      }
+      if (!ipv4(pieces[1])) return 0
+      return mask == "" || (mask ~ /^[0-9]+$/ && mask >= 0 && mask <= 32)
+    }
+    {
+      sub(/\r$/, "")
+      sub(/^[ \t]+/, "")
+      sub(/[ \t]+$/, "")
+      if ($0 == "" || $0 ~ /^#/) next
+      if (!valid($0)) { print "invalid IP/CIDR rule: " $0 > "/dev/stderr"; bad=1 }
+    }
+    END { exit bad ? 1 : 0 }
+  ' "$1"
+}
+
+overlay_exec() {
+  local ucode_bin="${VPN_UI_UCODE_BIN:-ucode}"
+  command -v "$ucode_bin" >/dev/null 2>&1 || {
+    printf '%s\n' '{"ok":false,"error":"ucode is required for adopted-overlay management"}'
+    return 1
+  }
+  [ -f "$XRAY_OVERLAY_HELPER" ] || {
+    printf '%s\n' '{"ok":false,"error":"structural Xray overlay helper is missing"}'
+    return 1
+  }
+  "$ucode_bin" "$XRAY_OVERLAY_HELPER" "$@"
+}
+
+prepare_adoption_metadata() {
+  local logical="$1" actual prefix
+
+  ADOPTION_INSPECT="/tmp/vpn-ui-adoption-inspect.$$"
+  ADOPTION_DOMAINS="/tmp/vpn-ui-adoption-domains.$$"
+  ADOPTION_IPS="/tmp/vpn-ui-adoption-ips.$$"
+  ADOPTION_ERROR=""
+  ADOPTION_PATH="$logical"
+  ADOPTION_CONFIG_HASH=""
+  ADOPTION_DOMAIN_INDEX=""
+  ADOPTION_IP_INDEX=""
+  ADOPTION_DOMAIN_COUNT=""
+  ADOPTION_IP_COUNT=""
+  ADOPTION_DOMAIN_HASH=""
+  ADOPTION_IP_HASH=""
+
+  safe_adopted_config_file "$logical" || {
+    ADOPTION_ERROR="active Xray configuration path is unsafe, missing, or symlinked"
+    return 1
+  }
+  actual="$(host_path "$logical")" || return 1
+  if ! overlay_exec inspect "$actual" > "$ADOPTION_INSPECT" 2>/dev/null; then
+    ADOPTION_ERROR="$(json_value "$ADOPTION_INSPECT" '@.error' '.error')"
+    [ -n "$ADOPTION_ERROR" ] || ADOPTION_ERROR="Xray routing layout is incompatible with adopted-overlay mode"
+    return 1
+  fi
+  ADOPTION_DOMAIN_INDEX="$(json_value "$ADOPTION_INSPECT" '@.domain_rule_index' '.domain_rule_index')"
+  ADOPTION_IP_INDEX="$(json_value "$ADOPTION_INSPECT" '@.ip_rule_index' '.ip_rule_index')"
+  ADOPTION_DOMAIN_COUNT="$(json_value "$ADOPTION_INSPECT" '@.domain_count' '.domain_count')"
+  ADOPTION_IP_COUNT="$(json_value "$ADOPTION_INSPECT" '@.ip_count' '.ip_count')"
+  if ! overlay_exec extract "$actual" "$ADOPTION_DOMAIN_INDEX" "$ADOPTION_IP_INDEX" \
+    "$ADOPTION_DOMAINS" "$ADOPTION_IPS" >/dev/null 2>&1; then
+    ADOPTION_ERROR="could not import the adopted Xray rule arrays"
+    return 1
+  fi
+  validate_domain_rules_file "$ADOPTION_DOMAINS" >/dev/null 2>&1 || {
+    ADOPTION_ERROR="adopted domain array contains unsupported entries"
+    return 1
+  }
+  validate_ip_rules_file "$ADOPTION_IPS" >/dev/null 2>&1 || {
+    ADOPTION_ERROR="adopted IP array contains unsupported entries"
+    return 1
+  }
+  ADOPTION_CONFIG_HASH="$(config_sha256 "$logical")"
+  ADOPTION_DOMAIN_HASH="$(sha256sum "$ADOPTION_DOMAINS" | awk '{print $1}')"
+  ADOPTION_IP_HASH="$(sha256sum "$ADOPTION_IPS" | awk '{print $1}')"
+  [ -n "$ADOPTION_CONFIG_HASH" ] && [ -n "$ADOPTION_DOMAIN_HASH" ] && [ -n "$ADOPTION_IP_HASH" ]
+}
+
+cleanup_adoption_metadata() {
+  rm -f "${ADOPTION_INSPECT:-}" "${ADOPTION_DOMAINS:-}" "${ADOPTION_IPS:-}"
+}
+
+ownership_state_json() {
+  local mode="$1" path="$2" hash="$3" domain_index="$4" ip_index="$5"
+  local domain_count="$6" ip_count="$7" adopted_at="$8"
+
+  printf '{"schema_version":1,"mode":'
+  json_string "$mode"
+  printf ',"path":'
+  json_string "$path"
+  printf ',"config_sha256":'
+  json_string "$hash"
+  printf ',"selectors":{"domain_rule_index":%s,"ip_rule_index":%s}' "$domain_index" "$ip_index"
+  printf ',"managed_counts":{"domains":%s,"ips":%s},"adopted_at":' "$domain_count" "$ip_count"
+  json_string "$adopted_at"
+  printf '}\n'
+}
+
+write_ownership_state() {
+  local path="$1" hash="$2" domain_index="$3" ip_index="$4" domain_count="$5" ip_count="$6"
+  local adopted_at="$7" parent tmp
+
+  parent="$(dirname "$OWNERSHIP_STATE")"
+  [ ! -L "$parent" ] || return 1
+  mkdir -p "$parent" || return 1
+  chmod 700 "$parent" || return 1
+  [ ! -L "$OWNERSHIP_STATE" ] || return 1
+  tmp="$OWNERSHIP_STATE.new.$$"
+  ownership_state_json adopted-overlay "$path" "$hash" "$domain_index" "$ip_index" \
+    "$domain_count" "$ip_count" "$adopted_at" > "$tmp" || return 1
+  chmod 600 "$tmp" || return 1
+  mv "$tmp" "$OWNERSHIP_STATE"
+}
+
+overlay_available_bytes() {
+  local actual="$1"
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ -n "${VPN_UI_TEST_ADOPT_FREE_BYTES:-}" ]; then
+    printf '%s\n' "$VPN_UI_TEST_ADOPT_FREE_BYTES"
+    return 0
+  fi
+  df -Pk "$actual" 2>/dev/null | awk 'NR == 2 {printf "%.0f\n", $4 * 1024}'
+}
+
+overlay_storage_gate() {
+  local actual="$1" required="$2" available
+  available="$(overlay_available_bytes "$actual")"
+  printf '%s' "$available" | grep -Eq '^[0-9]+$' || return 1
+  OVERLAY_AVAILABLE_BYTES="$available"
+  [ "$available" -ge "$required" ] 2>/dev/null
+}
+
+managed_target_safe() {
+  local target="$1" parent
+  parent="$(dirname "$target")"
+  [ -d "$parent" ] && [ ! -L "$parent" ] && [ ! -L "$target" ]
+}
+
+backup_optional_file() {
+  local source="$1" name="$2" transaction="$3"
+  if [ -f "$source" ] && [ ! -L "$source" ]; then
+    cp -p "$source" "$transaction/$name" || return 1
+  elif [ -e "$source" ]; then
+    return 1
+  else
+    : > "$transaction/$name.absent" || return 1
+  fi
+}
+
+restore_optional_file() {
+  local target="$1" name="$2" transaction="$3" tmp
+  managed_target_safe "$target" || return 1
+  if [ -f "$transaction/$name.absent" ]; then
+    rm -f "$target"
+  else
+    tmp="$target.restore.$$"
+    cp -p "$transaction/$name" "$tmp" || return 1
+    mv "$tmp" "$target" || return 1
+  fi
+}
+
+install_managed_file() {
+  local source="$1" target="$2" mode="$3" tmp
+  managed_target_safe "$target" || return 1
+  tmp="$target.new.$$"
+  cp "$source" "$tmp" || return 1
+  chmod "$mode" "$tmp" || return 1
+  mv "$tmp" "$target"
+}
+
+overlay_journal_write() {
+  local transaction="$1" state="$2" message="${3:-}" tmp
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ "${VPN_UI_TEST_ADOPT_JOURNAL_FAIL_STATE:-}" = "$state" ]; then
+    return 98
+  fi
+  tmp="$transaction/journal.json.new.$$"
+  printf '{"schema_version":1,"state":' > "$tmp"
+  json_string "$state" >> "$tmp"
+  printf ',"message":' >> "$tmp"
+  json_string "$(one_line "$message")" >> "$tmp"
+  printf ',"updated_at":' >> "$tmp"
+  json_string "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$tmp"
+  printf '}\n' >> "$tmp"
+  chmod 600 "$tmp" && mv "$tmp" "$transaction/journal.json"
+}
+
+new_overlay_transaction() {
+  local label="$1" id
+  [ ! -L "$OWNERSHIP_TXN_ROOT" ] || return 1
+  mkdir -p "$OWNERSHIP_TXN_ROOT" || return 1
+  chmod 700 "$OWNERSHIP_TXN_ROOT" || return 1
+  id="$(date -u '+%Y%m%dT%H%M%SZ')-$label-$$"
+  OVERLAY_TRANSACTION="$OWNERSHIP_TXN_ROOT/$id"
+  mkdir "$OVERLAY_TRANSACTION" || return 1
+  chmod 700 "$OVERLAY_TRANSACTION"
+}
+
+cmd_adoption_preview() {
+  discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+  prepare_adoption_metadata "$ACTIVE_XRAY_CONFIG" || {
+    cleanup_adoption_metadata
+    die_json "$ADOPTION_ERROR"
+  }
+  printf '{"ok":true,"adoption":{"status":"preview","path":'
+  json_string "$ADOPTION_PATH"
+  printf ',"config_sha256":'
+  json_string "$ADOPTION_CONFIG_HASH"
+  printf ',"domain_sha256":'
+  json_string "$ADOPTION_DOMAIN_HASH"
+  printf ',"ip_sha256":'
+  json_string "$ADOPTION_IP_HASH"
+  printf ',"analysis":'
+  cat "$ADOPTION_INSPECT"
+  printf '}}\n'
+  cleanup_adoption_metadata
+}
+
+cmd_adoption_confirm() {
+  local expected_path="$1" expected_hash="$2" expected_domain_index="$3" expected_ip_index="$4"
+  local actual required available adopted_at
+
+  discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+  [ "$ACTIVE_XRAY_CONFIG" = "$expected_path" ] ||
+    die_json "active Xray configuration path changed after preview"
+  prepare_adoption_metadata "$ACTIVE_XRAY_CONFIG" || {
+    cleanup_adoption_metadata
+    die_json "$ADOPTION_ERROR"
+  }
+  if [ "$ADOPTION_CONFIG_HASH" != "$expected_hash" ] ||
+    [ "$ADOPTION_DOMAIN_INDEX" != "$expected_domain_index" ] ||
+    [ "$ADOPTION_IP_INDEX" != "$expected_ip_index" ]; then
+    cleanup_adoption_metadata
+    die_json "Xray configuration or adopted selectors changed after preview"
+  fi
+
+  actual="$(host_path "$ADOPTION_PATH")"
+  required=$(( $(wc -c < "$actual") + $(wc -c < "$ADOPTION_DOMAINS") +
+    $(wc -c < "$ADOPTION_IPS") + ADOPT_STORAGE_MARGIN_BYTES ))
+  if ! overlay_storage_gate "$actual" "$required"; then
+    available="${OVERLAY_AVAILABLE_BYTES:-unknown}"
+    cleanup_adoption_metadata
+    die_json "adoption requires $required free bytes including margin; available: $available"
+  fi
+  new_overlay_transaction adoption || {
+    cleanup_adoption_metadata
+    die_json "could not create private adoption journal"
+  }
+  cp -p "$actual" "$OVERLAY_TRANSACTION/config.preimage" || {
+    cleanup_adoption_metadata
+    die_json "could not preserve the exact Xray preimage"
+  }
+  backup_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || {
+      cleanup_adoption_metadata
+      die_json "could not preserve route-list or management preimages"
+    }
+  overlay_journal_write "$OVERLAY_TRANSACTION" prepared || {
+    cleanup_adoption_metadata
+    die_json "could not create the private adoption journal"
+  }
+
+  mkdir -p "$(dirname "$(host_path "$DOMAINS_FILE")")"
+  adopted_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if ! install_managed_file "$ADOPTION_DOMAINS" "$(host_path "$DOMAINS_FILE")" 600 ||
+    ! install_managed_file "$ADOPTION_IPS" "$(host_path "$IPS_FILE")" 600 ||
+    ! write_ownership_state "$ADOPTION_PATH" "$ADOPTION_CONFIG_HASH" \
+      "$ADOPTION_DOMAIN_INDEX" "$ADOPTION_IP_INDEX" "$ADOPTION_DOMAIN_COUNT" \
+      "$ADOPTION_IP_COUNT" "$adopted_at"; then
+    restore_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || true
+    overlay_journal_write "$OVERLAY_TRANSACTION" rolled_back "adoption state commit failed" || true
+    cleanup_adoption_metadata
+    die_json "adoption failed; management files were restored"
+  fi
+  [ "$(config_sha256 "$ADOPTION_PATH")" = "$ADOPTION_CONFIG_HASH" ] || {
+    restore_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || true
+    overlay_journal_write "$OVERLAY_TRANSACTION" rolled_back "configuration drifted during adoption" || true
+    cleanup_adoption_metadata
+    die_json "Xray configuration changed during adoption; management files were restored"
+  }
+  if ! overlay_journal_write "$OVERLAY_TRANSACTION" adopted; then
+    restore_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" || true
+    restore_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || true
+    cleanup_adoption_metadata
+    die_json "adoption journal commit failed; management files were restored"
+  fi
+  cleanup_adoption_metadata
+  status_json
 }
 
 profile_id_from_url() {
@@ -1012,16 +1526,6 @@ EOF
     "rules": [
       {
         "type": "field",
-        "protocol": ["bittorrent"],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "port": "8080",
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
         "ip": [
           "0.0.0.0/8",
           "10.0.0.0/8",
@@ -1087,6 +1591,297 @@ update_transparent_endpoint() {
   mv "$tmp" "$TRANSPARENT_INIT"
   chmod 755 "$TRANSPARENT_INIT"
   /etc/init.d/xray-transparent restart >/tmp/vpn-ui-transparent-restart.log 2>&1 || true
+}
+
+active_xray_service() {
+  local service script path_matches="" running_matches="" available=""
+  local path_count=0 running_count=0 available_count=0
+
+  for service in xray xray-exit-st; do
+    script="${ROOT_PREFIX}/etc/init.d/$service"
+    [ -x "$script" ] || continue
+    available="$service"
+    available_count=$((available_count + 1))
+    if [ -n "$ACTIVE_XRAY_CONFIG" ] && grep -Fq "$ACTIVE_XRAY_CONFIG" "$script" 2>/dev/null; then
+      path_matches="$service"
+      path_count=$((path_count + 1))
+      if service_running "$service"; then
+        running_matches="$service"
+        running_count=$((running_count + 1))
+      fi
+    fi
+  done
+
+  if [ "$path_count" -eq 1 ]; then
+    printf '%s' "$path_matches"
+    return 0
+  fi
+  if [ "$path_count" -gt 1 ]; then
+    [ "$running_count" -eq 1 ] || return 1
+    printf '%s' "$running_matches"
+    return 0
+  fi
+
+  running_matches=""
+  running_count=0
+  for service in xray xray-exit-st; do
+    [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
+    if service_running "$service"; then
+      running_matches="$service"
+      running_count=$((running_count + 1))
+    fi
+  done
+  if [ "$running_count" -eq 1 ]; then
+    printf '%s' "$running_matches"
+    return 0
+  fi
+  [ "$running_count" -eq 0 ] && [ "$available_count" -eq 1 ] || return 1
+  printf '%s' "$available"
+}
+
+service_running() {
+  local service="$1"
+  "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1
+}
+
+transparent_running() {
+  if [ -x "${ROOT_PREFIX}/etc/init.d/xray-transparent" ] &&
+    service_running xray-transparent; then
+    return 0
+  fi
+  [ -z "$ROOT_PREFIX" ] && nft list table inet xray_transparent >/dev/null 2>&1
+}
+
+adopted_xray_test() {
+  local config="$1" bin
+  bin="${VPN_UI_XRAY_BIN:-}"
+  if [ -z "$bin" ] && [ -x "${ROOT_PREFIX}/usr/local/bin/xray-latest" ]; then
+    bin="${ROOT_PREFIX}/usr/local/bin/xray-latest"
+  fi
+  if [ -z "$bin" ] && [ -z "$ROOT_PREFIX" ] && command -v xray >/dev/null 2>&1; then
+    bin="$(command -v xray)"
+  fi
+  [ -n "$bin" ] && [ -x "$bin" ] || return 1
+  "$bin" run -test -config "$config" >/tmp/vpn-ui-xray-test.log 2>&1
+}
+
+tailscale_invariant_snapshot() {
+  local output="$1" status_file="/tmp/vpn-ui-tailscale-invariant.$$" backend="" ip4=""
+  local tailscale_pid enabled route_hash rule_hash
+
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ -n "${VPN_UI_TEST_TAILSCALE_SNAPSHOT:-}" ]; then
+    case "$output" in
+      *tailscale-after.txt)
+        printf '%s\n' "${VPN_UI_TEST_TAILSCALE_SNAPSHOT_AFTER:-$VPN_UI_TEST_TAILSCALE_SNAPSHOT}" > "$output"
+        ;;
+      *) printf '%s\n' "$VPN_UI_TEST_TAILSCALE_SNAPSHOT" > "$output" ;;
+    esac
+    return 0
+  fi
+
+  tailscale_pid="$(pidof tailscaled 2>/dev/null || true)"
+  enabled=false
+  [ -x "${ROOT_PREFIX}/etc/init.d/tailscale" ] &&
+    "${ROOT_PREFIX}/etc/init.d/tailscale" enabled >/dev/null 2>&1 && enabled=true
+  if command -v tailscale >/dev/null 2>&1 && tailscale status --json > "$status_file" 2>/dev/null; then
+    backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
+    ip4="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+  fi
+  if command -v ip >/dev/null 2>&1; then
+    route_hash="$(ip -4 route show table all 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+    rule_hash="$(ip -4 rule show 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+  else
+    route_hash=unavailable
+    rule_hash=unavailable
+  fi
+  rm -f "$status_file"
+  {
+    printf 'pid=%s\n' "$tailscale_pid"
+    printf 'enabled=%s\n' "$enabled"
+    printf 'backend=%s\n' "$backend"
+    printf 'ip4=%s\n' "$ip4"
+    printf 'route_hash=%s\n' "$route_hash"
+    printf 'rule_hash=%s\n' "$rule_hash"
+  } > "$output"
+}
+
+restore_transparent_state() {
+  local expected="$1" actual=false
+  transparent_running && actual=true
+  if [ "$expected" = true ] && [ "$actual" = false ]; then
+    "${ROOT_PREFIX}/etc/init.d/xray-transparent" restart >/tmp/vpn-ui-transparent-restore.log 2>&1
+  elif [ "$expected" = false ] && [ "$actual" = true ]; then
+    "${ROOT_PREFIX}/etc/init.d/xray-transparent" stop >/tmp/vpn-ui-transparent-restore.log 2>&1
+  fi
+}
+
+overlay_test_boundary() {
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || return 0
+  [ "${VPN_UI_TEST_ADOPT_FAIL_AFTER:-}" = "$1" ] || return 0
+  return 97
+}
+
+restore_adopted_preimage() {
+  local transaction="$1" config_actual="$2" service="$3" xray_was_running="$4"
+  local transparent_was_running="$5" tmp failed=0
+
+  managed_target_safe "$config_actual" || failed=1
+  if [ "$failed" = 0 ]; then
+    tmp="$config_actual.restore.$$"
+    cp -p "$transaction/config.preimage" "$tmp" && mv "$tmp" "$config_actual" || failed=1
+  fi
+  restore_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$transaction" || failed=1
+  restore_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$transaction" || failed=1
+  restore_optional_file "$OWNERSHIP_STATE" ownership.preimage "$transaction" || failed=1
+  if [ "$xray_was_running" = true ]; then
+    "${ROOT_PREFIX}/etc/init.d/$service" restart >/tmp/vpn-ui-xray-rollback.log 2>&1 || failed=1
+  else
+    "${ROOT_PREFIX}/etc/init.d/$service" stop >/tmp/vpn-ui-xray-rollback.log 2>&1 || true
+  fi
+  restore_transparent_state "$transparent_was_running" || failed=1
+  cmp -s "$transaction/config.preimage" "$config_actual" || failed=1
+  if [ "$failed" = 0 ]; then
+    overlay_journal_write "$transaction" rolled_back "exact preimage restored" || true
+    return 0
+  fi
+  overlay_journal_write "$transaction" recovery_required "exact preimage restoration failed" || true
+  return 1
+}
+
+apply_adopted_rules() {
+  local domains_src="$1" ips_src="$2" config_actual config_dir candidate service
+  local actual_hash candidate_hash adopted_at domain_count ip_count required available
+  local xray_was_running=false transparent_was_running=false failure="" mode uid gid
+  local before_snapshot after_snapshot
+
+  adoption_state_load || die_json "adopted-overlay state is missing or invalid"
+  discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+  [ "$ACTIVE_XRAY_CONFIG" = "$OWNERSHIP_PATH" ] ||
+    die_json "active Xray configuration path drifted from the adopted path"
+  safe_adopted_config_file "$OWNERSHIP_PATH" ||
+    die_json "adopted Xray configuration path is unsafe, missing, or symlinked"
+  actual_hash="$(config_sha256 "$OWNERSHIP_PATH")"
+  [ "$actual_hash" = "$OWNERSHIP_CONFIG_HASH" ] ||
+    die_json "adopted Xray configuration bytes changed outside Router UI; preview and adopt again"
+  validate_domain_rules_file "$domains_src" 2>/tmp/vpn-ui-domain-validation.log ||
+    die_json "domain rule validation failed: $(cat /tmp/vpn-ui-domain-validation.log 2>/dev/null)"
+  validate_ip_rules_file "$ips_src" 2>/tmp/vpn-ui-ip-validation.log ||
+    die_json "IP rule validation failed: $(cat /tmp/vpn-ui-ip-validation.log 2>/dev/null)"
+  ensure_domain_rule_data "$domains_src"
+
+  config_actual="$(host_path "$OWNERSHIP_PATH")"
+  config_dir="$(dirname "$config_actual")"
+  candidate="$config_dir/.$(basename "$config_actual").vpn-ui-candidate.$$"
+  if ! overlay_exec patch "$config_actual" "$OWNERSHIP_DOMAIN_INDEX" "$OWNERSHIP_IP_INDEX" \
+    "$domains_src" "$ips_src" "$candidate" >/tmp/vpn-ui-overlay-result.log 2>&1; then
+    rm -f "$candidate"
+    die_json "structural Xray overlay failed: $(cat /tmp/vpn-ui-overlay-result.log 2>/dev/null)"
+  fi
+  mode="$(stat -c '%a' "$config_actual" 2>/dev/null ||
+    stat -f '%Lp' "$config_actual" 2>/dev/null || printf 600)"
+  uid="$(stat -c '%u' "$config_actual" 2>/dev/null ||
+    stat -f '%u' "$config_actual" 2>/dev/null || printf 0)"
+  gid="$(stat -c '%g' "$config_actual" 2>/dev/null ||
+    stat -f '%g' "$config_actual" 2>/dev/null || printf 0)"
+  chmod "$mode" "$candidate" || { rm -f "$candidate"; die_json "could not preserve Xray configuration mode"; }
+  chown "$uid:$gid" "$candidate" 2>/dev/null || {
+    rm -f "$candidate"
+    die_json "could not preserve Xray configuration ownership"
+  }
+  adopted_xray_test "$candidate" || {
+    rm -f "$candidate"
+    die_json "Xray validation failed: $(cat /tmp/vpn-ui-xray-test.log 2>/dev/null)"
+  }
+  candidate_hash="$(sha256sum "$candidate" | awk '{print $1}')"
+  domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$domains_src")"
+  ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$ips_src")"
+  required=$(( $(wc -c < "$config_actual") + $(wc -c < "$candidate") +
+    $(file_bytes "$(host_path "$DOMAINS_FILE")") + $(file_bytes "$(host_path "$IPS_FILE")") +
+    $(file_bytes "$OWNERSHIP_STATE") + $(wc -c < "$domains_src") + $(wc -c < "$ips_src") +
+    ADOPT_STORAGE_MARGIN_BYTES ))
+  if ! overlay_storage_gate "$config_actual" "$required"; then
+    available="${OVERLAY_AVAILABLE_BYTES:-unknown}"
+    rm -f "$candidate"
+    die_json "adopted-overlay apply requires $required free bytes including margin; available: $available"
+  fi
+
+  new_overlay_transaction apply || { rm -f "$candidate"; die_json "could not create private apply journal"; }
+  cp -p "$config_actual" "$OVERLAY_TRANSACTION/config.preimage" &&
+    backup_optional_file "$(host_path "$DOMAINS_FILE")" domains.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$(host_path "$IPS_FILE")" ips.preimage "$OVERLAY_TRANSACTION" &&
+    backup_optional_file "$OWNERSHIP_STATE" ownership.preimage "$OVERLAY_TRANSACTION" || {
+      rm -f "$candidate"
+      die_json "could not preserve exact adopted-overlay preimages"
+    }
+  overlay_journal_write "$OVERLAY_TRANSACTION" prepared || {
+    rm -f "$candidate"
+    die_json "could not create the private apply journal"
+  }
+  service="$(active_xray_service)" || { rm -f "$candidate"; die_json "Xray init service is unavailable"; }
+  service_running "$service" && xray_was_running=true
+  transparent_running && transparent_was_running=true
+  before_snapshot="$OVERLAY_TRANSACTION/tailscale-before.txt"
+  after_snapshot="$OVERLAY_TRANSACTION/tailscale-after.txt"
+  tailscale_invariant_snapshot "$before_snapshot" || failure="could not capture pre-apply Tailscale invariants"
+  overlay_test_boundary after-backup || failure="injected failure after backup"
+
+  if [ -z "$failure" ]; then
+    install_managed_file "$domains_src" "$(host_path "$DOMAINS_FILE")" 600 || failure="domain rule-list commit failed"
+  fi
+  if [ -z "$failure" ]; then
+    install_managed_file "$ips_src" "$(host_path "$IPS_FILE")" 600 || failure="IP rule-list commit failed"
+  fi
+  [ -n "$failure" ] || overlay_test_boundary after-rules || failure="injected failure after route-list commit"
+  if [ -z "$failure" ]; then
+    mv "$candidate" "$config_actual" || failure="atomic Xray configuration commit failed"
+  fi
+  [ -n "$failure" ] || overlay_test_boundary after-config || failure="injected failure after configuration commit"
+  if [ -z "$failure" ] && [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ "${VPN_UI_TEST_ADOPT_INVALID_AFTER_CONFIG:-0}" = 1 ]; then
+    printf '%s\n' '{invalid-json' > "$config_actual"
+  fi
+  if [ -z "$failure" ]; then
+    adopted_xray_test "$config_actual" ||
+      failure="installed Xray validation failed: $(cat /tmp/vpn-ui-xray-test.log 2>/dev/null)"
+  fi
+  if [ -z "$failure" ] && [ "$xray_was_running" = true ]; then
+    "${ROOT_PREFIX}/etc/init.d/$service" restart >/tmp/vpn-ui-xray-restart.log 2>&1 ||
+      failure="Xray restart failed: $(cat /tmp/vpn-ui-xray-restart.log 2>/dev/null)"
+  fi
+  if [ -z "$failure" ]; then
+    restore_transparent_state "$transparent_was_running" || failure="transparent routing state could not be restored"
+  fi
+  [ -n "$failure" ] || overlay_test_boundary after-restart || failure="injected failure after Xray restart"
+  if [ -z "$failure" ]; then
+    tailscale_invariant_snapshot "$after_snapshot" || failure="could not capture post-apply Tailscale invariants"
+  fi
+  if [ -z "$failure" ] && ! cmp -s "$before_snapshot" "$after_snapshot"; then
+    failure="Tailscale PID, enabled/connected state, identity, or return routing changed"
+  fi
+  if [ -z "$failure" ] && [ "$(config_sha256 "$OWNERSHIP_PATH")" != "$candidate_hash" ]; then
+    failure="installed Xray configuration hash does not match the validated candidate"
+  fi
+  adopted_at="$(json_value "$OWNERSHIP_STATE" '@.adopted_at' '.adopted_at')"
+  if [ -z "$failure" ]; then
+    write_ownership_state "$OWNERSHIP_PATH" "$candidate_hash" "$OWNERSHIP_DOMAIN_INDEX" \
+      "$OWNERSHIP_IP_INDEX" "$domain_count" "$ip_count" "$adopted_at" ||
+      failure="adopted-overlay management state commit failed"
+  fi
+  [ -n "$failure" ] || overlay_test_boundary after-state || failure="injected failure after management-state commit"
+  if [ -z "$failure" ]; then
+    overlay_journal_write "$OVERLAY_TRANSACTION" committed ||
+      failure="adopted-overlay journal commit failed"
+  fi
+
+  if [ -n "$failure" ]; then
+    rm -f "$candidate"
+    if restore_adopted_preimage "$OVERLAY_TRANSACTION" "$config_actual" "$service" \
+      "$xray_was_running" "$transparent_was_running"; then
+      die_json "$failure; exact Xray configuration, route lists, and management state restored"
+    fi
+    die_json "$failure; rollback_failed and physical/LAN recovery is required"
+  fi
 }
 
 render_and_apply() {
@@ -1770,6 +2565,59 @@ dhcp_devices_json() {
   printf ']'
 }
 
+ownership_status_json() {
+  local actual_hash="" config_matches=false discovery_matches=false healthy=false
+  local adoption_required=false active_path="" error="" domain_count ip_count
+
+  if adoption_state_load; then
+    if safe_adopted_config_file "$OWNERSHIP_PATH"; then
+      actual_hash="$(config_sha256 "$OWNERSHIP_PATH")"
+      [ "$actual_hash" = "$OWNERSHIP_CONFIG_HASH" ] && config_matches=true
+    else
+      error="adopted configuration path is unsafe, missing, or symlinked"
+    fi
+    if discover_active_xray_config; then
+      active_path="$ACTIVE_XRAY_CONFIG"
+      [ "$active_path" = "$OWNERSHIP_PATH" ] && discovery_matches=true
+    else
+      [ -n "$error" ] || error="$ACTIVE_XRAY_DISCOVERY_ERROR"
+    fi
+    [ "$config_matches" = true ] && [ "$discovery_matches" = true ] && healthy=true
+    domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(host_path "$DOMAINS_FILE")" 2>/dev/null)"
+    ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(host_path "$IPS_FILE")" 2>/dev/null)"
+    printf '{"mode":"adopted-overlay","adopted":true,"adoption_required":false,"healthy":%s' "$healthy"
+    printf ',"path":'
+    json_string "$OWNERSHIP_PATH"
+    printf ',"active_path":'
+    json_string "$active_path"
+    printf ',"config_sha256":'
+    json_string "$OWNERSHIP_CONFIG_HASH"
+    printf ',"config_matches":%s,"selectors_match":%s' "$config_matches" "$discovery_matches"
+    printf ',"domain_count":%s,"ip_count":%s,"error":' "${domain_count:-0}" "${ip_count:-0}"
+    json_string "$error"
+    printf '}'
+    return 0
+  fi
+
+  if discover_active_xray_config; then
+    active_path="$ACTIVE_XRAY_CONFIG"
+    [ "$active_path" = "$NATIVE_XRAY_CONFIG" ] || adoption_required=true
+  else
+    adoption_required=true
+    error="$ACTIVE_XRAY_DISCOVERY_ERROR"
+  fi
+  [ "$adoption_required" = false ] && healthy=true
+  printf '{"mode":"native-generated","adopted":false,"adoption_required":%s,"healthy":%s' \
+    "$adoption_required" "$healthy"
+  printf ',"path":'
+  json_string "$NATIVE_XRAY_CONFIG"
+  printf ',"active_path":'
+  json_string "$active_path"
+  printf ',"error":'
+  json_string "$error"
+  printf '}'
+}
+
 status_json() {
   local selected first f id active ping protocol in_pool
 
@@ -1819,6 +2667,8 @@ status_json() {
   subscription_json
   printf ',"auto":'
   auto_json
+  printf ',"ownership":'
+  ownership_status_json
   printf ',"domains":'
   json_array_from_file "$DOMAINS_FILE"
   printf ',"ips":'
@@ -1885,6 +2735,7 @@ vpn_summary_json() {
 
 cmd_add() {
   local url="$1"
+  require_native_ownership
   init_state
   parse_vless_url "$url"
   write_profile_file
@@ -1893,6 +2744,7 @@ cmd_add() {
 
 cmd_select() {
   local id="$1"
+  require_native_ownership
   render_and_apply "$id" "$DOMAINS_FILE" "$IPS_FILE" "0"
   status_json
 }
@@ -1900,6 +2752,7 @@ cmd_select() {
 cmd_delete() {
   local id="$1"
   local selected
+  require_native_ownership
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   [ "$id" != "$selected" ] || die_json "refusing to delete the selected profile"
@@ -1913,14 +2766,22 @@ cmd_apply_rules() {
 
   domains_text="${1:-}"
   ips_text="${2:-}"
-  init_state
-  selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
-  [ -n "$selected" ] || die_json "no selected VLESS profile"
   tmp_domains="/tmp/vpn-ui-domains.$$"
   tmp_ips="/tmp/vpn-ui-ips.$$"
   normalize_text_to_file "$domains_text" "$tmp_domains"
   normalize_text_to_file "$ips_text" "$tmp_ips"
-  render_and_apply "$selected" "$tmp_domains" "$tmp_ips" "1"
+  if adoption_state_load; then
+    apply_adopted_rules "$tmp_domains" "$tmp_ips"
+  else
+    require_native_ownership
+    init_state
+    selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
+    [ -n "$selected" ] || {
+      rm -f "$tmp_domains" "$tmp_ips"
+      die_json "no selected VLESS profile"
+    }
+    render_and_apply "$selected" "$tmp_domains" "$tmp_ips" "1"
+  fi
   rm -f "$tmp_domains" "$tmp_ips"
   status_json
 }
@@ -1928,6 +2789,18 @@ cmd_apply_rules() {
 cmd_check() {
   local selected tmpcfg test_out
 
+  if adoption_state_load; then
+    discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
+    [ "$ACTIVE_XRAY_CONFIG" = "$OWNERSHIP_PATH" ] ||
+      die_json "active Xray configuration path drifted from the adopted path"
+    [ "$(config_sha256 "$OWNERSHIP_PATH")" = "$OWNERSHIP_CONFIG_HASH" ] ||
+      die_json "adopted Xray configuration bytes changed outside Router UI"
+    adopted_xray_test "$(host_path "$OWNERSHIP_PATH")" ||
+      die_json "Xray validation failed: $(one_line "$(cat /tmp/vpn-ui-xray-test.log 2>/dev/null)")"
+    printf '{"ok":true,"configured":true,"mode":"adopted-overlay","message":"active adopted configuration validates"}\n'
+    return 0
+  fi
+  require_native_ownership
   init_state
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
   [ -n "$selected" ] || {
@@ -1960,6 +2833,7 @@ cmd_device() {
 cmd_xray() {
   local mode="$1"
 
+  require_native_ownership
   case "$mode" in
     on|enable|enabled)
       start_xray_services
@@ -1976,6 +2850,7 @@ cmd_xray() {
 
 cmd_refresh_pings() {
   local f id running
+  require_native_ownership
   init_state
   running=0
   for f in "$PROFILE_DIR"/*.conf; do
@@ -1996,6 +2871,7 @@ cmd_refresh_pings() {
 cmd_subscription_add() {
   local url="$1"
   local id name
+  require_native_ownership
   init_state
   url="$(trim_input "$url")"
   case "$url" in https://*) ;; *) die_json "subscription URL must use https://" ;; esac
@@ -2008,6 +2884,7 @@ cmd_subscription_add() {
 cmd_subscription_sync() {
   local id="$1"
   local file="$SUBSCRIPTION_DIR/$id.conf"
+  require_native_ownership
   init_state
   [ -f "$file" ] || die_json "unknown subscription"
   load_subscription_file "$file"
@@ -2019,6 +2896,7 @@ cmd_subscription_delete() {
   local id="$1"
   local file="$SUBSCRIPTION_DIR/$id.conf"
   local selected f profile_id
+  require_native_ownership
   init_state
   [ -f "$file" ] || die_json "unknown subscription"
   selected="$(cat "$SELECTED_FILE" 2>/dev/null || true)"
@@ -2074,6 +2952,7 @@ cmd_auto_config() {
   local tmp="/tmp/vpn-ui-auto-pool.$$"
   local id
 
+  require_native_ownership
   init_state
   case "$failover" in 0|1) ;; *) die_json "invalid failover setting" ;; esac
   case "$periodic" in 0|1) ;; *) die_json "invalid periodic setting" ;; esac
@@ -2130,6 +3009,10 @@ cmd_auto_tick() {
   local selected selected_file probe current_ms now fail_count last_optimize
   local best_id best_ms due threshold
 
+  adoption_state_load && exit 0
+  if ! discover_active_xray_config || [ "$ACTIVE_XRAY_CONFIG" != "$NATIVE_XRAY_CONFIG" ]; then
+    exit 0
+  fi
   init_state
   runtime_memory_maintenance
   load_auto_config
@@ -2276,6 +3159,10 @@ cmd_update() {
   /usr/sbin/vpn-ui-update "$action" "$@"
 }
 
+if [ "${VPN_UI_SOURCE_ONLY:-0}" = 1 ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 case "${1:-status}" in
   init)
     init_state
@@ -2302,6 +3189,14 @@ case "${1:-status}" in
   delete)
     [ -n "${2:-}" ] || die_json "delete requires a profile id"
     cmd_delete "$2"
+    ;;
+  adoption-preview)
+    [ "$#" -eq 1 ] || die_json "adoption-preview takes no arguments"
+    cmd_adoption_preview
+    ;;
+  adoption-confirm)
+    [ "$#" -eq 5 ] || die_json "adoption-confirm requires path, hash, domain selector, and IP selector"
+    cmd_adoption_confirm "$2" "$3" "$4" "$5"
     ;;
   apply-rules)
     cmd_apply_rules "${2:-}" "${3:-}"
