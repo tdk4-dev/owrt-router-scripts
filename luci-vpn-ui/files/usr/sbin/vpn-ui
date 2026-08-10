@@ -2098,7 +2098,7 @@ apply_adopted_rules() {
 
   config_actual="$(host_path "$OWNERSHIP_PATH")"
   config_dir="$(dirname "$config_actual")"
-  candidate="$config_dir/.$(basename "$config_actual").vpn-ui-candidate.$$"
+  candidate="$config_dir/.$(basename "$config_actual").vpn-ui-candidate.$$.json"
   new_overlay_transaction apply "$OWNERSHIP_PATH" ||
     die_json "could not create private apply journal"
   cp -p "$config_actual" "$OVERLAY_TRANSACTION/config.preimage" &&

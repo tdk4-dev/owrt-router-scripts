@@ -144,6 +144,7 @@ cat > "$FAKE_ROOT/usr/local/bin/xray-latest" <<'EOF'
 #!/bin/sh
 [ "${VPN_UI_TEST_XRAY_VALIDATE_FAIL:-0}" != 1 ] || exit 42
 [ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] && [ -s "$4" ] &&
+  [ "${4##*.}" = json ] &&
   jq -e . "$4" >/dev/null 2>&1
 EOF
 cat > "$FAKE_ROOT/etc/init.d/xray" <<'EOF'
