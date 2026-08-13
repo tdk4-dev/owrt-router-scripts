@@ -68,6 +68,16 @@ transitive build, signing, staging, publication, tool-install, image, and VM
 execution. Repository and controlled temporary roots are inventoried for new
 artifacts.
 
+The original frozen RC9 tree exposed one Tier 0 false positive: the collateral
+renderer blocked all execution before parsing, including its JSON-only
+`--validate-only` path. The correction is limited to a parsed-argument guard.
+Validation-only is allowed only when `--output` is absent; output mode remains
+an exit-97 staging event before rendering, and ambiguous validation-plus-output
+is rejected. The focused regression also proves that canonical validation
+still requires matching signature proof. This correction does not weaken any
+package, compiler, signing, staging, publication, tool-install, image, or VM
+guard.
+
 The prior GNU `tr` warning is removed by placing `-` last in the deletion set.
 The `sed | grep -q` pipeline that produced a broken-pipe warning now consumes
 the full section before deciding. Linux CI remains the binding confirmation.

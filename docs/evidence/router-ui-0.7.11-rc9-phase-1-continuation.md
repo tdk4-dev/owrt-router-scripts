@@ -72,6 +72,27 @@ machine-readable report has distinct zero counters for product builds, image
 builds, compilers, signing/staging, publication, tool installation, VM
 execution, forbidden invocations, and generated artifacts.
 
+### Tier 0 renderer false positive and source-only continuation
+
+The first frozen RC9 source commit
+`92937e0cabf70e493596aba85bdba4d2a1ebb1bd` (tree
+`ab071329367405b711442914eb0bf2cb7ef213a9`) stopped at the exact-tree Tier 0
+`collateral-contracts` test. The renderer's entrypoint-local guard ran before
+argument parsing and therefore mislabeled the source-only `--validate-only`
+path as staging. The immutable NO-GO bundle remains outside this worktree at
+`/private/tmp/router-ui-rc9-phase1-nogo-92937e0cabf70e493596aba85bdba4d2a1ebb1bd`;
+its existing `SHA256SUMS` continues to verify. No package build or VM execution
+occurred, so RC9 was not consumed.
+
+The follow-up moves the guard decision after structured argument parsing.
+Exactly `--validate-only` without `--output` may validate inputs and emit JSON
+to stdout. Every other parsed execution path is blocked with exit 97 under
+Tier 0 before input validation or PDF rendering, and an explicit
+`--validate-only` plus `--output` combination is invalid even outside Tier 0.
+Focused regressions require an empty validation guard log and no artifact,
+exactly one staging event for guarded output mode with no output file, and
+canonical validation refusal when valid signature proof is absent.
+
 ## Phase boundaries
 
 Before packaging, the final committed tree must pass source closure,

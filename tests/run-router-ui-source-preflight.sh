@@ -8,6 +8,7 @@ ACTUAL_SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 ACTUAL_SOURCE_TREE="$(git -C "$ROOT_DIR" rev-parse 'HEAD^{tree}')"
 EXPECTED_SOURCE_TREE="${EXPECTED_SOURCE_TREE:-$ACTUAL_SOURCE_TREE}"
 REPORT_PATH="${TIER0_REPORT_PATH:-${TMPDIR:-/tmp}/router-ui-tier0-$ACTUAL_SOURCE_SHA.json}"
+RAW_EVIDENCE_DIR="${TIER0_RAW_EVIDENCE_DIR:-}"
 TIER0_PARENT="${TIER0_TEMP_ROOT:-${TMPDIR:-/tmp}}"
 WORK_ROOT="$(mktemp -d "$TIER0_PARENT/router-ui-tier0.XXXXXX")"
 CONTROLLED_TMP="$WORK_ROOT/tmp"
@@ -166,6 +167,23 @@ finish() {
   [ ! -s "$GUARD_LOG" ] || SUITE_OK=false
   [ "$artifact_new" -eq 0 ] || SUITE_OK=false
   write_report "$artifact_new"
+  if [ -n "$RAW_EVIDENCE_DIR" ]; then
+    case "$RAW_EVIDENCE_DIR" in
+      /*) ;;
+      *) printf 'TIER0_RAW_EVIDENCE_DIR must be absolute\n' >&2; exit 1 ;;
+    esac
+    case "$RAW_EVIDENCE_DIR" in
+      "$ROOT_DIR"|"$ROOT_DIR"/*|"$CONTROLLED_TMP"|"$CONTROLLED_TMP"/*)
+        printf 'TIER0_RAW_EVIDENCE_DIR must be outside inventoried roots\n' >&2
+        exit 1 ;;
+    esac
+    mkdir -p "$RAW_EVIDENCE_DIR"
+    cp "$GUARD_LOG" "$RAW_EVIDENCE_DIR/guard.log"
+    cp "$ARTIFACTS_BEFORE" "$RAW_EVIDENCE_DIR/artifacts.before"
+    cp "$ARTIFACTS_AFTER" "$RAW_EVIDENCE_DIR/artifacts.after"
+    cp "$RESULTS" "$RAW_EVIDENCE_DIR/results.ndjson"
+    cp "$REPORT_PATH" "$RAW_EVIDENCE_DIR/report.json"
+  fi
   if [ "$SUITE_OK" != true ] || [ "$requested_exit" -ne 0 ]; then
     [ ! -s "$GUARD_LOG" ] || { printf 'Forbidden Tier 0 invocation(s):\n' >&2; cat "$GUARD_LOG" >&2; }
     [ "$artifact_new" -eq 0 ] || printf 'Tier 0 generated %s forbidden artifact(s)\n' "$artifact_new" >&2
@@ -213,6 +231,7 @@ run_test scope-ledger sh -c '
 ' sh "$WORK_ROOT" "$ROOT_DIR" || finish 1
 
 run_test tier0-zero-build-contracts sh tests/test-tier0-zero-build-contracts.sh || finish 1
+run_test tier0-renderer-guard python3 tests/test-tier0-renderer-guard.py || finish 1
 run_test control-census node tests/test-router-ui-control-census.mjs || finish 1
 run_test seven-state-rendering node tests/test-router-ui-state-rendering.mjs || finish 1
 run_test tailscale-ping-ui node tests/test-tailscale-ping-ui.mjs || finish 1

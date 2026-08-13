@@ -3,17 +3,10 @@
 
 from __future__ import annotations
 
-import os
-import sys
-
-if os.environ.get("ROUTER_UI_TIER0_GUARD_LOG"):
-    with open(os.environ["ROUTER_UI_TIER0_GUARD_LOG"], "a", encoding="utf-8") as guard_log:
-        guard_log.write("staging:render-router-ui-install-guide.py\n")
-    raise SystemExit(97)
-
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -294,8 +287,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def enforce_tier0_guard(args: argparse.Namespace) -> None:
+    guard_path = os.environ.get("ROUTER_UI_TIER0_GUARD_LOG")
+    if not guard_path:
+        return
+    if args.validate_only and args.output is None:
+        return
+    with open(guard_path, "a", encoding="utf-8") as guard_log:
+        guard_log.write("staging:render-router-ui-install-guide.py\n")
+    raise SystemExit(97)
+
+
 def main() -> None:
     args = parse_args()
+    enforce_tier0_guard(args)
+    require(not (args.validate_only and args.output is not None),
+            "--validate-only cannot be combined with --output")
     context = validate_inputs(
         args.manifest, args.rules, args.template, args.mode, args.signature_proof
     )

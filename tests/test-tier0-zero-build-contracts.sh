@@ -45,8 +45,15 @@ printf '%s\n' "$ENTRYPOINTS" | while IFS= read -r relative; do
   probe="$TMP_ROOT/$(printf '%s' "$relative" | tr '/' '_').log"
   first="$(sed -n '1p' "$entrypoint")"
   set +e
-  case "$first" in
-    *python*) ROUTER_UI_TIER0_GUARD_LOG="$probe" python3 "$entrypoint" >/dev/null 2>&1 ;;
+  case "$relative:$first" in
+    scripts/render-router-ui-install-guide.py:*)
+      output="$TMP_ROOT/guarded-renderer-output.pdf"
+      ROUTER_UI_TIER0_GUARD_LOG="$probe" python3 "$entrypoint" \
+        --manifest "$ROOT_DIR/tests/fixtures/release/router-ui-0.7.11-rc9-provisional-manifest.json" \
+        --rules "$ROOT_DIR/release/router-ui-release-rules.json" \
+        --template "$ROOT_DIR/docs/templates/router-ui-install-guide-template.json" \
+        --mode fixture --output "$output" >/dev/null 2>&1 ;;
+    *:*python*) ROUTER_UI_TIER0_GUARD_LOG="$probe" python3 "$entrypoint" >/dev/null 2>&1 ;;
     *bash*) ROUTER_UI_TIER0_GUARD_LOG="$probe" bash "$entrypoint" >/dev/null 2>&1 ;;
     *) ROUTER_UI_TIER0_GUARD_LOG="$probe" sh "$entrypoint" >/dev/null 2>&1 ;;
   esac
@@ -64,6 +71,11 @@ printf '%s\n' "$ENTRYPOINTS" | while IFS= read -r relative; do
     printf 'Tier 0 guard record did not identify its entrypoint: %s\n' "$relative" >&2
     exit 1
   }
+  [ ! -e "${output:-$TMP_ROOT/no-output-for-this-entrypoint}" ] || {
+    printf 'Tier 0 entrypoint created guarded output: %s\n' "$relative" >&2
+    exit 1
+  }
+  unset output
 done
 
 printf '%s\n' 'Tier 0 guarded product, compiler-adjacent, signing, staging, publication, and VM entrypoints passed'
