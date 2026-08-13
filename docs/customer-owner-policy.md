@@ -51,3 +51,16 @@ privileges, plus a separate owner/root path for support.
 - Support status should be visible in LuCI and preferably in footer/status UI.
 - Provide one-click disable/revoke where practical.
 - Provide an emergency local reset path.
+
+## Persistent Router Metadata
+
+The non-secret installation and support state is stored in UCI package
+`/etc/config/premier_router`, section `metadata router`. A clean project IPK
+install defaults to `manual-ipk-install`, `self-managed`, and `local-only`.
+The image-only first-boot script changes the install method to
+`self-managed-image`. Owner preparation writes explicit support level and
+registration state and never creates a tunnel by changing metadata alone.
+
+The generated `router_id` is local random data. It is not based on a MAC
+address, customer identity, public IP, credential, or tailnet identity. UI and
+helper output expose only `router_id_short`.

@@ -65,8 +65,8 @@ source_sha="$(jq -er .source_commit "$RELEASE_DIR/router-release-manifest.json")
 [ "$source_sha" = "$(jq -er .source_commit "$SYNTHETIC_DIR/router-release-manifest.json")" ]
 jq -e --arg source "$source_sha" --arg key "$key_id" --arg fingerprint "$key_fingerprint" \
   '.source_commit == $source and .source_dirty == false and
-   .app_version == "0.7.11-rc.6" and .package_version == "0.7.11~rc6-1" and
-   .release_tag == "vpn-panel-v0.7.11-rc.6" and .channel == "candidate" and
+   .app_version == "0.7.11-rc.7" and .package_version == "0.7.11~rc7-1" and
+   .release_tag == "vpn-panel-v0.7.11-rc.7" and .channel == "candidate" and
    .signing_key_id == $key and .signing_key_fingerprint == $fingerprint' \
   "$RELEASE_DIR/router-release-manifest.json" >/dev/null
 jq -e --arg source "$source_sha" --arg key "$key_id" --arg fingerprint "$key_fingerprint" \

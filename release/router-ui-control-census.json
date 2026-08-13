@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "release": {
+    "application_version": "0.7.11-rc.7",
+    "package_version": "0.7.11~rc7-1",
+    "channel": "candidate"
+  },
+  "states": [
+    "native-generated",
+    "empty-unconfigured",
+    "manual-unadopted",
+    "healthy-adopted",
+    "adopted-drift-recovery",
+    "reboot-pending",
+    "read-only"
+  ],
+  "expectation_profiles": {
+    "always-read": {
+      "native-generated": "visible-enabled",
+      "empty-unconfigured": "visible-enabled",
+      "manual-unadopted": "visible-enabled",
+      "healthy-adopted": "visible-enabled",
+      "adopted-drift-recovery": "visible-enabled",
+      "reboot-pending": "visible-enabled",
+      "read-only": "visible-enabled"
+    },
+    "write": {
+      "native-generated": "visible-enabled",
+      "empty-unconfigured": "visible-enabled",
+      "manual-unadopted": "visible-blocked-adoption-required",
+      "healthy-adopted": "visible-enabled",
+      "adopted-drift-recovery": "visible-blocked-recovery",
+      "reboot-pending": "visible-blocked-reboot-pending",
+      "read-only": "visible-blocked-read-only"
+    },
+    "router-write": {
+      "native-generated": "visible-enabled",
+      "empty-unconfigured": "visible-enabled",
+      "manual-unadopted": "visible-enabled",
+      "healthy-adopted": "visible-enabled",
+      "adopted-drift-recovery": "visible-enabled",
+      "reboot-pending": "visible-enabled",
+      "read-only": "visible-blocked-read-only"
+    },
+    "adoption-preview": {
+      "native-generated": "hidden",
+      "empty-unconfigured": "hidden",
+      "manual-unadopted": "visible-enabled",
+      "healthy-adopted": "hidden",
+      "adopted-drift-recovery": "visible-enabled",
+      "reboot-pending": "hidden",
+      "read-only": "visible-enabled-when-adoption-required-or-drifted"
+    },
+    "adoption-confirm": {
+      "native-generated": "hidden",
+      "empty-unconfigured": "hidden",
+      "manual-unadopted": "visible-enabled-after-preview",
+      "healthy-adopted": "hidden",
+      "adopted-drift-recovery": "visible-enabled-after-preview",
+      "reboot-pending": "visible-blocked-reboot-pending-after-preview",
+      "read-only": "visible-blocked-read-only-after-preview"
+    },
+    "conditional-write": {
+      "native-generated": "visible-conditionally-enabled",
+      "empty-unconfigured": "visible-conditionally-enabled",
+      "manual-unadopted": "visible-conditionally-enabled",
+      "healthy-adopted": "visible-conditionally-enabled",
+      "adopted-drift-recovery": "visible-conditionally-enabled",
+      "reboot-pending": "visible-conditionally-enabled",
+      "read-only": "visible-blocked-read-only"
+    },
+    "modal-write": {
+      "native-generated": "hidden-until-invoked-then-enabled",
+      "empty-unconfigured": "hidden-until-invoked-then-enabled",
+      "manual-unadopted": "hidden-until-invoked-blocked-by-parent",
+      "healthy-adopted": "hidden-until-invoked-then-enabled",
+      "adopted-drift-recovery": "hidden-until-invoked-blocked-by-parent",
+      "reboot-pending": "hidden-until-invoked-blocked-by-parent",
+      "read-only": "hidden-until-invoked-then-blocked-read-only"
+    },
+    "modal-read": {
+      "native-generated": "hidden-until-invoked-then-enabled",
+      "empty-unconfigured": "hidden-until-invoked-then-enabled",
+      "manual-unadopted": "hidden-until-invoked-then-enabled",
+      "healthy-adopted": "hidden-until-invoked-then-enabled",
+      "adopted-drift-recovery": "hidden-until-invoked-then-enabled",
+      "reboot-pending": "hidden-until-invoked-then-enabled",
+      "read-only": "hidden-until-invoked-then-enabled"
+    }
+  },
+  "controls": [
+    {"id":"update-check","view":"update","selector":"[data-control-id=\"update-check\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"file.exec /usr/sbin/vpn-ui update-check-start; poll /usr/sbin/vpn-ui-readonly update-status","acl":"luci-app-vpn-ui write then read","backend":"vpn-ui-update transaction worker","success":"latest metadata and exact channel render","failure":"safe error notification; no install begins","restoration":"configuration and routes unchanged"},
+    {"id":"update-apply","view":"update","selector":"[data-control-id=\"update-apply\"]","applicable_states":"all","expectation_profile":"conditional-write","rpc":"file.exec /usr/sbin/vpn-ui update-apply-start; poll /usr/sbin/vpn-ui-readonly update-status","acl":"luci-app-vpn-ui write then read","backend":"vpn-ui-update backup/install/validate/rollback transaction","success":"validated installation and reload","failure":"rollback completes or update remains blocked with recovery state","restoration":"failed transaction restores package/config/service/route preimage"},
+    {"id":"update-auto","view":"update","selector":"[data-control-id=\"update-auto\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"file.exec /usr/sbin/vpn-ui update-auto <0|1>","acl":"luci-app-vpn-ui write","backend":"vpn-ui update-auto scheduler path","success":"schedule state refreshes","failure":"previous schedule remains and error renders","restoration":"failed write preserves prior scheduler state"},
+
+    {"id":"tailscale-login-server","view":"tailscale","selector":"[data-control-id=\"tailscale-login-server\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"value consumed by tailscale-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up","success":"validated HTTPS control URL reaches tailscale up","failure":"invalid URL is rejected before mutation","restoration":"failed apply preserves service and route snapshot"},
+    {"id":"tailscale-hostname","view":"tailscale","selector":"[data-control-id=\"tailscale-hostname\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"value consumed by tailscale-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up","success":"hostname appears in refreshed status","failure":"helper rejection renders and does not erase input","restoration":"failed apply preserves service and route snapshot"},
+    {"id":"tailscale-auth-key","view":"tailscale","selector":"[data-control-id=\"tailscale-auth-key\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"secret consumed once by tailscale-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up","success":"key is passed to tailscale and never rendered or persisted by panel","failure":"error is secret-free","restoration":"failed apply preserves service and route snapshot"},
+    {"id":"tailscale-routes","view":"tailscale","selector":"[data-control-id=\"tailscale-routes\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"value consumed by tailscale-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up","success":"advertised routes appear in status","failure":"invalid routes fail without route-table drift","restoration":"admin and Tailscale routes equal pre-action snapshot"},
+    {"id":"tailscale-exit-node","view":"tailscale","selector":"[data-control-id=\"tailscale-exit-node\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"boolean consumed by tailscale-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up --advertise-exit-node","success":"exit-node advertisement appears in status","failure":"helper error renders without partial toggle","restoration":"admin and Tailscale routes equal pre-action snapshot"},
+    {"id":"tailscale-apply","view":"tailscale","selector":"[data-control-id=\"tailscale-apply\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"file.exec /usr/sbin/vpn-ui tailscale-up <fields>","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_up","success":"fresh status renders and auth key is cleared by rerender","failure":"modal closes and safe error renders","restoration":"failed apply preserves service and route snapshot"},
+    {"id":"tailscale-restart","view":"tailscale","selector":"[data-control-id=\"tailscale-restart\"]","applicable_states":"all","expectation_profile":"router-write","rpc":"file.exec /usr/sbin/vpn-ui tailscale-restart","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_restart","success":"running status refreshes","failure":"prior service and routes remain observable with error","restoration":"admin and Tailscale routes equal pre-action snapshot"},
+    {"id":"tailscale-stop","view":"tailscale","selector":"[data-control-id=\"tailscale-stop\"]","applicable_states":"all","expectation_profile":"conditional-write","rpc":"file.exec /usr/sbin/vpn-ui tailscale-stop","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_stop","success":"service stopped status renders","failure":"actual status renders with error","restoration":"test fixture restores service and proves original route snapshot"},
+    {"id":"tailscale-logout","view":"tailscale","selector":"[data-control-id=\"tailscale-logout\"]","applicable_states":"all","expectation_profile":"conditional-write","rpc":"file.exec /usr/sbin/vpn-ui tailscale-logout","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_tailscale_logout","success":"disconnected status renders","failure":"existing login state remains observable","restoration":"test fixture restores disposable login and route snapshot"},
+    {"id":"tailscale-peer-ping","view":"tailscale","selector":"[data-control-id=\"tailscale-peer-ping\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"file.exec /usr/sbin/vpn-ui-readonly tailscale-ping <ip>","acl":"luci-app-vpn-ui read","backend":"vpn-ui readonly tailscale-ping","success":"reachable/latency/direct-or-DERP result renders","failure":"safe modal error renders","restoration":"configuration, services, and routes unchanged"},
+    {"id":"tailscale-ping-close","view":"tailscale","selector":"[data-control-id=\"tailscale-ping-close\"]","applicable_states":"all","expectation_profile":"modal-read","rpc":"none; local modal close","acl":"none","backend":"LuCI ui.hideModal","success":"modal closes","failure":"no backend dispatch","restoration":"DOM returns to pre-modal state"},
+
+    {"id":"vpn-adoption-preview","view":"vpn","selector":"[data-control-id=\"vpn-adoption-preview\"]","applicable_states":"manual-unadopted,adopted-drift-recovery,read-only","expectation_profile":"adoption-preview","rpc":"file.exec /usr/sbin/vpn-ui-readonly adoption-preview","acl":"luci-app-vpn-ui read","backend":"vpn-ui read-only discovery plus xray-overlay inspect","success":"path/hash/selectors render without rewrite or restart","failure":"safe error renders and panel remains blocked","restoration":"config/service/routes byte-identical"},
+    {"id":"vpn-adoption-confirm","view":"vpn","selector":"[data-control-id=\"vpn-adoption-confirm\"]","applicable_states":"manual-unadopted,adopted-drift-recovery,reboot-pending,read-only","expectation_profile":"adoption-confirm","rpc":"opens hash-bound confirmation modal","acl":"luci-app-vpn-ui write required by modal action","backend":"LuCI modal boundary","success":"exact preview facts are shown","failure":"stale/missing preview prevents dispatch","restoration":"preimage is unchanged before modal confirmation"},
+    {"id":"vpn-adoption-confirm-cancel","view":"vpn","selector":"[data-control-id=\"vpn-adoption-confirm-cancel\"]","applicable_states":"manual-unadopted,adopted-drift-recovery,reboot-pending,read-only","expectation_profile":"modal-read","rpc":"none; local modal close","acl":"none","backend":"LuCI ui.hideModal","success":"modal closes without dispatch","failure":"no backend dispatch","restoration":"config/service/routes byte-identical"},
+    {"id":"vpn-adoption-confirm-modal","view":"vpn","selector":"[data-control-id=\"vpn-adoption-confirm-modal\"]","applicable_states":"manual-unadopted,adopted-drift-recovery,reboot-pending,read-only","expectation_profile":"adoption-confirm","rpc":"file.exec /usr/sbin/vpn-ui adoption-confirm <path> <sha256> <domain-index> <ip-index>","acl":"luci-app-vpn-ui write","backend":"vpn-ui hash-bound adoption transaction","success":"ownership recorded without rewriting or restarting Xray","failure":"stale hash/selector rejected and panel remains blocked","restoration":"failure leaves config/service/routes byte-identical"},
+    {"id":"vpn-global-toggle","view":"vpn","selector":"[data-control-id=\"vpn-global-toggle\"]","applicable_states":"all","expectation_profile":"write","rpc":"opens global VPN confirmation modal","acl":"luci-app-vpn-ui write required by modal action","backend":"LuCI modal boundary","success":"requested mode and impact render","failure":"blocked state cannot dispatch","restoration":"preimage is unchanged before modal confirmation"},
+    {"id":"vpn-global-cancel","view":"vpn","selector":"[data-control-id=\"vpn-global-cancel\"]","applicable_states":"all","expectation_profile":"modal-read","rpc":"none; local modal close","acl":"none","backend":"LuCI ui.hideModal","success":"modal closes without dispatch","failure":"no backend dispatch","restoration":"services and routes unchanged"},
+    {"id":"vpn-global-confirm","view":"vpn","selector":"[data-control-id=\"vpn-global-confirm\"]","applicable_states":"all","expectation_profile":"modal-write","rpc":"file.exec /usr/sbin/vpn-ui xray <on|off>","acl":"luci-app-vpn-ui write","backend":"vpn-ui cmd_xray service transaction","success":"Xray and transparent proxy reach requested state","failure":"error renders and observed state refreshes","restoration":"fixture restores original service and route state"},
+    {"id":"vpn-domain-test-input","view":"vpn","selector":"[data-control-id=\"vpn-domain-test-input\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"value consumed by vpn-domain-test","acl":"luci-app-vpn-ui read","backend":"vpn-ui readonly test-domain","success":"normalized domain is probed","failure":"invalid input rejected without dispatch","restoration":"configuration, services, and routes unchanged"},
+    {"id":"vpn-domain-test","view":"vpn","selector":"[data-control-id=\"vpn-domain-test\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"file.exec /usr/sbin/vpn-ui-readonly test-domain <domain>","acl":"luci-app-vpn-ui read","backend":"vpn-ui read-only DNS/route/HTTP probe","success":"route/outbound/public-IP result renders","failure":"inline safe error renders","restoration":"configuration, services, and routes unchanged"},
+    {"id":"vpn-profile-url","view":"vpn","selector":"[data-control-id=\"vpn-profile-url\"]","applicable_states":"all","expectation_profile":"write","rpc":"secret value consumed by vpn-profile-add","acl":"luci-app-vpn-ui write","backend":"vpn-ui add parser","success":"valid VLESS input reaches add transaction","failure":"invalid/blocked input does not mutate","restoration":"failed add preserves profiles/config/service/routes"},
+    {"id":"vpn-profile-add","view":"vpn","selector":"[data-control-id=\"vpn-profile-add\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui add <vless-url>","acl":"luci-app-vpn-ui write","backend":"vpn-ui profile add and Xray transaction","success":"profile persists, input clears, status refreshes","failure":"rollback and safe error; secret not echoed","restoration":"exact profile/config/service/route preimage restored"},
+    {"id":"vpn-ping-refresh","view":"vpn","selector":"[data-control-id=\"vpn-ping-refresh\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui refresh-pings","acl":"luci-app-vpn-ui write","backend":"vpn-ui profile reachability cache","success":"fresh ping values render","failure":"previous profile/config state remains","restoration":"config/services/routes unchanged"},
+    {"id":"vpn-profile-auto-pool","view":"vpn","selector":"[data-control-id=\"vpn-profile-auto-pool\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-auto-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui auto-config pool file","success":"selected pool persists on apply","failure":"failed apply restores prior pool","restoration":"auto config/pool/config/service/route preimage restored"},
+    {"id":"vpn-profile-use","view":"vpn","selector":"[data-control-id=\"vpn-profile-use\"]","applicable_states":"all","expectation_profile":"write","rpc":"opens selected-profile confirmation modal","acl":"luci-app-vpn-ui write required by modal action","backend":"LuCI modal boundary","success":"profile identity renders before dispatch","failure":"selected/blocked profile cannot dispatch","restoration":"preimage is unchanged before modal confirmation"},
+    {"id":"vpn-profile-use-cancel","view":"vpn","selector":"[data-control-id=\"vpn-profile-use-cancel\"]","applicable_states":"all","expectation_profile":"modal-read","rpc":"none; local modal close","acl":"none","backend":"LuCI ui.hideModal","success":"modal closes without dispatch","failure":"no backend dispatch","restoration":"profile/config/service/routes unchanged"},
+    {"id":"vpn-profile-use-confirm","view":"vpn","selector":"[data-control-id=\"vpn-profile-use-confirm\"]","applicable_states":"all","expectation_profile":"modal-write","rpc":"file.exec /usr/sbin/vpn-ui select <profile-id>","acl":"luci-app-vpn-ui write","backend":"vpn-ui select plus native/adopted Xray transaction","success":"selected profile and service state refresh","failure":"transaction rollback and safe error","restoration":"exact selected/config/service/route preimage restored"},
+    {"id":"vpn-profile-delete","view":"vpn","selector":"[data-control-id=\"vpn-profile-delete\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui delete <profile-id>","acl":"luci-app-vpn-ui write","backend":"vpn-ui profile delete transaction","success":"unused profile disappears","failure":"profile remains and error renders","restoration":"failed delete restores profiles/config/service/routes"},
+    {"id":"vpn-subscription-url","view":"vpn","selector":"[data-control-id=\"vpn-subscription-url\"]","applicable_states":"all","expectation_profile":"write","rpc":"secret consumed by vpn-subscription-import","acl":"luci-app-vpn-ui write","backend":"vpn-ui HTTPS subscription validator","success":"HTTPS value reaches import transaction","failure":"invalid/blocked input does not mutate or echo secret","restoration":"subscription/profile/config/service/routes unchanged"},
+    {"id":"vpn-subscription-import","view":"vpn","selector":"[data-control-id=\"vpn-subscription-import\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui subscription-add <https-url>","acl":"luci-app-vpn-ui write","backend":"vpn-ui subscription import transaction","success":"provider and profiles render; input clears","failure":"rollback and secret-free safe error","restoration":"exact subscription/profile/config/service/route preimage restored"},
+    {"id":"vpn-subscription-sync","view":"vpn","selector":"[data-control-id=\"vpn-subscription-sync\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui subscription-sync <id>","acl":"luci-app-vpn-ui write","backend":"vpn-ui subscription sync transaction","success":"timestamp/profile set refreshes","failure":"prior subscription/profile set remains","restoration":"exact subscription/profile/config/service/route preimage restored"},
+    {"id":"vpn-subscription-delete","view":"vpn","selector":"[data-control-id=\"vpn-subscription-delete\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui subscription-delete <id>","acl":"luci-app-vpn-ui write","backend":"vpn-ui subscription delete transaction","success":"subscription and unused profiles disappear","failure":"prior subscription/profile set remains","restoration":"exact subscription/profile/config/service/route preimage restored"},
+    {"id":"vpn-auto-failover","view":"vpn","selector":"[data-control-id=\"vpn-auto-failover\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-auto-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui auto-config","success":"setting persists on apply","failure":"prior setting remains","restoration":"auto files/config/service/routes restored"},
+    {"id":"vpn-auto-periodic","view":"vpn","selector":"[data-control-id=\"vpn-auto-periodic\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-auto-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui auto-config","success":"setting persists on apply","failure":"prior setting remains","restoration":"auto files/config/service/routes restored"},
+    {"id":"vpn-auto-hours","view":"vpn","selector":"[data-control-id=\"vpn-auto-hours\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-auto-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui auto-config interval validator","success":"validated interval persists on apply","failure":"out-of-range value rejected","restoration":"auto files/config/service/routes restored"},
+    {"id":"vpn-auto-apply","view":"vpn","selector":"[data-control-id=\"vpn-auto-apply\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui auto-config <failover> <periodic> <hours> <pool>","acl":"luci-app-vpn-ui write","backend":"vpn-ui atomic auto config/pool update","success":"fresh settings and pool render","failure":"atomic rollback and safe error","restoration":"exact auto files/config/service/route preimage restored"},
+    {"id":"vpn-rule-search","view":"vpn","selector":"[data-control-id=\"vpn-rule-search\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"none; local DOM filtering","acl":"none","backend":"LuCI searchRuleLines","success":"matching source/line/value rows render","failure":"no match renders without exception","restoration":"textareas and backend state unchanged"},
+    {"id":"vpn-rule-search-clear","view":"vpn","selector":"[data-control-id=\"vpn-rule-search-clear\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"none; local DOM reset","acl":"none","backend":"LuCI handleClearRuleSearch","success":"query/results clear","failure":"no backend dispatch","restoration":"textareas and backend state unchanged"},
+    {"id":"vpn-rule-result","view":"vpn","selector":"[data-control-id=\"vpn-rule-result\"]","applicable_states":"all","expectation_profile":"always-read","rpc":"none; local textarea focus/selection","acl":"none","backend":"LuCI selectRuleLine","success":"matching exact line is selected","failure":"missing textarea returns without exception","restoration":"textarea content and backend state unchanged"},
+    {"id":"vpn-direct-domains","view":"vpn","selector":"[data-control-id=\"vpn-direct-domains\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-direct-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui native file or adopted overlay domain array","success":"validated lines reach apply transaction","failure":"blocked/invalid input cannot mutate","restoration":"domain/config/service/route preimage restored"},
+    {"id":"vpn-direct-ips","view":"vpn","selector":"[data-control-id=\"vpn-direct-ips\"]","applicable_states":"all","expectation_profile":"write","rpc":"value consumed by vpn-direct-apply","acl":"luci-app-vpn-ui write","backend":"vpn-ui native file or adopted overlay IP array","success":"validated lines reach apply transaction","failure":"blocked/invalid input cannot mutate","restoration":"IP/config/service/route preimage restored"},
+    {"id":"vpn-direct-apply","view":"vpn","selector":"[data-control-id=\"vpn-direct-apply\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui apply-rules <domains> <ips>","acl":"luci-app-vpn-ui write","backend":"vpn-ui native/adopted overlay transactional apply","success":"rules render after Xray validation/restart","failure":"exact rollback and safe error","restoration":"exact rules/config/service/admin-and-Tailscale-route preimage restored"},
+    {"id":"vpn-device-toggle","view":"vpn","selector":"[data-control-id=\"vpn-device-toggle\"]","applicable_states":"all","expectation_profile":"write","rpc":"file.exec /usr/sbin/vpn-ui device <enable|disable> <mac> <ip>","acl":"luci-app-vpn-ui write","backend":"vpn-ui device bypass file/nft/conntrack path","success":"device Direct/VPN state refreshes","failure":"prior bypass set remains and error renders","restoration":"exact bypass file/nft/routes preimage restored"}
+  ]
+}

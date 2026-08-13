@@ -148,6 +148,7 @@ return view.extend({
 				]),
 				E('div', { 'class': 'update-actions' }, [
 					E('a', {
+						'data-control-id': 'update-check',
 						'class': 'cbi-button cbi-button-action',
 						'href': '#',
 						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',
@@ -158,6 +159,7 @@ return view.extend({
 						}, this)
 					}, _('Check again')),
 					E('a', {
+						'data-control-id': 'update-apply',
 						'class': 'cbi-button cbi-button-positive',
 						'href': '#',
 						'aria-disabled': busy || !data.available || isReadonlyView ? 'true' : 'false',
@@ -202,6 +204,7 @@ return view.extend({
 				E('h3', {}, _('Automatic updates')),
 				E('div', { 'class': 'update-setting' }, [
 					E('a', {
+						'data-control-id': 'update-auto',
 						'class': 'cbi-button ' + (data.auto_update ? 'cbi-button-positive' : 'cbi-button-neutral'),
 						'href': '#',
 						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',

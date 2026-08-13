@@ -154,7 +154,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	assert.equal(adopted.ok, true);
 
 	const textareas = {
-		'#vpn-direct-domains': { value: 'full:one.rc6.invalid\ndomain:two.rc6.invalid' },
+		'#vpn-direct-domains': { value: 'full:one.rc7.invalid\ndomain:two.rc7.invalid' },
 		'#vpn-direct-ips': { value: '198.51.100.0/25' }
 	};
 	const helperCalls = [];
@@ -309,12 +309,12 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	await page.handleApplyRules();
 	assert.deepEqual(helperCalls.at(-1), {
 		command: '/usr/sbin/vpn-ui',
-		args: ['apply-rules', 'full:one.rc6.invalid\ndomain:two.rc6.invalid', '198.51.100.0/25']
+		args: ['apply-rules', 'full:one.rc7.invalid\ndomain:two.rc7.invalid', '198.51.100.0/25']
 	});
 	let config = JSON.parse(await fs.readFile(configPath, 'utf8'));
 	assert.deepEqual(config.routing.rules[2].domain, [
-		'full:one.rc6.invalid',
-		'domain:two.rc6.invalid'
+		'full:one.rc7.invalid',
+		'domain:two.rc7.invalid'
 	]);
 	assert.deepEqual(config.routing.rules[1].ip, ['198.51.100.0/25']);
 	assert.equal(config.routing.domainStrategy, 'AsIs');
@@ -336,7 +336,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 		ips: await sha256(ipsPath),
 		ownership: await sha256(ownershipPath)
 	};
-	textareas['#vpn-direct-domains'].value = 'full:must-rollback.rc6.invalid';
+	textareas['#vpn-direct-domains'].value = 'full:must-rollback.rc7.invalid';
 	textareas['#vpn-direct-ips'].value = '203.0.113.0/25';
 	faultBoundary = 'after-config';
 	await page.handleApplyRules();

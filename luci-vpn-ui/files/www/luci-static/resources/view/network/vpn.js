@@ -212,9 +212,10 @@ return view.extend({
 		ui.showModal(_('Switch VLESS profile'), [
 			E('p', {}, _('Apply this profile and restart Xray?')),
 			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Cancel')),
+				E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'vpn-profile-use-cancel', 'click': ui.hideModal }, _('Cancel')),
 				' ',
 				E('button', {
+					'data-control-id': 'vpn-profile-use-confirm',
 					'class': 'btn cbi-button-positive',
 					'disabled': isReadonlyView,
 					'click': L.bind(function() {
@@ -272,9 +273,10 @@ return view.extend({
 			E('p', {}, _('Adopt %s without rewriting or restarting Xray?').format(preview.path)),
 			E('p', { 'class': 'vpn-muted' }, _('Confirmation is bound to configuration hash %s.').format(preview.config_sha256)),
 			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Cancel')),
+				E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'vpn-adoption-confirm-cancel', 'click': ui.hideModal }, _('Cancel')),
 				' ',
 				E('button', {
+					'data-control-id': 'vpn-adoption-confirm-modal',
 					'class': 'btn cbi-button-positive',
 					'disabled': isReadonlyView,
 					'click': L.bind(function() {
@@ -359,6 +361,7 @@ return view.extend({
 				E('td', { 'class': 'td left' }, match.line),
 				E('td', { 'class': 'td left' }, [
 					E('button', {
+						'data-control-id': 'vpn-rule-result',
 						'class': 'cbi-button cbi-button-neutral vpn-rule-result-button',
 						'click': L.bind(this.selectRuleLine, this, match.textarea, match.line)
 					}, highlightRuleMatch(match.value, query))
@@ -442,9 +445,10 @@ return view.extend({
 		ui.showModal(title, [
 			E('p', {}, message),
 			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Cancel')),
+				E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'vpn-global-cancel', 'click': ui.hideModal }, _('Cancel')),
 				' ',
 				E('button', {
+					'data-control-id': 'vpn-global-confirm',
 					'class': 'btn ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
 					'disabled': isReadonlyView,
 					'click': L.bind(function() {
@@ -520,10 +524,12 @@ return view.extend({
 		if (needsAdoption || (adopted && !ownership.healthy) || preview) {
 			body.push(E('div', { 'class': 'vpn-actions' }, [
 				E('button', {
+					'data-control-id': 'vpn-adoption-preview',
 					'class': 'cbi-button cbi-button-neutral',
 					'click': ui.createHandlerFn(this, 'handleAdoptionPreview')
 				}, preview ? _('Refresh preview') : _('Preview adoption')),
 				preview ? E('button', {
+					'data-control-id': 'vpn-adoption-confirm',
 					'class': 'cbi-button cbi-button-positive',
 					'disabled': !!(isReadonlyView || !mutationsAllowed) || null,
 					'click': ui.createHandlerFn(this, 'handleAdoptionConfirm')
@@ -550,6 +556,7 @@ return view.extend({
 					E('span', { 'class': 'label' }, 'TProxy: %s'.format(services.transparent || '-'))
 				]),
 				E('button', {
+					'data-control-id': 'vpn-global-toggle',
 					'class': 'cbi-button ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
 					'disabled': isReadonlyView || mutationDisabled,
 					'click': L.bind(this.handleToggleXray, this, enabled)
@@ -640,12 +647,14 @@ return view.extend({
 		return E('div', { 'class': 'vpn-domain-test' }, [
 			E('div', { 'class': 'vpn-domain-test-row' }, [
 				E('input', {
+					'data-control-id': 'vpn-domain-test-input',
 					'id': 'vpn-test-domain',
 					'type': 'text',
 					'placeholder': 'example.com',
 					'keydown': L.bind(this.handleTestDomainKeydown, this)
 				}),
 				E('button', {
+					'data-control-id': 'vpn-domain-test',
 					'class': 'cbi-button cbi-button-action',
 					'click': ui.createHandlerFn(this, 'handleTestDomain')
 				}, _('Test route'))
@@ -670,6 +679,7 @@ return view.extend({
 			return E('tr', { 'class': 'tr vpn-profile-row' + (selected ? ' vpn-selected' : '') }, [
 				E('td', { 'class': 'td left' }, [
 					E('input', {
+						'data-control-id': 'vpn-profile-auto-pool',
 						'type': 'checkbox',
 						'data-auto-profile': profile.id,
 						'checked': profile.auto_pool ? '' : null,
@@ -678,6 +688,7 @@ return view.extend({
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('button', {
+						'data-control-id': 'vpn-profile-use',
 						'class': 'cbi-button ' + (selected ? 'cbi-button-positive' : 'cbi-button-action'),
 						'disabled': selected || isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleSelect, this, profile.id)
@@ -700,6 +711,7 @@ return view.extend({
 				]),
 				E('td', { 'class': 'td right' }, [
 					E('button', {
+						'data-control-id': 'vpn-profile-delete',
 						'class': 'cbi-button cbi-button-remove',
 						'disabled': selected || isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleDelete, this, profile.id)
@@ -736,17 +748,20 @@ return view.extend({
 			]),
 			E('div', { 'class': 'vpn-add-row' }, [
 				E('input', {
+					'data-control-id': 'vpn-profile-url',
 					'id': 'vpn-vless-url',
 					'type': 'text',
 					'placeholder': 'vless://...',
 					'disabled': isReadonlyView || profileMutationDisabled
 				}),
 				E('button', {
+					'data-control-id': 'vpn-profile-add',
 					'class': 'cbi-button cbi-button-action',
 					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleAdd')
 				}, _('Add')),
 				E('button', {
+					'data-control-id': 'vpn-ping-refresh',
 					'class': 'cbi-button cbi-button-neutral',
 					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleRefresh')
@@ -767,12 +782,14 @@ return view.extend({
 				E('td', { 'class': 'td left' }, subscription.updated || '-'),
 				E('td', { 'class': 'td right' }, [
 					E('button', {
+						'data-control-id': 'vpn-subscription-sync',
 						'class': 'cbi-button cbi-button-action',
 						'disabled': isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleSyncSubscription, this, subscription.id)
 					}, _('Refresh')),
 					' ',
 					E('button', {
+						'data-control-id': 'vpn-subscription-delete',
 						'class': 'cbi-button cbi-button-remove',
 						'disabled': isReadonlyView || profileMutationDisabled,
 						'click': L.bind(this.handleDeleteSubscription, this, subscription.id)
@@ -786,6 +803,7 @@ return view.extend({
 			E('div', { 'class': 'vpn-muted vpn-section-note' }, _('Subscription URLs are stored with restricted permissions and are never displayed again.')),
 			E('div', { 'class': 'vpn-add-row' }, [
 				E('input', {
+					'data-control-id': 'vpn-subscription-url',
 					'id': 'vpn-subscription-url',
 					'type': 'password',
 					'autocomplete': 'off',
@@ -793,6 +811,7 @@ return view.extend({
 					'disabled': isReadonlyView || profileMutationDisabled
 				}),
 				E('button', {
+					'data-control-id': 'vpn-subscription-import',
 					'class': 'cbi-button cbi-button-action',
 					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleAddSubscription')
@@ -823,6 +842,7 @@ return view.extend({
 			E('div', { 'class': 'vpn-settings-grid' }, [
 				E('label', { 'class': 'vpn-check-row' }, [
 					E('input', {
+						'data-control-id': 'vpn-auto-failover',
 						'id': 'vpn-auto-failover',
 						'type': 'checkbox',
 						'checked': auto.failover ? '' : null,
@@ -832,6 +852,7 @@ return view.extend({
 				]),
 				E('label', { 'class': 'vpn-check-row' }, [
 					E('input', {
+						'data-control-id': 'vpn-auto-periodic',
 						'id': 'vpn-auto-periodic',
 						'type': 'checkbox',
 						'checked': auto.periodic ? '' : null,
@@ -842,6 +863,7 @@ return view.extend({
 				E('div', { 'class': 'vpn-setting' }, [
 					E('label', { 'for': 'vpn-auto-hours' }, _('Optimization interval (hours)')),
 					E('input', {
+						'data-control-id': 'vpn-auto-hours',
 						'id': 'vpn-auto-hours',
 						'type': 'number',
 						'min': '6',
@@ -853,6 +875,7 @@ return view.extend({
 			]),
 			E('div', { 'class': 'vpn-actions' }, [
 				E('button', {
+					'data-control-id': 'vpn-auto-apply',
 					'class': 'cbi-button cbi-button-positive',
 					'disabled': isReadonlyView || profileMutationDisabled,
 					'click': ui.createHandlerFn(this, 'handleApplyAuto')
@@ -870,12 +893,14 @@ return view.extend({
 			this.renderDomainTester(),
 			E('div', { 'class': 'vpn-rule-search' }, [
 				E('input', {
+					'data-control-id': 'vpn-rule-search',
 					'id': 'vpn-rule-search',
 					'type': 'search',
 					'placeholder': _('Search rules'),
 					'input': L.bind(this.handleRuleSearch, this)
 				}),
 				E('button', {
+					'data-control-id': 'vpn-rule-search-clear',
 					'class': 'cbi-button cbi-button-neutral',
 					'click': ui.createHandlerFn(this, 'handleClearRuleSearch')
 				}, _('Clear')),
@@ -886,6 +911,7 @@ return view.extend({
 				E('div', {}, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'vpn-direct-domains' }, _('Domains')),
 					E('textarea', {
+						'data-control-id': 'vpn-direct-domains',
 						'id': 'vpn-direct-domains',
 						'spellcheck': 'false',
 						'wrap': 'off',
@@ -896,6 +922,7 @@ return view.extend({
 				E('div', {}, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'vpn-direct-ips' }, _('IP addresses')),
 					E('textarea', {
+						'data-control-id': 'vpn-direct-ips',
 						'id': 'vpn-direct-ips',
 						'spellcheck': 'false',
 						'wrap': 'off',
@@ -906,6 +933,7 @@ return view.extend({
 			]),
 			E('div', { 'class': 'vpn-actions' }, [
 				E('button', {
+					'data-control-id': 'vpn-direct-apply',
 					'class': 'cbi-button cbi-button-positive',
 					'disabled': rulesDisabled,
 					'click': ui.createHandlerFn(this, 'handleApplyRules')
@@ -932,6 +960,7 @@ return view.extend({
 				]),
 				E('td', { 'class': 'td right' }, [
 					E('button', {
+						'data-control-id': 'vpn-device-toggle',
 						'class': 'cbi-button ' + (disabled ? 'cbi-button-positive' : 'cbi-button-negative'),
 						'disabled': isReadonlyView || deviceMutationDisabled,
 						'click': L.bind(this.handleToggleDevice, this, device)

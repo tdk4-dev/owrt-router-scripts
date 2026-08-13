@@ -30,13 +30,37 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_VERSION: 0.7.11-rc.6
-  PACKAGE_VERSION: 0.7.11~rc6-1
-  RELEASE_BASENAME: release-v0.7.11-rc.6
+  APP_VERSION: 0.7.11-rc.7
+  PACKAGE_VERSION: 0.7.11~rc7-1
+  RELEASE_BASENAME: release-v0.7.11-rc.7
   ROUTER_UI_SIGNING_KEY_ID: production-2026-07
 
 jobs:
+  resolve-source:
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Resolve annotated tag commit
+        id: source
+        run: |
+          set -eu
+          test "$(git cat-file -t "refs/tags/${{ inputs.tag }}")" = tag
+          printf 'source_sha=%s\n' "$(git rev-parse '${{ inputs.tag }}^{commit}')" >> "$GITHUB_OUTPUT"
+
+  source-preflight:
+    needs: resolve-source
+    uses: ./.github/workflows/router-ui-source-preflight.yml
+    with:
+      source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+
   canonical-ipks:
+    needs: [resolve-source, source-preflight]
+    if: ${{ needs.source-preflight.outputs.verified_sha == needs.resolve-source.outputs.source_sha }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

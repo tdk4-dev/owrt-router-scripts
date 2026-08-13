@@ -1,27 +1,29 @@
-## Router UI 0.7.11 local RC status
+## Router UI 0.7.11 RC7 Phase 1 status
 
-Router UI 0.7.11 RC6 has completed local Mac Pro validation. This is not yet
-the stable production installation instruction. The existing 0.7.1 to 0.7.10
-instructions remain historical, and issue #10 must remain open.
+Router UI `0.7.11-rc.7` (`0.7.11~rc7-1`, candidate channel) has reached the
+Phase 1 status recorded below. This template must not claim canonical package,
+image, signing, hardware, or release qualification. Issue #10 remains open.
 
-- RC source: `@RC_SOURCE_COMMIT@`
-- RC archive SHA-256: `@RC_ARCHIVE_SHA256@`
-- Active signing key: `production-2026-07` (`d055711acf1d9a5b`)
-- Canonical IPKs: `@CANONICAL_IPK_HASHES@`
-- Historical sources tested: 0.7.0, 0.7.1, 0.7.2, 0.7.3, 0.7.4, 0.7.5,
-  0.7.6, 0.7.8, 0.7.9 and 0.7.10
-- Rescue matrix: `@RESCUE_MATRIX_RESULT@`
-- Vanilla OpenWrt 24.10.5: direct verified IPKs and signed candidate feed both
-  passed without a firmware flash or global package upgrade
-- Stable-promotion proof: signed `0.7.11-rc.6` to stable `0.7.11`, exact
-  rollback to `0.7.11-rc.6`, repeat update, and second exact rollback passed
+- Exact source commit: `@PHASE1_SOURCE_COMMIT@`
+- Exact source tree: `@PHASE1_SOURCE_TREE@`
+- Draft PR: `@DRAFT_PR_URL@`
+- Exact-SHA preflight run: `@PREFLIGHT_RUN_URL@`
+- Preflight source/result: `@PREFLIGHT_SOURCE_SHA@ / @PREFLIGHT_RESULT@`
+- Provisional package set: `@PROVISIONAL_PACKAGE_HASHES@`
+- Disposable VM/boot identity: `@VM_AND_BOOT_IDENTITY@`
+- Direct-localhost browser evidence: `@BROWSER_EVIDENCE@`
+- Fixture restoration proof: `@RESTORATION_EVIDENCE@`
 - Physical routers touched: none
 
-Remaining stable-publication blockers:
+The complete adopted panel is enabled only for a healthy adopted overlay. It
+fails closed in adoption-required, drift/recovery, reboot-pending, and
+read-only states. Phase 1 must cover Update, VPN, and Tailscale controls through
+the machine-readable census and the real LuCI → RPC/ACL → backend path.
 
-1. one controlled physical hardware canary;
-2. at least two encrypted private-key backups, including one off the Mac Pro,
-   with a successful fingerprint recovery test;
-3. explicit stable-publication authorization.
+Phase 1 evidence is provisional. It is not an A/B reproducibility build, a
+canonical signed artifact set, an image build, a full VM matrix, a hardware
+canary, a tag, a release, distribution authorization, or rollout readiness.
 
-No stable release or tag was created by this validation task.
+Remaining blockers are recorded at `@REMAINING_BLOCKERS@`. No merge, tag,
+GitHub release, production signing, image build, Factory work, router contact,
+distribution, or rollout was authorized by this status update.

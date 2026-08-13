@@ -4,6 +4,43 @@ Use this method before publishing router UI releases and before merging high
 risk changes that affect setup, update, packaging, reset, VPN, Tailscale, or
 authentication.
 
+## Phase 1 provisional three-IPK checkpoint
+
+Phase 1 is a single, non-production functional checkpoint before canonical
+qualification. It uses at most one three-IPK byte set from an exact clean
+source SHA. It is not an A/B reproducibility build, a signed candidate,
+distribution collateral, an image build, or release evidence.
+
+- Commit and push the intended source, open a draft PR, and wait for the
+  reusable exact-SHA source preflight to pass before producing packages.
+- Use no production key or protected signing environment. If the disposable
+  path requires signatures, use an explicitly non-production test identity.
+- Record the exact source commit/tree, input locks, filenames, sizes, and
+  SHA-256 hashes before VM installation. Never change tracked source after the
+  checkpoint begins.
+- Create or prove a uniquely named disposable clone/snapshot. Never mutate,
+  reuse, unregister, delete, sanitize, or replace a historical, operational,
+  or sensitive evidence VM.
+- Record host, VM UUID/name, snapshot/clone parent, boot ID, configured RAM,
+  package hashes, and pre-install configuration/service/route hashes.
+- Install the unchanged bytes and exercise every applicable machine-readable
+  census entry through real LuCI → RPC/ACL → backend behavior.
+- Run the browser on the same workstation that hosts the VM and use a direct
+  localhost port. An SSH tunnel, VPN path, LAN address, remote browser, or
+  remote automation result is not same-workstation browser proof.
+- Retain screenshots or DOM evidence, backend/RPC results, zero browser-console
+  errors, admin and Tailscale route invariants, and exact post-test restoration
+  hashes.
+- The complete adopted panel is enabled only for a healthy adopted overlay and
+  fails closed in adoption-required, drift/recovery, reboot-pending, and
+  read-only states.
+
+If the checkpoint finds a source or packaged-file defect, mark its evidence
+invalid, restore the disposable VM, and stop. Do not build replacement bytes in
+the same Phase 1 run and do not nominate a freeze. Canonical package, image,
+signing, full-matrix, hardware, Factory, tag, release, distribution, and rollout
+gates remain skipped.
+
 ## Test Inputs
 
 Record:
@@ -16,9 +53,12 @@ Record:
 - VM name and host;
 - network mode and expected test URL.
 
+The remaining sections define later canonical/release qualification unless a
+section explicitly says it applies to the Phase 1 provisional checkpoint.
+
 ## Diagnostic QEMU boundary
 
-- QEMU is diagnostic-only for RC6 and cannot authorize candidate or release
+- QEMU is diagnostic-only for RC7 and cannot authorize candidate or release
   publication. The mandatory qualification hypervisor is VirtualBox on the Mac
   Pro, using a disposable, locally recoverable clone under supervision.
 - Configure every diagnostic OpenWrt QEMU VM with exactly 256 MiB RAM.
@@ -39,17 +79,17 @@ Record:
 
 The Mac Pro qualification evidence must bind the exact source SHA and signed
 release-manifest hash, prove fingerprint `d055711acf1d9a5b`, record a changed
-boot ID, and cover RC5 → RC6 candidate preview, post-reboot commit, adoption,
+boot ID, and cover RC5 → RC7 candidate preview, post-reboot commit, adoption,
 LuCI/RPC direct-rule apply and removal, Xray restart, exact rollback, and
 continuous Tailscale invariants. Same-workstation browser proof must use direct
-localhost access. `validate-rc6-virtualbox-evidence.sh` enforces this contract.
+localhost access. `validate-rc7-virtualbox-evidence.sh` enforces this contract.
 
 ## Pre-merge VirtualBox evidence publication
 
 GitHub can dispatch a manual workflow only after that workflow path exists on
 the default branch. Expose the evidence publisher with a separate bootstrap PR
 from `origin/main` containing exactly
-`.github/workflows/publish-router-ui-rc6-virtualbox-evidence.yml`. Do not merge
+`.github/workflows/publish-router-ui-rc7-virtualbox-evidence.yml`. Do not merge
 the RC merely to expose its qualification workflow.
 
 Run the publisher on `main`, with the candidate commit supplied only as the
@@ -76,9 +116,9 @@ The publisher VM requires:
 - no repository checkout, production signing key, router credentials,
   VirtualBox control socket, or write access to the evidence source;
 - a root-owned, read-only staged tree at
-  `/srv/router-ui-evidence/rc6-final/<source-sha>` and the matching signed
+  `/srv/router-ui-evidence/rc7-final/<source-sha>` and the matching signed
   release at
-  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.6`;
+  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.7`;
 - protected environment approval for
   `router-ui-mac-pro-virtualbox-evidence`; and
 - external retention of the ephemeral runner diagnostic logs.

@@ -12,6 +12,12 @@
 *.swo
 .vscode/
 .idea/
+.worktrees/
+_local/
+/output/
+/tmp/
+__pycache__/
+*.pyc
 
 # Logs, temporary files, and patch leftovers
 *.log

@@ -1,53 +1,39 @@
-Router UI 0.7.11 RC6
+Router UI 0.7.11 RC7
 
-Router UI `0.7.11-rc.6` is the constrained repair candidate for RC5. It keeps
-the protocol-2 package, signature, recovery, and rollback foundation while
-repairing real asynchronous update launch and making Xray configuration
-ownership explicit. It intentionally contains no 0.8 product features.
+Router UI `0.7.11-rc.7` is the next immutable candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc7-1`, its
+channel is `candidate`, its future tag convention is
+`vpn-panel-v0.7.11-rc.7`, and its stable successor is `0.7.11` /
+`0.7.11-1`. It contains no Router UI 0.8 feature work.
 
-The core package now depends on `coreutils-nohup`, `ucode`, and
-`ucode-mod-fs`, and uses an ownership-bound child-start handshake with
-structured launch errors. Check and Apply remain asynchronous through LuCI;
-the synchronous worker override remains test-only.
+RC7 preserves protocol-2 signed-manifest verification, transactional package
+updates, reboot validation, exact rollback/recovery, structured asynchronous
+Update Check/Apply results, and fail-closed compatibility, checksum, storage,
+and signature handling. RC5 and both materially different historical RC6 byte
+sets are supported source states, but their retained evidence does not qualify
+RC7. The missing signed-manifest digest for the first RC6 byte set remains
+unknown and is never replaced with the hotfix digest.
 
-Xray ownership has two modes. The existing generated
+Xray ownership has two supported modes. The generated
 `/etc/xray/exit-st-cf.json` path remains `native-generated`. A manual active
-configuration such as `/etc/xray/config.json` requires authenticated preview
-and exact-hash confirmation before becoming `adopted-overlay`. Adoption imports
-only one unambiguous isolated direct-domain array and one isolated direct-IP
-array, and does not rewrite or restart Xray. Later rule application changes
-only those selectors, proves every other JSON semantic is unchanged, validates
-the candidate, atomically installs it, and automatically restores exact private
-preimages if validation, commit, restart, or Tailscale/route invariants fail.
+configuration such as `/etc/xray/config.json` requires an authenticated,
+read-only preview and explicit confirmation before becoming an adopted
+overlay. Adoption records ownership without rewriting or restarting Xray.
 
-Profile switching and automatic profile mutation are disabled in adopted mode.
-The native renderer no longer adds BitTorrent or TCP 8080 direct bypass rules.
-Existing adopted bypasses remain untouched because all non-managed rules are
-preserved.
+The complete VPN panel is enabled only while an adopted overlay is healthy:
+global VPN, profile add/use/delete, subscription import/sync/delete, ping
+refresh, automatic switching, direct rules, and device VPN. Adoption-required,
+drift/recovery, reboot-pending, and read-only states fail closed. Every adopted
+mutation is serialized, rechecks the live hash before persistence, changes only
+supported fields, validates Xray, preserves Tailscale and management-route
+invariants, and restores exact private preimages on failure.
 
-The active production identity is the usign key `production-2026-07`. Only its
-public key and derived fingerprint are present in source and release assets;
-the protected workflow supplies the private key only to signing jobs. Routers
-that trusted only the former identity require the documented authenticated
-public-key bootstrap before they can trust this release.
-
-This candidate supports the immutable published 0.7.0 through 0.7.6 and 0.7.8
-through 0.7.10 release assets. The tag-only 0.7.7 identity has no published
-installation artifact and is refused. Every supported source converges on one
-canonical set of three `0.7.11~rc6-1` IPKs. A signed initial-install bootstrap
-installs those packages on an already-flashed OpenWrt 24.10.5 router and seeds
-the exact known-good package set required for rollback and the later stable
-update. No firmware flash or global `opkg upgrade` is part of that path.
-
-The RC identity is embedded independently as the user-facing version
-`0.7.11-rc.6`, OpenWrt package version `0.7.11~rc6-1`, and release channel
-`candidate`. The LuCI Update page labels the build as prerelease software, but
-continues to follow the signed stable channel by default. Stable `0.7.11` is
-therefore considered newer and remains available as the next update.
-
-Physical RD23 testing remains an explicit hardware-canary gate and is not
-represented by VirtualBox or static image proof. This is candidate-channel
-material, not a stable publication.
+The active production trust identity remains the public contract for key
+`production-2026-07`, fingerprint `d055711acf1d9a5b`. Phase 1 does not use its
+private key, production signing environment, canonical build path, images,
+Factory, hardware, tags, releases, or rollout. Provisional Phase 1 packages and
+VM/browser evidence are explicitly non-production and do not establish full
+release readiness.
 
 Historical 0.7.10 notes
 
