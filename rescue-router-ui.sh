@@ -3,7 +3,7 @@ set -eu
 umask 077
 
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
-TARGET_VERSION=0.7.11-rc.9
+TARGET_VERSION=0.7.11-rc.10
 TARGET_TAG="vpn-panel-v$TARGET_VERSION"
 RELEASE_BASE="${ROUTER_UI_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TARGET_TAG}"
 VERSION_FILE="${ROUTER_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
@@ -14,6 +14,7 @@ TRUSTED_KEY_COMMENT='UNRENDERED-PRODUCTION-PUBLIC-KEY'
 TRUSTED_KEY_DATA=''
 PUBLIC_KEY="$WORK_DIR/release.pub"
 OPENWRT_RELEASE_FILE="${ROUTER_UI_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
+OPKG_BIN="${ROUTER_UI_OPKG_BIN:-opkg}"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 cleanup() {
@@ -41,6 +42,52 @@ fetch() {
   return 1
 }
 jget() { jsonfilter -i "$1" -e "$2" | sed -n '1p'; }
+filesystem_free_kib() {
+  df -Pk "$1" 2>/dev/null | awk 'NR > 1 && $4 ~ /^[0-9]+$/ { print $4; exit }'
+}
+bridge_state_kib() {
+  for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root \
+    /usr/lib/opkg/status; do
+    [ ! -e "$path" ] || du -sk "$path" 2>/dev/null || return 1
+  done | awk '{ total += $1 } END { print total + 0 }'
+}
+ensure_worker_prerequisite() {
+  local index=0 size package_bytes=0 package_kib state_kib
+  local persistent_probe persistent_free temporary_free persistent_required temporary_required
+
+  command -v nohup >/dev/null 2>&1 && return 0
+  while [ "$index" -lt 3 ]; do
+    size="$(jget "$MANIFEST" "@.packages[$index].size")"
+    printf '%s' "$size" | grep -Eq '^[1-9][0-9]*$' ||
+      die "manifest package size is malformed"
+    package_bytes=$((package_bytes + size))
+    index=$((index + 1))
+  done
+  [ -z "$(jget "$MANIFEST" '@.packages[3].name')" ] ||
+    die "manifest contains an unexpected package"
+  package_kib=$(((package_bytes + 1023) / 1024))
+  state_kib="$(bridge_state_kib)" || die "could not measure the existing router state"
+  persistent_required=$((32768 + (package_kib * 4) + state_kib))
+  temporary_required=$((16384 + (package_kib * 2) + state_kib))
+  persistent_probe=/overlay
+  [ -d "$persistent_probe" ] || persistent_probe=/
+  persistent_free="$(filesystem_free_kib "$persistent_probe")"
+  temporary_free="$(filesystem_free_kib /tmp)"
+  printf '%s' "$persistent_free" | grep -Eq '^[0-9]+$' ||
+    die "could not determine persistent free space before prerequisite repair"
+  printf '%s' "$temporary_free" | grep -Eq '^[0-9]+$' ||
+    die "could not determine temporary free space before prerequisite repair"
+  [ "$persistent_free" -ge "$persistent_required" ] ||
+    die "insufficient persistent space before prerequisite repair: need ${persistent_required} KiB, have ${persistent_free} KiB"
+  [ "$temporary_free" -ge "$temporary_required" ] ||
+    die "insufficient /tmp space before prerequisite repair: need ${temporary_required} KiB, have ${temporary_free} KiB"
+
+  printf 'Installing the signed-feed coreutils-nohup prerequisite for legacy Router UI %s.\n' \
+    "$SOURCE_VERSION"
+  "$OPKG_BIN" update || die "signed OpenWrt package index update failed"
+  "$OPKG_BIN" install coreutils-nohup || die "coreutils-nohup prerequisite installation failed"
+  command -v nohup >/dev/null 2>&1 || die "coreutils-nohup did not provide nohup"
+}
 
 [ "${ROUTER_UI_TARGET_VERSION:-$TARGET_VERSION}" = "$TARGET_VERSION" ] ||
   die "direct rescue is pinned to Router UI $TARGET_VERSION; another target is refused"
@@ -85,7 +132,7 @@ case "$TRUSTED_KEY_ID:$TRUSTED_KEY_FINGERPRINT:$TRUSTED_KEY_COMMENT:$TRUSTED_KEY
     die "this source-tree rescue is unrendered and contains no trusted production key; use the signed release asset"
     ;;
 esac
-for tool in jsonfilter usign sha256sum tar mktemp; do
+for tool in jsonfilter usign sha256sum tar mktemp awk df du "$OPKG_BIN"; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 
@@ -136,6 +183,7 @@ sh -n "$WORK_DIR/$INSTALLER_NAME" ||
   die "standalone installer shell syntax is invalid"
 chmod 700 "$WORK_DIR/$INSTALLER_NAME"
 
+ensure_worker_prerequisite
 printf 'Installing the exact Router UI %s bridge from recognized source %s.\n' \
   "$TARGET_VERSION" "$SOURCE_VERSION"
 ROUTER_UI_VERSION="$TARGET_VERSION" ROUTER_UI_REPO="$REPO" \

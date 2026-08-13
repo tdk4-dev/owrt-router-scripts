@@ -10,30 +10,30 @@ trap cleanup EXIT INT TERM
 
 . "$LIB"
 
-pr_version_newer 0.7.11-rc.9 0.7.11-rc.5
-pr_version_newer 0.7.11-rc.9 0.7.11-rc.6
-pr_version_newer 0.7.11-rc.9 0.7.11-rc.7
-pr_version_newer 0.7.11-rc.9 0.7.11-rc.8
-pr_version_newer 0.7.11 0.7.11-rc.9
-! pr_version_newer 0.7.11-rc.9 0.7.11
-! pr_version_newer 0.7.11-rc.7 0.7.11-rc.9
-! pr_version_newer 0.7.11-rc.8 0.7.11-rc.9
-! pr_version_newer 0.7.11-rc.9 0.7.11-rc.9
-pr_package_version_matches_app 0.7.11-rc.9 0.7.11~rc9-1
+pr_version_newer 0.7.11-rc.10 0.7.11-rc.5
+pr_version_newer 0.7.11-rc.10 0.7.11-rc.6
+pr_version_newer 0.7.11-rc.10 0.7.11-rc.7
+pr_version_newer 0.7.11-rc.10 0.7.11-rc.8
+pr_version_newer 0.7.11 0.7.11-rc.10
+! pr_version_newer 0.7.11-rc.10 0.7.11
+! pr_version_newer 0.7.11-rc.7 0.7.11-rc.10
+! pr_version_newer 0.7.11-rc.8 0.7.11-rc.10
+! pr_version_newer 0.7.11-rc.10 0.7.11-rc.10
+pr_package_version_matches_app 0.7.11-rc.10 0.7.11~rc10-1
 pr_package_version_matches_app 0.7.11 0.7.11-1
 
 HASH_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 HASH_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-[ "$(pr_offer_identity_decision 0.7.11-rc.7 0.7.11-rc.9 '' '')" = upgrade ]
-[ "$(pr_offer_identity_decision 0.7.11-rc.8 0.7.11-rc.9 '' '')" = upgrade ]
-[ "$(pr_offer_identity_decision 0.7.11-rc.9 0.7.11 "$HASH_A" "$HASH_B")" = upgrade ]
-[ "$(pr_offer_identity_decision 0.7.11-rc.9 0.7.11-rc.9 "$HASH_A" "$HASH_A")" = repeat-identical ]
-if pr_offer_identity_decision 0.7.11-rc.9 0.7.11-rc.9 "$HASH_A" "$HASH_B" >/dev/null; then
-  printf 'different bytes were accepted under the consumed RC9 identity\n' >&2
+[ "$(pr_offer_identity_decision 0.7.11-rc.7 0.7.11-rc.10 '' '')" = upgrade ]
+[ "$(pr_offer_identity_decision 0.7.11-rc.8 0.7.11-rc.10 '' '')" = upgrade ]
+[ "$(pr_offer_identity_decision 0.7.11-rc.10 0.7.11 "$HASH_A" "$HASH_B")" = upgrade ]
+[ "$(pr_offer_identity_decision 0.7.11-rc.10 0.7.11-rc.10 "$HASH_A" "$HASH_A")" = repeat-identical ]
+if pr_offer_identity_decision 0.7.11-rc.10 0.7.11-rc.10 "$HASH_A" "$HASH_B" >/dev/null; then
+  printf 'different bytes were accepted under the consumed RC10 identity\n' >&2
   exit 1
 fi
-if pr_offer_identity_decision 0.7.11 0.7.11-rc.9 '' '' >/dev/null; then
-  printf 'stable-to-RC9 downgrade was accepted\n' >&2
+if pr_offer_identity_decision 0.7.11 0.7.11-rc.10 '' '' >/dev/null; then
+  printf 'stable-to-RC10 downgrade was accepted\n' >&2
   exit 1
 fi
 
@@ -94,9 +94,9 @@ J_SOURCE_APP_VERSION=0.7.11-rc.7
 J_SOURCE_PACKAGE_VERSION=0.7.11~rc7-1
 J_SOURCE_UPDATER_PROTOCOL=2
 J_SOURCE_TYPE=ipk
-J_TARGET_APP_VERSION=0.7.11-rc.9
-J_TARGET_PACKAGE_VERSION=0.7.11~rc9-1
-J_TARGET_TAG=vpn-panel-v0.7.11-rc.9
+J_TARGET_APP_VERSION=0.7.11-rc.10
+J_TARGET_PACKAGE_VERSION=0.7.11~rc10-1
+J_TARGET_TAG=vpn-panel-v0.7.11-rc.10
 J_TARGET_MANIFEST_HASH="$HASH_A"
 J_STATE=preflight
 J_LAST_COMPLETED_STATE=discovered

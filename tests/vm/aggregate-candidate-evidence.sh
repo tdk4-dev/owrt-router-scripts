@@ -26,14 +26,14 @@ key_id="$(jq -er '.signing_key_id' "$RELEASE_DIR/router-release-manifest.json")"
 key_fingerprint="$(jq -er '.signing_key_fingerprint' "$RELEASE_DIR/router-release-manifest.json")"
 jq -e '
   .source_dirty == false and .channel == "candidate" and
-  .app_version == "0.7.11-rc.9" and .package_version == "0.7.11~rc9-1" and
-  .release_tag == "vpn-panel-v0.7.11-rc.9" and
+  .app_version == "0.7.11-rc.10" and .package_version == "0.7.11~rc10-1" and
+  .release_tag == "vpn-panel-v0.7.11-rc.10" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   (any(.transitions[]; .source_version == "0.7.11-rc.4" and
     .source_protocol == 2) | not)
 ' "$RELEASE_DIR/router-release-manifest.json" >/dev/null ||
-  fail "release manifest is not the exact RC9 candidate contract"
+  fail "release manifest is not the exact RC10 candidate contract"
 
 find "$EVIDENCE_ROOT" -type f -name candidate-content-descriptor.json -print0 |
   LC_ALL=C sort -z | xargs -0 jq -c . > "$OUT_DIR/candidate-content-descriptors.jsonl"
@@ -92,7 +92,7 @@ jq -s -e --arg source "$source_sha" --arg key "$key_id" \
   --arg successor_manifest "$successor_manifest_sha256" '
     length == 23 and all(.[ ];
       .schema_version == 1 and .source_commit == $source and
-      .contract_mode == "rc9-active-key" and
+      .contract_mode == "rc10-active-key" and
       .signing_key_id == $key and .signing_key_fingerprint == $fingerprint and
       .candidate.app_version == $candidate_app and
       .candidate.package_version == $candidate_package and
@@ -141,7 +141,7 @@ jq -s -e --arg source "$source_sha" --arg fingerprint "$key_fingerprint" \
       .successor.app_version == $successor_app and
       .successor.package_version == $successor_package and
       .successor.release_tag == $successor_tag and
-      .candidate_contract_mode == "rc9-active-key" and
+      .candidate_contract_mode == "rc10-active-key" and
       .diagnostic == true and .release_evidence == false and
       .configured_ram_mib == 256 and
       .recovery_timeout_seconds == 600 and
@@ -319,7 +319,7 @@ jq -n --arg source "$source_sha" --arg baseline "$EXPECTED_BASELINE_DIGEST" \
     successor:{app_version:$successor_app,package_version:$successor_package,release_tag:$successor_tag},
     individual_shards_authorize_release:false,all_mandatory_cases_passed:false,
     supplemental_qemu_cases_passed:true,release_authorized:false,
-    rc5_rc9_virtualbox_cycle:"pending-mac-pro",same_workstation_browser:"pending-mac-pro",
+    rc5_rc10_virtualbox_cycle:"pending-mac-pro",same_workstation_browser:"pending-mac-pro",
     configured_ram_mib:256,maximum_parallel_vm_jobs:2,shard_count:$shard_count,
     dual_daemon_vm_verified:true,
     dual_daemon_scope:"real-unenrolled-tailscaled-plus-local-only-xray",

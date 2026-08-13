@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Exact 0.7.11-rc.9 candidate source commit SHA
+        description: Exact 0.7.11-rc.10 candidate source commit SHA
         required: true
         type: string
       virtualbox_evidence_artifact_id:
@@ -29,9 +29,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_VERSION: 0.7.11-rc.9
-  PACKAGE_VERSION: 0.7.11~rc9-1
-  RELEASE_BASENAME: release-v0.7.11-rc.9
+  APP_VERSION: 0.7.11-rc.10
+  PACKAGE_VERSION: 0.7.11~rc10-1
+  RELEASE_BASENAME: release-v0.7.11-rc.10
   ROUTER_UI_SIGNING_KEY_ID: production-2026-07
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-      - name: Verify exact clean 0.7.11-rc.9 source
+      - name: Verify exact clean 0.7.11-rc.10 source
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
@@ -663,7 +663,7 @@ jobs:
           archive="$RUNNER_TEMP/virtualbox-evidence.zip"
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$EVIDENCE_ARTIFACT_ID" > "$metadata"
           jq -e --arg publisher "$EVIDENCE_PUBLISHER_SHA" \
-            --arg name "router-ui-rc9-mac-pro-virtualbox-evidence-$EVIDENCE_SOURCE_SHA" '
+            --arg name "router-ui-rc10-mac-pro-virtualbox-evidence-$EVIDENCE_SOURCE_SHA" '
             .expired == false and .name == $name and
             .workflow_run.head_branch == "main" and
             .workflow_run.head_sha == $publisher
@@ -675,7 +675,7 @@ jobs:
             .conclusion == "success" and
             .head_branch == "main" and
             .head_sha == $publisher and
-            .path == ".github/workflows/publish-router-ui-rc9-virtualbox-evidence.yml"
+            .path == ".github/workflows/publish-router-ui-rc10-virtualbox-evidence.yml"
           ' "$publisher_run" >/dev/null
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$EVIDENCE_ARTIFACT_ID/zip" > "$archive"
           printf '%s  %s\n' "$EVIDENCE_ARTIFACT_ZIP_SHA256" "$archive" | sha256sum -c -
@@ -697,7 +697,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$ASSEMBLY_RESULT" = success
-          ./tests/integration/validate-rc9-virtualbox-evidence.sh
+          ./tests/integration/validate-rc10-virtualbox-evidence.sh
           mkdir -p "$OUT_DIR/virtualbox"
           cp -a "$EVIDENCE_DIR/." "$OUT_DIR/virtualbox/"
           cp "$RELEASE_DIR/router-release-manifest.json" "$OUT_DIR/"

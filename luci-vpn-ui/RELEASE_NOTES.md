@@ -1,22 +1,37 @@
-Router UI 0.7.11 RC9
+Router UI 0.7.11 RC10
 
-Router UI `0.7.11-rc.9` is the conservative continuation candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc9-1`, its
+Router UI `0.7.11-rc.10` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc10-1`, its
 channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.9`, and its stable successor is `0.7.11` /
+`vpn-panel-v0.7.11-rc.10`, and its stable successor is `0.7.11` /
 `0.7.11-1`. It contains no Router UI 0.8 feature work.
 
-RC9 is not immutable release evidence merely because this identity is present
+RC9 was rejected before publication after exact-byte testing from the retained
+public 0.7.10 VM origin proved that `coreutils-nohup` was not installed. RC10
+adds one narrow legacy-rescue repair: after authenticating the target manifest
+and enforcing a conservative persistent and temporary storage gate, it updates
+the configured signed OpenWrt feeds and installs only that missing upstream
+worker prerequisite. It never performs a global package upgrade. If the
+project transaction then fails, its ordinary exact application/configuration
+rollback still applies; the upstream prerequisite remains installed so a retry
+and the asynchronous updater have the required worker launcher.
+
+The VM legacy fixture now renders its selected non-routable test profile and
+records the canonical `/etc/xray/exit-st-cf.json` UCI path before candidate
+validation. This corrects qualification state only and does not broaden Xray
+adoption behavior.
+
+RC10 is not immutable release evidence merely because this identity is present
 in source. It becomes consumed when its sole provisional package-build
 invocation begins; Phase 1 can only nominate the exact source for a separately
 authorized Phase 2 freeze decision.
 
-RC9 preserves protocol-2 signed-manifest verification, transactional package
+RC10 preserves protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
 sets are supported source states, but their retained evidence does not qualify
-RC9. The missing signed-manifest digest for the first RC6 byte set remains
+RC10. The missing signed-manifest digest for the first RC6 byte set remains
 unknown and is never replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated

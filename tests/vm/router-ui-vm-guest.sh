@@ -115,6 +115,22 @@ install_baseline() {
   install_non_secret_test_profile "$version" "$fixture_origin"
   SKIP_SYSUPGRADE_BACKUP=1 INSTALL_GEOSITE=0 UPDATE_GEOSITE=0 sh "$work/luci-vpn-ui/install.sh"
   [ "$(sed -n '1p' /usr/share/vpn-ui/version)" = "$version" ] || die "baseline $version did not install exactly"
+  domains="$(cat /etc/xray/direct-domains.txt)"
+  ips="$(cat /etc/xray/direct-ips.txt 2>/dev/null || true)"
+  /usr/sbin/vpn-ui apply-rules "$domains" "$ips" >/tmp/router-ui-baseline-apply.json
+  [ -s /etc/xray/exit-st-cf.json ] || die "baseline did not render its selected profile"
+  if command -v uci >/dev/null 2>&1 && [ -x /etc/init.d/xray ]; then
+    uci set xray.config=xray
+    uci set xray.config.conffiles='/etc/xray/exit-st-cf.json'
+    uci set xray.config.format='json'
+    uci -q delete xray.config.confdir
+    uci commit xray
+    /etc/init.d/xray restart >/tmp/router-ui-baseline-xray-restart.log 2>&1 ||
+      die "baseline Xray service did not accept the rendered profile"
+  fi
+  /usr/sbin/vpn-ui check >/tmp/router-ui-baseline-rendered-check.json
+  grep -q '"ok":true' /tmp/router-ui-baseline-rendered-check.json ||
+    die "rendered baseline configuration did not validate"
   rm -rf "$work"
 }
 

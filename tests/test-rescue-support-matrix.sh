@@ -32,10 +32,16 @@ grep -q 'TARGET_TAG="vpn-panel-v\$TARGET_VERSION"' "$ROOT_DIR/rescue-router-ui.s
 grep -Fq 'embedded release public-key fingerprint mismatch' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'case "$TARGET_CHANNEL" in stable|candidate)' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'ROUTER_UI_RELEASE_CHANNEL="$TARGET_CHANNEL"' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'command -v nohup >/dev/null 2>&1 && return 0' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq '"$OPKG_BIN" update || die "signed OpenWrt package index update failed"' \
+  "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq '"$OPKG_BIN" install coreutils-nohup' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'insufficient persistent space before prerequisite repair' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'insufficient /tmp space before prerequisite repair' "$ROOT_DIR/rescue-router-ui.sh"
 
 PREMIER_ROUTER_HOST_TEST=1 ROUTER_UI_TEST_VALIDATE_REQUESTED_VERSION_ONLY=1 \
-  ROUTER_UI_VERSION=0.7.11-rc.9 sh "$ROOT_DIR/install-router-ui-release.sh" |
-  grep -Fqx 'Recognized requested version: 0.7.11-rc.9'
+  ROUTER_UI_VERSION=0.7.11-rc.10 sh "$ROOT_DIR/install-router-ui-release.sh" |
+  grep -Fqx 'Recognized requested version: 0.7.11-rc.10'
 if PREMIER_ROUTER_HOST_TEST=1 ROUTER_UI_TEST_VALIDATE_REQUESTED_VERSION_ONLY=1 \
   ROUTER_UI_VERSION=0.7.11-rc sh "$ROOT_DIR/install-router-ui-release.sh" \
   > "$TMP_ROOT/installer-rejected.out" 2> "$TMP_ROOT/installer-rejected.err"; then

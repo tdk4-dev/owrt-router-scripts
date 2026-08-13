@@ -20,8 +20,8 @@ mkdir -p "$RELEASE" "$EVIDENCE"
 
 jq -n --arg source "$SOURCE" --arg key "$KEY_ID" --arg fingerprint "$FINGERPRINT" '
   {source_commit:$source,source_dirty:false,channel:"candidate",
-   app_version:"0.7.11-rc.9",package_version:"0.7.11~rc9-1",
-   release_tag:"vpn-panel-v0.7.11-rc.9",signing_key_id:$key,
+   app_version:"0.7.11-rc.10",package_version:"0.7.11~rc10-1",
+   release_tag:"vpn-panel-v0.7.11-rc.10",signing_key_id:$key,
    signing_key_fingerprint:$fingerprint,transitions:
     ((["0.5.1","0.5.2","0.6.0","0.7.0","0.7.1","0.7.2","0.7.3",
        "0.7.4","0.7.5","0.7.6","0.7.8","0.7.9","0.7.10"] |
@@ -39,10 +39,10 @@ for index in $(seq 1 23); do
     {candidate_source_sha:$source,production_public_key_fingerprint:$fingerprint,
      harness_source_sha:$source,baseline_pack_digest:$baseline,diagnostic:true,
      release_evidence:false,configured_ram_mib:256,recovery_timeout_seconds:600,
-     candidate_contract_mode:"rc9-active-key",
+     candidate_contract_mode:"rc10-active-key",
      vm_execution_mode:"strictly-serial-exact-child-pid",
-     candidate:{app_version:"0.7.11-rc.9",package_version:"0.7.11~rc9-1",
-       release_tag:"vpn-panel-v0.7.11-rc.9"},
+     candidate:{app_version:"0.7.11-rc.10",package_version:"0.7.11~rc10-1",
+       release_tag:"vpn-panel-v0.7.11-rc.10"},
      successor:{app_version:"0.7.11",package_version:"0.7.11-1",
        release_tag:"vpn-panel-v0.7.11"},
      storage_profiles:{"rd23-stock":{writable_backing_kib:54436,
@@ -51,10 +51,10 @@ for index in $(seq 1 23); do
     ' > "$case_dir/summary.json"
   jq -n --arg source "$SOURCE" --arg key "$KEY_ID" --arg fingerprint "$FINGERPRINT" \
     --arg candidate_hash "$CANDIDATE_MANIFEST_HASH" --arg successor_hash "$SUCCESSOR_MANIFEST_HASH" '
-    {schema_version:1,source_commit:$source,contract_mode:"rc9-active-key",signing_key_id:$key,
+    {schema_version:1,source_commit:$source,contract_mode:"rc10-active-key",signing_key_id:$key,
      signing_key_fingerprint:$fingerprint,
-     candidate:{app_version:"0.7.11-rc.9",package_version:"0.7.11~rc9-1",
-       release_tag:"vpn-panel-v0.7.11-rc.9",manifest_sha256:$candidate_hash},
+     candidate:{app_version:"0.7.11-rc.10",package_version:"0.7.11~rc10-1",
+       release_tag:"vpn-panel-v0.7.11-rc.10",manifest_sha256:$candidate_hash},
      successor:{app_version:"0.7.11",package_version:"0.7.11-1",
        release_tag:"vpn-panel-v0.7.11",manifest_sha256:$successor_hash},
      manifest_signature_files_present:true,signatures_verified_by_harness:false,
@@ -90,8 +90,8 @@ for pair in '1 legacy' '2 protocol-concurrency-storage' '3 faults-a' '4 faults-b
     {schema_version:1,kind:"router-ui-candidate-content",immutable:true,
      manifested_bytes_verified:true,signatures_verified:true,product_source_sha:$source,
      production_key_id:$key,production_key_fingerprint:$fingerprint,
-     candidate:{app_version:"0.7.11-rc.9",package_version:"0.7.11~rc9-1",
-       release_tag:"vpn-panel-v0.7.11-rc.9"},
+     candidate:{app_version:"0.7.11-rc.10",package_version:"0.7.11~rc10-1",
+       release_tag:"vpn-panel-v0.7.11-rc.10"},
      successor:{app_version:"0.7.11",package_version:"0.7.11-1",
        release_tag:"vpn-panel-v0.7.11"},release_manifest_sha256:$release_hash,
      release_sha256sums_sha256:$release_inventory_hash,
@@ -105,14 +105,14 @@ jq -nc '{profile:"rd23-ubootmod",configured_ram_mib:256,mem_total_kib:235968,
   tmp_ram_backed:true,overlay_total_kib:76728,overlay_backing_kib:80352,
   target_expected_ubifs_df_total_kib:76728}' >> "$case_one/vm-measurements.jsonl"
 for version in 0.7.9 0.7.10; do
-  jq -nc --arg name "$version->0.7.11-rc.9->rollback" '
+  jq -nc --arg name "$version->0.7.11-rc.10->rollback" '
     {kind:"old-worker",name:$name,status:"pass",details:{transaction:"tx",
      disk_before:{},disk_candidate:{},disk_committed:{},disk_rolled_back:{},disk_after_reboot:{}}}
     ' >> "$case_one/transition-results.jsonl"
   jq -n '{ok:true,visible_vpn_status_cards:1}' > "$case_one/old-worker-$version-visible-card.json"
 done
 for version in 0.5.1 0.5.2 0.6.0 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10; do
-  jq -nc --arg name "$version->0.7.11-rc.9->rollback" '
+  jq -nc --arg name "$version->0.7.11-rc.10->rollback" '
     {kind:"rescue",name:$name,status:"pass",details:{transaction:"tx",
      disk_before:{},disk_candidate:{},disk_committed:{},disk_rolled_back:{},
      disk_after_rollback_reboot:{}}}
@@ -124,7 +124,7 @@ for refusal in 0.7.7 unknown 0.7 development 0.7.11RC1 0.8.0 direct-other-target
 done
 jq -nc '{kind:"image",name:"clean-x86-boot",status:"pass",details:{}}' \
   >> "$case_one/transition-results.jsonl"
-jq -nc '{kind:"protocol-v2",name:"0.7.11-rc.9->0.7.11->0.7.11-rc.9->0.7.11->0.7.11-rc.9",
+jq -nc '{kind:"protocol-v2",name:"0.7.11-rc.10->0.7.11->0.7.11-rc.10->0.7.11->0.7.11-rc.10",
   status:"pass",details:{protected_state_matches:true,retained_directories:4}}' \
   >> "$case_one/transition-results.jsonl"
 jq -nc '{kind:"concurrency",name:"cli-rpc-cron",status:"pass",details:{}}' \
@@ -142,8 +142,8 @@ jq -nc '{kind:"runtime",name:"dual-daemon-256m",status:"pass",
 for phase in before-reboot after-reboot; do
   for sample in $(seq 1 15); do
     jq -nc --arg phase "$phase" --arg boot "boot-$phase" '
-      {phase:$phase,boot_id:$boot,app_version:"0.7.11-rc.9",
-       package_version:"0.7.11~rc9-1",mem_total_kib:235968,mem_available_kib:81920,
+      {phase:$phase,boot_id:$boot,app_version:"0.7.11-rc.10",
+       package_version:"0.7.11~rc10-1",mem_total_kib:235968,mem_available_kib:81920,
        tmp_free_kib:65536,overlay_free_kib:32768,
        tailscaled:{running:true,pid:101,starttime_ticks:1001,rss_kib:65536},
        xray:{running:true,pid:202,starttime_ticks:2002,rss_kib:49152,
@@ -185,7 +185,7 @@ jq -e --arg source "$SOURCE" '
   .individual_shards_authorize_release == false and
   .all_mandatory_cases_passed == false and
   .supplemental_qemu_cases_passed == true and .release_authorized == false and
-  .rc5_rc9_virtualbox_cycle == "pending-mac-pro" and
+  .rc5_rc10_virtualbox_cycle == "pending-mac-pro" and
   .same_workstation_browser == "pending-mac-pro" and .maximum_parallel_vm_jobs == 2
   ' "$OUT/summary.json" >/dev/null
 
