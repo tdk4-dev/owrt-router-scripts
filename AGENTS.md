@@ -323,6 +323,86 @@ Use verification labels precisely:
 
 Do not use a stronger label unless the corresponding evidence exists.
 
+## Agentic Coding and Qualification Loop
+
+Use a functional-first, artifacts-last loop. Reproducible builds prove artifact
+identity; they do not prove that the product works. Do not start an expensive
+clean double build, image build, production-signing run, or complete release VM
+matrix merely because a small source change was made.
+
+Before editing, record:
+
+- the changed product surface and risk level;
+- the acceptance criterion the change closes;
+- the cheapest tests that can disprove the implementation;
+- which package, image, VM, Factory, hardware, or release evidence would be
+  invalidated by the change.
+
+Run the loop in this order:
+
+1. **Fast inner loop for every edit.** Run syntax checks, focused unit or
+   contract tests, security-boundary checks, and mocked LuCI rendering for the
+   changed surface. Run cheap UI tests before package/release tests so visible
+   control regressions fail early.
+2. **Changed-surface runtime checkpoint.** For changes to LuCI JavaScript,
+   rpcd ACLs, backend helpers, Xray ownership, updater responses, or package
+   integration, build at most one provisional test package set and install it
+   into a reusable disposable VM snapshot. Do not build all images, double
+   build, or production-sign at this stage. Documentation-only changes do not
+   require package builds unless they alter executable examples or release
+   metadata.
+3. **Periodic real-browser control census.** Run at the end of each UI feature
+   slice, before candidate freeze, and periodically during active UI work. Use
+   a real browser on the same workstation as the disposable VM through a direct
+   localhost port, exercising the real LuCI -> RPC/ACL -> backend path. The
+   census must:
+   - maintain a manifest of every visible interactive control;
+   - fail when a new control has no stable selector, expected state, and test;
+   - verify enabled/disabled state in native-generated, manual-unadopted,
+     adopted-healthy, adopted-drifted/recovery, reboot-pending, read-only, empty,
+     and configured states where applicable;
+   - click every enabled mutating control at least once on disposable fixtures,
+     including update Check/Apply, adoption preview/confirm, Xray enable/disable,
+     profile add/use/delete, subscription import/sync/delete, ping refresh,
+     automatic switching, direct-rule Apply, and per-device VPN controls;
+   - verify the resulting backend state, exact rollback or restoration,
+     Tailscale/admin-route invariants, browser console errors, and expected
+     screenshots or DOM evidence.
+4. **Candidate freeze.** Enter release qualification only after the focused
+   host tests and browser census pass. Assign one unique RC identity and freeze
+   the exact source commit and inputs. One build owner then performs the clean
+   A/B IPK comparison, derives every image from the retained canonical IPKs,
+   production-signs, and stages the candidate.
+5. **Exact-byte qualification.** Run the required browser control census,
+   updater/rollback matrix, Factory checks, and authorized VM/hardware gates on
+   the exact staged bytes. A passing provisional build is not exact-byte release
+   evidence.
+
+If any source, feed lock, build/staging script, package, image, contract, or
+release metadata changes after candidate freeze, invalidate all downstream
+evidence affected by that change and return to the cheapest applicable loop
+stage. If candidate bytes have already left controlled build storage or reached
+a router, assign the next RC version; never create a same-version hotfix byte
+set.
+
+Cost and coordination rules:
+
+- A package/image rebuild is not a substitute for UI or runtime acceptance.
+- Do not let multiple agents independently rebuild the same source and inputs.
+  Designate one build owner and let other agents inspect focused code, tests, or
+  retained evidence.
+- Reuse dependency caches, disposable VM base snapshots, and browser installs
+  for provisional testing, but keep canonical release build roots clean and
+  independent.
+- Reuse evidence only when source SHA, tree, toolchain, feed lock, build scripts,
+  signing identity, and artifact hashes are unchanged.
+- After a failure, run the narrow reproducer and changed-surface checkpoint
+  before repeating any double build, image build, signing, or full qualification
+  gate.
+- Record pass/fail, exact source and artifact identity, evidence paths, skipped
+  gates, and invalidated evidence in the task report. Do not paste complete logs
+  when a concise failure excerpt and retained log path are sufficient.
+
 ## Customer / Owner Access Policy
 
 The product must support different ownership modes without hidden access.
