@@ -16,27 +16,29 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.8" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc8-1" ]
+[ "$VERSION" = "0.7.11-rc.9" ]
+[ "$PACKAGE_VERSION" = "0.7.11~rc9-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
 pr_version_newer 0.7.11 0.7.10
 ! pr_version_newer 0.7.11 0.7.11
-pr_version_newer 0.7.11 0.7.11-rc.8
-pr_version_newer 0.7.11-rc.8 0.7.11-rc.6
-pr_version_newer 0.7.11-rc.8 0.7.11-rc.5
-! pr_version_newer 0.7.11-rc.8 0.7.11
-! pr_version_newer 0.7.11-rc.6 0.7.11-rc.8
-! pr_version_newer 0.7.11-rc.8 0.7.11-rc.8
+pr_version_newer 0.7.11 0.7.11-rc.9
+pr_version_newer 0.7.11-rc.9 0.7.11-rc.6
+pr_version_newer 0.7.11-rc.9 0.7.11-rc.8
+pr_version_newer 0.7.11-rc.9 0.7.11-rc.5
+! pr_version_newer 0.7.11-rc.9 0.7.11
+! pr_version_newer 0.7.11-rc.6 0.7.11-rc.9
+! pr_version_newer 0.7.11-rc.8 0.7.11-rc.9
+! pr_version_newer 0.7.11-rc.9 0.7.11-rc.9
 pr_version_newer 0.8.0 0.8.0RC2
 ! pr_version_newer 0.8.0RC2 0.8.0
 pr_version_newer 0.8.0RC3 0.8.0RC2
 pr_version_valid 0.7.9.1
-pr_version_valid 0.7.11-rc.8
-pr_package_version_matches_app 0.7.11-rc.8 0.7.11~rc8-1
+pr_version_valid 0.7.11-rc.9
+pr_package_version_matches_app 0.7.11-rc.9 0.7.11~rc9-1
 pr_package_version_matches_app 0.7.11 0.7.11-1
-! pr_package_version_matches_app 0.7.11-rc.8 0.7.11-1
+! pr_package_version_matches_app 0.7.11-rc.9 0.7.11-1
 ! pr_version_valid 0.7
 ! pr_version_valid 0.8.0-RC2
 
@@ -52,12 +54,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11-rc.8" and .current_channel == "candidate" and
+  .current == "0.7.11-rc.9" and .current_channel == "candidate" and
   .latest == "0.7.11" and .available == true
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11-rc.8" and .package_version == "0.7.11~rc8-1" and
+  .target == "0.7.11-rc.9" and .package_version == "0.7.11~rc9-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and
@@ -70,7 +72,11 @@ jq -e '
     .signed_manifest_sha256 == "3c1e3159fd208dac77689fb997f10d98bd5847f0db274903510726d7232e3c32") and
   any(.baselines[]; .version == "0.7.11-rc.7" and
     .tag_commit == "97da893062ebed1e27e9b35dbf0b68f248c12dd7" and
-    .tree == "db5e610c25eeda74f0ec0c931145249669eced69")
+    .tree == "db5e610c25eeda74f0ec0c931145249669eced69") and
+  any(.baselines[]; .version == "0.7.11-rc.8" and
+    .tag_commit == "ded0d472efb2452ba40dd2847912f0230e899bb5" and
+    .tree == "5db998924088f2b8aa1e95c70baf797f10830557" and
+    .support == "unsupported" and .evidence == "source-only-no-package-set")
 ' "$ROOT_DIR/release/transition-matrix.json" >/dev/null
 
 grep -q 'flow_json=""' "$HELPER"

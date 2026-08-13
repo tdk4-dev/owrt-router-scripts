@@ -45,42 +45,6 @@ function eligible_rule(rule, key) {
 	return true;
 }
 
-function inspect(config) {
-	let rules = config?.routing?.rules;
-	let domains = [];
-	let ips = [];
-	let warnings = [];
-
-	if (type(rules) != 'array')
-		fail('Xray routing.rules is missing or is not an array');
-
-	for (let i = 0; i < length(rules); i++) {
-		if (eligible_rule(rules[i], 'domain'))
-			push(domains, i);
-		if (eligible_rule(rules[i], 'ip'))
-			push(ips, i);
-	}
-
-	if (length(domains) != 1)
-		fail(sprintf('expected exactly one isolated direct domain array, found %d', length(domains)));
-	if (length(ips) != 1)
-		fail(sprintf('expected exactly one isolated direct IP array, found %d', length(ips)));
-	if (domains[0] == ips[0])
-		fail('domain and IP selectors unexpectedly resolve to the same rule');
-
-	if (config?.routing?.domainStrategy == 'AsIs')
-		push(warnings, 'routing.domainStrategy AsIs will be preserved');
-
-	return {
-		ok: true,
-		domain_rule_index: domains[0],
-		ip_rule_index: ips[0],
-		domain_count: length(rules[domains[0]].domain),
-		ip_count: length(rules[ips[0]].ip),
-		warnings: warnings
-	};
-}
-
 function inspect_proxy(config) {
 	let outbounds = config?.outbounds;
 	let matches = [];
@@ -113,6 +77,45 @@ function inspect_proxy(config) {
 	return index;
 }
 
+function inspect(config) {
+	let rules = config?.routing?.rules;
+	let domains = [];
+	let ips = [];
+	let warnings = [];
+	let outbound_index = inspect_proxy(config);
+
+	if (type(rules) != 'array')
+		fail('Xray routing.rules is missing or is not an array');
+
+	for (let i = 0; i < length(rules); i++) {
+		if (eligible_rule(rules[i], 'domain'))
+			push(domains, i);
+		if (eligible_rule(rules[i], 'ip'))
+			push(ips, i);
+	}
+
+	if (length(domains) != 1)
+		fail(sprintf('expected exactly one isolated direct domain array, found %d', length(domains)));
+	if (length(ips) != 1)
+		fail(sprintf('expected exactly one isolated direct IP array, found %d', length(ips)));
+	if (domains[0] == ips[0])
+		fail('domain and IP selectors unexpectedly resolve to the same rule');
+
+	if (config?.routing?.domainStrategy == 'AsIs')
+		push(warnings, 'routing.domainStrategy AsIs will be preserved');
+
+	return {
+		ok: true,
+		capability: 'single-server-reality-tcp-v1',
+		proxy_outbound_index: outbound_index,
+		domain_rule_index: domains[0],
+		ip_rule_index: ips[0],
+		domain_count: length(rules[domains[0]].domain),
+		ip_count: length(rules[ips[0]].ip),
+		warnings: warnings
+	};
+}
+
 function load_profile(path) {
 	let profile = load_json(path);
 	let required = [
@@ -131,7 +134,7 @@ function load_profile(path) {
 }
 
 function patch_profile(candidate, details, profile) {
-	let outbound_index = inspect_proxy(candidate);
+	let outbound_index = details.proxy_outbound_index;
 	let outbound = candidate.outbounds[outbound_index];
 	let server = outbound.settings.vnext[0];
 	let user = server.users[0];

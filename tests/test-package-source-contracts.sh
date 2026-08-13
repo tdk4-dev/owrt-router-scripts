@@ -4,9 +4,9 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 BUILDER="$ROOT_DIR/scripts/build-openwrt-ipks.sh"
 
-[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")" = 0.7.11-rc.8 ]
-[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")" = 0.7.11~rc8-1 ]
-[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")" = 0.7.11-rc.8 ]
+[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")" = 0.7.11-rc.9 ]
+[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")" = 0.7.11~rc9-1 ]
+[ "$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")" = 0.7.11-rc.9 ]
 
 for source in \
   luci-vpn-ui/files/usr/sbin/vpn-ui \

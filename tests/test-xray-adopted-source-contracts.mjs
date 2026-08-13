@@ -7,8 +7,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const overlayPath = path.join(root, 'luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc');
 const backendPath = path.join(root, 'luci-vpn-ui/files/usr/sbin/vpn-ui');
 const fixturePath = path.join(root, 'tests/fixtures/xray/valera-manual-config.json');
+const plannedFixturePath = path.join(root, 'tests/vm/fixtures/phase1-adopted-xray.json');
+const incompatibleFixturePath = path.join(root, 'tests/fixtures/xray/adopted-overlay.json');
 const [overlay, backend, fixtureText] = await Promise.all([
 	fs.readFile(overlayPath, 'utf8'), fs.readFile(backendPath, 'utf8'), fs.readFile(fixturePath, 'utf8')
+]);
+const [plannedFixtureText, incompatibleFixtureText] = await Promise.all([
+	fs.readFile(plannedFixturePath, 'utf8'), fs.readFile(incompatibleFixturePath, 'utf8')
 ]);
 
 for (const contract of [
@@ -16,6 +21,8 @@ for (const contract of [
 	'expected exactly one isolated direct IP array',
 	'adopted selectors no longer identify the unique managed arrays',
 	'expected exactly one proxy VLESS outbound',
+	'single-server-reality-tcp-v1',
+	'proxy VLESS outbound is outside the supported single-server Reality TCP layout',
 	'expected exactly one isolated current endpoint bypass',
 	'non-managed Xray JSON semantics changed',
 	'non_managed_semantics_unchanged: true'
@@ -25,6 +32,17 @@ for (const boundary of [
 	'tailscale-before.txt', 'restore_adopted_preimage', 'overlay_recover_transactions',
 	'adopted Xray configuration bytes changed outside Router UI'
 ]) assert.ok(backend.includes(boundary), `missing adopted transaction boundary: ${boundary}`);
+for (const boundary of [
+	'overlay_exec inspect', 'capability_matches', 'selectors_match',
+	'unsupported adopted Xray structure or capability'
+]) assert.ok(backend.includes(boundary), `missing adopted capability boundary: ${boundary}`);
+
+const plannedFixture = JSON.parse(plannedFixtureText);
+const incompatibleFixture = JSON.parse(incompatibleFixtureText);
+assert.equal(plannedFixture.outbounds[0].streamSettings.network, 'tcp');
+assert.equal(plannedFixture.outbounds[0].streamSettings.security, 'reality');
+assert.equal(incompatibleFixture.outbounds[0].streamSettings.network, undefined,
+	'negative fixture must retain the pre-RC9 incompatible layout');
 
 const config = JSON.parse(fixtureText);
 const eligible = (rule, key) => rule?.type === 'field' && rule.outboundTag === 'direct' &&

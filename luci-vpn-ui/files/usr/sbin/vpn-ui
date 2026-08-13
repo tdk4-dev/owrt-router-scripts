@@ -132,7 +132,7 @@ metadata_random_id() {
   value=""
   uuid_file="${ROOT_PREFIX}/proc/sys/kernel/random/uuid"
   if [ -r "$uuid_file" ]; then
-    value="$(sed -n '1p' "$uuid_file" 2>/dev/null | tr -d '-\r\n')"
+    value="$(sed -n '1p' "$uuid_file" 2>/dev/null | tr -d '\r\n-')"
   fi
   if [ -z "$value" ]; then
     value="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null || true)"
@@ -607,7 +607,7 @@ require_native_ownership() {
 }
 
 require_adopted_ownership() {
-  local actual_hash
+  local actual_hash inspect_file domain_index ip_index
 
   adoption_state_load || die_json "adopted-overlay state is missing or invalid"
   discover_active_xray_config || die_json "$ACTIVE_XRAY_DISCOVERY_ERROR"
@@ -618,6 +618,18 @@ require_adopted_ownership() {
   actual_hash="$(config_sha256 "$OWNERSHIP_PATH")"
   [ "$actual_hash" = "$OWNERSHIP_CONFIG_HASH" ] ||
     die_json "adopted Xray configuration bytes changed outside Router UI"
+  inspect_file="/tmp/vpn-ui-adopted-capability.$$.json"
+  if ! overlay_exec inspect "$(host_path "$OWNERSHIP_PATH")" >"$inspect_file" 2>&1; then
+    actual_hash="$(json_value "$inspect_file" '@.error' '.error')"
+    rm -f "$inspect_file"
+    [ -n "$actual_hash" ] || actual_hash="unsupported adopted Xray structure or capability"
+    die_json "$actual_hash"
+  fi
+  domain_index="$(json_value "$inspect_file" '@.domain_rule_index' '.domain_rule_index')"
+  ip_index="$(json_value "$inspect_file" '@.ip_rule_index' '.ip_rule_index')"
+  rm -f "$inspect_file"
+  [ "$domain_index" = "$OWNERSHIP_DOMAIN_INDEX" ] && [ "$ip_index" = "$OWNERSHIP_IP_INDEX" ] ||
+    die_json "adopted Xray selectors no longer identify the supported structure"
 }
 
 require_managed_ownership() {
@@ -3278,7 +3290,8 @@ dhcp_devices_json() {
 
 ownership_status_json() {
   local actual_hash="" config_matches=false discovery_matches=false healthy=false
-  local adoption_required=false active_path="" error="" domain_count ip_count
+  local capability_matches=false selectors_match=false adoption_required=false active_path="" error="" domain_count ip_count
+  local inspect_file domain_index ip_index
 
   update_mutation_status || true
   if adoption_state_load; then
@@ -3294,7 +3307,23 @@ ownership_status_json() {
     else
       [ -n "$error" ] || error="$ACTIVE_XRAY_DISCOVERY_ERROR"
     fi
-    [ "$config_matches" = true ] && [ "$discovery_matches" = true ] && healthy=true
+    if [ "$config_matches" = true ]; then
+      inspect_file="/tmp/vpn-ui-ownership-capability.$$.json"
+      if overlay_exec inspect "$(host_path "$OWNERSHIP_PATH")" >"$inspect_file" 2>&1; then
+        capability_matches=true
+        domain_index="$(json_value "$inspect_file" '@.domain_rule_index' '.domain_rule_index')"
+        ip_index="$(json_value "$inspect_file" '@.ip_rule_index' '.ip_rule_index')"
+        [ "$domain_index" = "$OWNERSHIP_DOMAIN_INDEX" ] &&
+          [ "$ip_index" = "$OWNERSHIP_IP_INDEX" ] && selectors_match=true
+        [ "$selectors_match" = true ] || error="adopted Xray selectors no longer identify the supported structure"
+      else
+        error="$(json_value "$inspect_file" '@.error' '.error')"
+        [ -n "$error" ] || error="unsupported adopted Xray structure or capability"
+      fi
+      rm -f "$inspect_file"
+    fi
+    [ "$config_matches" = true ] && [ "$discovery_matches" = true ] &&
+      [ "$capability_matches" = true ] && [ "$selectors_match" = true ] && healthy=true
     domain_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(managed_state_path "$DOMAINS_FILE")" 2>/dev/null)"
     ip_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {count++} END {print count+0}' "$(managed_state_path "$IPS_FILE")" 2>/dev/null)"
     printf '{"mode":"adopted-overlay","adopted":true,"adoption_required":false,"healthy":%s' "$healthy"
@@ -3304,7 +3333,8 @@ ownership_status_json() {
     json_string "$active_path"
     printf ',"config_sha256":'
     json_string "$OWNERSHIP_CONFIG_HASH"
-    printf ',"config_matches":%s,"selectors_match":%s' "$config_matches" "$discovery_matches"
+    printf ',"config_matches":%s,"discovery_matches":%s' "$config_matches" "$discovery_matches"
+    printf ',"capability_matches":%s,"selectors_match":%s' "$capability_matches" "$selectors_match"
     printf ',"domain_count":%s,"ip_count":%s,"error":' "${domain_count:-0}" "${ip_count:-0}"
     json_string "$error"
     printf ',"mutations_allowed":%s,"mutation_block_reason":' "$UPDATE_MUTATIONS_ALLOWED"

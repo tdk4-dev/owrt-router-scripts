@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'vm-execution:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 VBOXMANAGE=/usr/local/bin/VBoxManage
@@ -16,7 +17,7 @@ BASELINE_LOCK="$REMOTE_ROOT/runtime/legacy-baseline-lock.json"
 
 fail() { printf 'MATRIX-ERROR: %s\n' "$*" >&2; exit 1; }
 [[ -x "$VBOXMANAGE" && -x "$CONTROLLER" ]] || fail 'VirtualBox or matrix controller is unavailable'
-[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc8-worktree ]]
+[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc9-worktree ]]
 [[ "$CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
 [[ "$NEXT_CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]

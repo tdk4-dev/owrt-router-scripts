@@ -5,7 +5,9 @@ umask 077
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 OVERLAY="$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc"
 VPN_UI="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
-FIXTURE="$ROOT_DIR/tests/fixtures/xray/adopted-overlay.json"
+FIXTURE="$ROOT_DIR/tests/vm/fixtures/phase1-adopted-xray.json"
+FIXTURE_LOCK="$ROOT_DIR/tests/vm/fixtures/phase1-adopted-xray.sha256"
+INCOMPATIBLE_FIXTURE="$ROOT_DIR/tests/fixtures/xray/adopted-overlay.json"
 VALERA_FIXTURE="$ROOT_DIR/tests/fixtures/xray/valera-manual-config.json"
 UCODE_INSTALLER="$ROOT_DIR/scripts/install-ci-ucode.sh"
 UCODE_REAL="${TEST_UCODE_BIN:-$(command -v ucode || true)}"
@@ -43,14 +45,46 @@ DOMAINS="$TMP_ROOT/domains.txt"
 IPS="$TMP_ROOT/ips.txt"
 cp "$FIXTURE" "$SOURCE"
 SOURCE_HASH="$(sha256sum "$SOURCE" | awk '{print $1}')"
+[ "$SOURCE_HASH" = "$(awk '{print $1}' "$FIXTURE_LOCK")" ]
+[ "$(awk '{print $2}' "$FIXTURE_LOCK")" = "tests/vm/fixtures/phase1-adopted-xray.json" ]
 
 "$UCODE" "$OVERLAY" inspect "$SOURCE" > "$TMP_ROOT/inspect.json"
 jq -e '
-  .ok == true and .domain_rule_index == 3 and .ip_rule_index == 4 and
+  .ok == true and .capability == "single-server-reality-tcp-v1" and
+  .proxy_outbound_index == 0 and .domain_rule_index == 3 and .ip_rule_index == 4 and
   .domain_count == 3 and .ip_count == 2 and
   (.warnings | index("routing.domainStrategy AsIs will be preserved") != null)
 ' "$TMP_ROOT/inspect.json" >/dev/null
 "$UCODE" "$OVERLAY" extract "$SOURCE" 3 4 "$DOMAINS" "$IPS" >/dev/null
+[ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
+
+if "$UCODE" "$OVERLAY" inspect "$INCOMPATIBLE_FIXTURE" \
+  > "$TMP_ROOT/incompatible-result.json" 2>/dev/null; then
+  printf 'incompatible pre-RC9 adopted layout unexpectedly passed\n' >&2
+  exit 1
+fi
+jq -e '.ok == false and
+  (.error | contains("outside the supported single-server Reality TCP layout"))' \
+  "$TMP_ROOT/incompatible-result.json" >/dev/null
+
+PLANNED_PROFILE_INPUT="$TMP_ROOT/planned-profile-input.json"
+PLANNED_PROFILE_CANDIDATE="$TMP_ROOT/planned-profile-candidate.json"
+cat > "$PLANNED_PROFILE_INPUT" <<'EOF'
+{"address":"203.0.113.11","port":8443,"uuid":"00000000-0000-4000-8000-000000000009","flow":"xtls-rprx-vision","server_name":"rc9.example.invalid","fingerprint":"firefox","public_key":"rc9-sanitized-public-key","short_id":"0123456789abcdef","spider_x":"/rc9","old_vps_ip":"203.0.113.10","new_vps_ip":"203.0.113.11"}
+EOF
+"$UCODE" "$OVERLAY" patch-profile "$SOURCE" 3 4 "$DOMAINS" "$IPS" \
+  "$PLANNED_PROFILE_CANDIDATE" "$PLANNED_PROFILE_INPUT" \
+  > "$TMP_ROOT/planned-profile-patch.json"
+jq -e '.ok and .profile_updated and .non_managed_semantics_unchanged and
+  .domain_rule_index == 3 and .ip_rule_index == 4' \
+  "$TMP_ROOT/planned-profile-patch.json" >/dev/null
+jq -e '
+  .outbounds[0].settings.vnext[0].address == "203.0.113.11" and
+  .outbounds[0].settings.vnext[0].port == 8443 and
+  .outbounds[0].streamSettings.network == "tcp" and
+  .outbounds[0].streamSettings.security == "reality" and
+  .routing.rules[0].ip[3] == "203.0.113.11/32"
+' "$PLANNED_PROFILE_CANDIDATE" >/dev/null
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
 
 VALERA_FULL="$TMP_ROOT/valera-full-panel.json"
@@ -132,7 +166,7 @@ jq -e '(.inbounds | length) == 2 and (.routing.rules | length) == 3 and
 [ "$(wc -l < "$DOMAINS" | tr -d ' ')" -eq 3 ]
 [ "$(wc -l < "$IPS" | tr -d ' ')" -eq 2 ]
 
-printf '%s\n' 'full:rc8-validation.invalid' 'domain:kept.example' > "$DOMAINS"
+printf '%s\n' 'full:rc9-validation.invalid' 'domain:kept.example' > "$DOMAINS"
 printf '%s\n' '198.51.100.0/25' > "$IPS"
 "$UCODE" "$OVERLAY" patch "$SOURCE" 3 4 "$DOMAINS" "$IPS" "$CANDIDATE" > "$TMP_ROOT/patch.json"
 jq -e '.ok and .non_managed_semantics_unchanged and .domain_count == 2 and .ip_count == 1' \
@@ -148,7 +182,7 @@ jq -e '
   .routing.rules[1].protocol == ["bittorrent"] and
   .routing.rules[2].port == "8080" and
   .outbounds[0].settings.vnext[0].users[0].id == "00000000-0000-4000-8000-000000000006" and
-  .routing.rules[3].domain == ["full:rc8-validation.invalid", "domain:kept.example"] and
+  .routing.rules[3].domain == ["full:rc9-validation.invalid", "domain:kept.example"] and
   .routing.rules[4].ip == ["198.51.100.0/25"]
 ' "$CANDIDATE" >/dev/null
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
@@ -335,14 +369,34 @@ VPN_UI_TEST_ACTIVE_XRAY_CONFIG=/etc/xray/other.json \
   backend ownership_status_json > "$TMP_ROOT/path-drift.json"
 VPN_UI_TEST_ACTIVE_XRAY_CONFIG=
 jq -e '.mode == "adopted-overlay" and .healthy == false and
-  .active_path == "/etc/xray/other.json" and .selectors_match == false' \
+  .active_path == "/etc/xray/other.json" and .discovery_matches == false and
+  .capability_matches == true and .selectors_match == true' \
   "$TMP_ROOT/path-drift.json" >/dev/null
 
-printf '%s\n' 'full:rc8-validation.invalid' > "$TMP_ROOT/new-domains"
+cp "$CONFIG" "$TMP_ROOT/supported-config.json"
+cp "$FAKE_ROOT/etc/premier-router/xray-ownership.json" "$TMP_ROOT/supported-ownership.json"
+cp "$INCOMPATIBLE_FIXTURE" "$CONFIG"
+incompatible_hash="$(sha256sum "$CONFIG" | awk '{print $1}')"
+jq --arg hash "$incompatible_hash" '.config_sha256 = $hash' \
+  "$TMP_ROOT/supported-ownership.json" > "$FAKE_ROOT/etc/premier-router/xray-ownership.json"
+backend ownership_status_json > "$TMP_ROOT/capability-drift.json"
+jq -e '.mode == "adopted-overlay" and .healthy == false and
+  .config_matches == true and .discovery_matches == true and
+  .capability_matches == false and .selectors_match == false and
+  (.error | contains("outside the supported single-server Reality TCP layout"))' \
+  "$TMP_ROOT/capability-drift.json" >/dev/null
+backend cmd_device disable 02:00:00:00:00:07 192.0.2.7 > "$TMP_ROOT/capability-mutation.json"
+jq -e '.ok == false and
+  (.error | contains("outside the supported single-server Reality TCP layout"))' \
+  "$TMP_ROOT/capability-mutation.json" >/dev/null
+cp "$TMP_ROOT/supported-config.json" "$CONFIG"
+cp "$TMP_ROOT/supported-ownership.json" "$FAKE_ROOT/etc/premier-router/xray-ownership.json"
+
+printf '%s\n' 'full:rc9-validation.invalid' > "$TMP_ROOT/new-domains"
 printf '%s\n' '198.51.100.128/25' > "$TMP_ROOT/new-ips"
 backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips"
 jq -e '
-  .routing.rules[3].domain == ["full:rc8-validation.invalid"] and
+  .routing.rules[3].domain == ["full:rc9-validation.invalid"] and
   .routing.rules[4].ip == ["198.51.100.128/25"] and
   .routing.rules[0].ip[3] == "203.0.113.10/32" and
   .routing.rules[1].protocol == ["bittorrent"] and .routing.rules[2].port == "8080" and

@@ -3,6 +3,14 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+if os.environ.get("ROUTER_UI_TIER0_GUARD_LOG"):
+    with open(os.environ["ROUTER_UI_TIER0_GUARD_LOG"], "a", encoding="utf-8") as guard_log:
+        guard_log.write("staging:render-router-ui-install-guide.py\n")
+    raise SystemExit(97)
+
 import argparse
 import hashlib
 import json

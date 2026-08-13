@@ -1,5 +1,6 @@
 #!/bin/bash
 set -Eeuo pipefail
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'vm-execution:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -201,11 +202,11 @@ load_release_contracts() {
     selected_status=previous
     candidate_channel_expected=stable
   else
-    CANDIDATE_CONTRACT_MODE=rc8-active-key
-    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.8 ]] ||
-      fail "candidate app version is not the RC8 contract: $CANDIDATE_APP_VERSION"
-    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc8-1' ]] ||
-      fail "candidate package version is not the opkg-safe RC8 contract: $CANDIDATE_PACKAGE_VERSION"
+    CANDIDATE_CONTRACT_MODE=rc9-active-key
+    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.9 ]] ||
+      fail "candidate app version is not the RC9 contract: $CANDIDATE_APP_VERSION"
+    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc9-1' ]] ||
+      fail "candidate package version is not the opkg-safe RC9 contract: $CANDIDATE_PACKAGE_VERSION"
     [[ "$SUCCESSOR_APP_VERSION" = 0.7.11 &&
       "$SUCCESSOR_PACKAGE_VERSION" = 0.7.11-1 ]] ||
       fail "synthetic successor is not stable 0.7.11"

@@ -63,9 +63,15 @@ bool_true() {
   return 1
 }
 
+adguard_available() {
+  [ -x /etc/init.d/adguardhome ] && command -v AdGuardHome >/dev/null 2>&1
+}
+
 bootstrap() {
+  local adguard_available_json=false
+  adguard_available && adguard_available_json=true
   header_json "200 OK"
-  cat <<'EOF'
+  cat <<'EOF' | sed 's/"adguard":{/"adguard":{"available":'"$adguard_available_json"',/'
 {"ok":true,"data":{"router":{"hostname":"openwrt-fin0","lanIp":"10.77.0.1","firmware":"OpenWrt 24.10.5 x86/64","luciPath":"/cgi-bin/luci/"},"defaults":{"accountLogin":"root","vpnEnabled":true,"tailscaleEnabled":false,"tailscaleLoginServer":"https://headscale.example.com"},"adguard":{"source":"bundled AdGuard hostlists plus openwrt-fin0 defaults","filters":[{"id":"registry-1hosts-lite","name":"1Hosts (Lite)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt","category":"General","enabled":false},{"id":"registry-1hosts-mini","name":"1Hosts (mini)","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt","category":"General","enabled":false},{"id":"1","name":"AdGuard DNS filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt","category":"General","enabled":true},{"id":"1779019548","name":"AdGuard DNS Popup Hosts filter","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt","category":"General","enabled":true},{"id":"registry-awavenue","name":"AWAvenue Ads Rule","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt","category":"General","enabled":false},{"id":"registry-dan-pollock","name":"Dan Pollock's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_4.txt","category":"General","enabled":false},{"id":"registry-hagezi-normal","name":"HaGeZi's Normal Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro","name":"HaGeZi's Pro Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt","category":"General","enabled":false},{"id":"registry-hagezi-pro-plus","name":"HaGeZi's Pro++ Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt","category":"General","enabled":false},{"id":"1779019549","name":"HaGeZi's Ultimate Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_49.txt","category":"General","enabled":true},{"id":"registry-oisd-small","name":"OISD Blocklist Small","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt","category":"General","enabled":false},{"id":"registry-oisd-big","name":"OISD Blocklist Big","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt","category":"General","enabled":false},{"id":"registry-peter-lowe","name":"Peter Lowe's Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt","category":"General","enabled":false},{"id":"registry-steven-black","name":"Steven Black's List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt","category":"General","enabled":false},{"id":"registry-dandelion-push","name":"Dandelion Sprout's Anti Push Notifications","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_39.txt","category":"Other","enabled":false},{"id":"registry-dandelion-game","name":"Dandelion Sprout's Game Console Adblock List","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_6.txt","category":"Other","enabled":false},{"id":"registry-hagezi-allow-referral","name":"HaGeZi's Allowlist Referral","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_61.txt","category":"Other","enabled":false},{"id":"2","name":"AdAway Default Blocklist","url":"https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt","category":"Other","enabled":true}]},"lastApply":null}}
 EOF
 }
@@ -201,10 +207,16 @@ rewrite_adguard_filters() {
 }
 
 configure_adguard() {
-  local user="$1"
-  local password="$2"
-  local selected="$3"
+  local enabled="$1"
+  local user="$2"
+  local password="$3"
+  local selected="$4"
   local user_json password_json payload
+
+  if ! bool_true "$enabled"; then
+    return 0
+  fi
+  adguard_available || fail "AdGuardHome was selected but is not installed on this router."
 
   /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
   [ -f /etc/adguardhome.yaml ] && cp /etc/adguardhome.yaml "/etc/adguardhome.yaml.bak.firstboot.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
@@ -366,6 +378,7 @@ configure_tailscale() {
   local enabled="$1"
   local login_server="$2"
   local auth_key="$3"
+  local log="${FIRSTBOOT_RUNTIME_DIR:-/tmp}/firstboot-tailscale-up.$$"
 
   if ! bool_true "$enabled"; then
     /etc/init.d/tailscale stop >/dev/null 2>&1 || true
@@ -394,13 +407,31 @@ configure_tailscale() {
     "--advertise-routes=$LAN_CIDR" \
     "--accept-dns=false" \
     "--netfilter-mode=off"
-  tailscale up "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
-    tailscale up --reset "$@" >/tmp/firstboot-tailscale.log 2>&1 ||
-    fail "tailscale up failed."
+  if ! tailscale up "$@" >"$log" 2>&1; then
+    tailscale up --reset "$@" >"$log" 2>&1 || {
+      rm -f "$log"
+      fail "tailscale up failed."
+    }
+  fi
+  rm -f "$log"
+  verify_tailscale_registration ||
+    fail "Tailscale accepted the command but did not reach BackendState=Running with a Tailscale IPv4 address."
+}
+
+verify_tailscale_registration() {
+  local attempt=0 backend ip
+  while [ "$attempt" -lt 20 ]; do
+    backend="$(tailscale status --json 2>/dev/null | jsonfilter -e '@.BackendState' 2>/dev/null || true)"
+    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 1
 }
 
 apply_setup() {
-  local login password confirm keys vpn_enabled vless selected tailscale_enabled tailscale_url tailscale_key now
+  local login password confirm keys vpn_enabled vless adguard_enabled selected tailscale_enabled tailscale_url tailscale_key now
 
   mkdir -p "$STATE_DIR" || fail "Could not initialize first-boot setup state."
   [ ! -f "$COMPLETE_FILE" ] ||
@@ -418,6 +449,7 @@ apply_setup() {
   keys="$(json_get '@.account.authorizedKeys')"
   vpn_enabled="$(json_get '@.vpn.enabled')"
   vless="$(json_get '@.vpn.vlessUrl')"
+  adguard_enabled="$(json_get '@.adguard.enabled')"
   selected="$(json_list '@.adguard.selectedFilterIds[*]' | tr '\n' ' ')"
   tailscale_enabled="$(json_get '@.tailscale.enabled')"
   tailscale_url="$(json_get '@.tailscale.loginServer')"
@@ -425,7 +457,7 @@ apply_setup() {
 
   configure_account "$login" "$password" "$confirm" "$keys"
   configure_network
-  configure_adguard "$login" "$password" "$selected"
+  configure_adguard "$adguard_enabled" "$login" "$password" "$selected"
   configure_vpn "$vpn_enabled" "$vless"
   configure_tailscale "$tailscale_enabled" "$tailscale_url" "$tailscale_key"
 
@@ -435,14 +467,16 @@ apply_setup() {
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   header_json "200 OK"
   cat <<EOF
-{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"lanIp":"$LAN_IP","luciUrl":"http://$LAN_IP/cgi-bin/luci/","vpnUrl":"http://$LAN_IP/cgi-bin/luci/admin/network/vpn","adguardUrl":"http://$LAN_IP:3000/"},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set root account and SSH keys","Configure LAN on $LAN_IP","Write AdGuardHome filters","Configure VPN panel and Xray","Configure Tailscale if requested","Mark first-boot setup complete"]}}
+{"ok":true,"data":{"id":"firstboot-$now","appliedAt":"$now","preview":{"router":{"lanIp":"$LAN_IP","luciUrl":"http://$LAN_IP/cgi-bin/luci/","vpnUrl":"http://$LAN_IP/cgi-bin/luci/admin/network/vpn"},"vpn":{"enabled":$(bool_true "$vpn_enabled" && printf true || printf false)},"adguard":{"enabled":$(bool_true "$adguard_enabled" && printf true || printf false),"available":$(adguard_available && printf true || printf false)},"tailscale":{"enabled":$(bool_true "$tailscale_enabled" && printf true || printf false)}},"phases":["Set root account and SSH keys","Configure LAN on $LAN_IP","Configure or skip optional AdGuardHome","Configure VPN panel and Xray","Configure Tailscale and verify registration if requested","Mark first-boot setup complete"]}}
 EOF
 }
 
-action="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*action=\([^&]*\).*/\1/p')"
-case "${action:-status}" in
-  status) ok_status ;;
-  bootstrap) bootstrap ;;
-  apply) apply_setup ;;
-  *) fail "Unknown setup action." ;;
-esac
+if [ "${FIRSTBOOT_SETUP_LIB_ONLY:-0}" != "1" ]; then
+  action="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*action=\([^&]*\).*/\1/p')"
+  case "${action:-status}" in
+    status) ok_status ;;
+    bootstrap) bootstrap ;;
+    apply) apply_setup ;;
+    *) fail "Unknown setup action." ;;
+  esac
+fi

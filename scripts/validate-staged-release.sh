@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'staging:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -183,12 +184,12 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
   jq -e '
     .app_version == "0.7.11" and .package_version == "0.7.11-1" and
     any(.transitions[];
-      .source_version == "0.7.11-rc.8" and .source_protocol == 2 and
+      .source_version == "0.7.11-rc.9" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC8 protocol-2 transition"
+  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC9 protocol-2 transition"
 else
   jq -e '
-    .app_version == "0.7.11-rc.8" and .package_version == "0.7.11~rc8-1" and
+    .app_version == "0.7.11-rc.9" and .package_version == "0.7.11~rc9-1" and
     any(.transitions[];
       .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
@@ -198,7 +199,7 @@ else
     any(.transitions[];
       .source_version == "0.7.11-rc.7" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "RC8 release does not authorize the RC5, RC6, and invalidated RC7 protocol-2 transitions"
+  ' "$MANIFEST" >/dev/null || fail "RC9 release does not authorize the RC5, RC6, and invalidated RC7 protocol-2 transitions"
 fi
 [ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
   "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||

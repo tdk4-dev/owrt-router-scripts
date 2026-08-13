@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const webDir = join(rootDir, 'www');
 const port = Number(process.env.PORT || 8787);
+const adguardAvailable = process.env.MOCK_ADGUARD_INSTALLED === '1';
 
 const adguardFilters = [
   {
@@ -195,8 +196,12 @@ function validatePayload(payload) {
     if (!vpnUrl.startsWith('vless://') && !vpnUrl.startsWith('https://'))
       errors.push('A VLESS link or HTTPS subscription link is required when VPN is enabled.');
   }
-  if (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0)
-    errors.push('Select at least one AdGuard blocklist.');
+  if (payload.adguard?.enabled) {
+    if (!adguardAvailable)
+      errors.push('AdGuardHome was selected but is not installed on this router.');
+    if (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0)
+      errors.push('Select at least one AdGuard blocklist.');
+  }
   if (tailscale.enabled) {
     if (!String(tailscale.loginServer || '').trim().startsWith('https://'))
       errors.push('Tailscale or Headscale URL must use HTTPS.');
@@ -214,7 +219,8 @@ function redactedApply(payload) {
       lanIp: '10.77.0.1',
       luciUrl: 'http://10.77.0.1/cgi-bin/luci/',
       vpnUrl: 'http://10.77.0.1/cgi-bin/luci/admin/network/vpn',
-      adguardUrl: 'http://10.77.0.1:3000/'
+      ...(payload.adguard?.enabled && adguardAvailable
+        ? { adguardUrl: 'http://10.77.0.1:3000/' } : {})
     },
     account: {
       login: payload.account?.login || 'root',
@@ -228,6 +234,8 @@ function redactedApply(payload) {
       vlessWillBeStored: !!payload.vpn?.vlessUrl
     },
     adguard: {
+      enabled: !!payload.adguard?.enabled && adguardAvailable,
+      available: adguardAvailable,
       selectedFilters: adguardFilters
         .filter(filter => selected.has(filter.id))
         .map(filter => ({ id: filter.id, name: filter.name, url: filter.url }))
@@ -251,10 +259,12 @@ function bootstrapPayload() {
     defaults: {
       accountLogin: 'root',
       vpnEnabled: true,
+      adguardEnabled: false,
       tailscaleEnabled: false,
       tailscaleLoginServer: 'https://headscale.example.com'
     },
     adguard: {
+      available: adguardAvailable,
       source: 'mocked AdGuard Hostlists Registry plus openwrt-fin0 installed filters',
       filters: adguardFilters
     },
@@ -284,7 +294,8 @@ async function handleApi(req, res, pathname) {
         phases: [
           'Set root account and SSH keys',
           'Configure LAN on 10.77.0.1',
-          'Write AdGuardHome filters',
+          payload.adguard?.enabled && adguardAvailable
+            ? 'Configure AdGuardHome filters' : 'Skip optional AdGuardHome',
           payload.vpn?.enabled ? 'Render and test Xray config' : 'Disable Xray services',
           payload.tailscale?.enabled ? 'Run tailscale up' : 'Leave Tailscale logged out',
           'Mark first-boot setup complete'

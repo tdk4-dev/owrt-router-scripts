@@ -42,6 +42,7 @@ const state = {
   errors: [],
   applying: false,
   applied: null,
+  adguardAvailable: false,
   filterQuery: '',
   router: {
     hostname: 'openwrt-fin0',
@@ -61,6 +62,7 @@ const state = {
       vlessUrl: ''
     },
     adguard: {
+      enabled: false,
       selectedFilterIds: []
     },
     tailscale: {
@@ -144,7 +146,7 @@ function validateStep(index = state.step) {
       errors.push('Paste a valid VLESS link or HTTPS subscription link, or disable VPN for first boot.');
   }
 
-  if (id === 'adguard' && selectedFilters().length === 0)
+  if (id === 'adguard' && state.adguardAvailable && form.adguard.enabled && selectedFilters().length === 0)
     errors.push('Select at least one AdGuard blocklist.');
 
   if (id === 'tailscale' && form.tailscale.enabled) {
@@ -387,7 +389,26 @@ function renderVpn() {
 }
 
 function renderAdguard() {
+  if (!state.adguardAvailable) {
+    return `
+      <div class="notice">
+        <strong>AdGuardHome is not installed on this router.</strong>
+        <p>Setup will leave the existing DNS configuration unchanged and continue safely.</p>
+      </div>
+    `;
+  }
   return `
+    <div class="choice-set">
+      <label class="choice-row">
+        <input type="radio" name="adguard-enabled" value="0" ${!state.form.adguard.enabled ? 'checked' : ''}>
+        <span><span class="choice-title">Skip AdGuardHome</span><span class="choice-detail">Leave the existing DNS state unchanged.</span></span>
+      </label>
+      <label class="choice-row">
+        <input type="radio" name="adguard-enabled" value="1" ${state.form.adguard.enabled ? 'checked' : ''}>
+        <span><span class="choice-title">Configure AdGuardHome</span><span class="choice-detail">Initialize the installed service with the selected filters.</span></span>
+      </label>
+    </div>
+    <div class="${state.form.adguard.enabled ? '' : 'hidden'}">
     <div class="filter-tools">
       <input
         id="filter-search"
@@ -401,6 +422,7 @@ function renderAdguard() {
     <div class="hint" id="filter-selection-summary">${state.form.adguard.selectedFilterIds.length} selected from ${state.filters.length} AdGuard hostlists.</div>
     <div class="filter-list" id="filter-list">
       ${renderFilterRows()}
+    </div>
     </div>
   `;
 }
@@ -459,7 +481,8 @@ function renderReview() {
       ${reviewRow('SSH login', state.form.account.login)}
       ${reviewRow('SSH password', state.form.account.password ? 'Will be set' : 'Missing')}
       ${reviewRow('VPN', vpn.enabled ? (vpn.vlessUrl.trim().startsWith('https://') ? 'Enabled with subscription profile' : 'Enabled with VLESS profile') : 'Disabled on first boot')}
-      ${reviewRow('AdGuard filters', selected.map(filter => filter.name).join(', '))}
+      ${reviewRow('AdGuard', state.adguardAvailable && state.form.adguard.enabled
+        ? selected.map(filter => filter.name).join(', ') : 'Skipped')}
       ${reviewRow('Tailscale', tailscale.enabled ? `Enabled with ${tailscale.loginServer}` : 'Skipped')}
       ${reviewRow('Secrets', 'Passwords, VLESS links, and preauth keys are not returned after submission.')}
     </div>
@@ -479,6 +502,7 @@ function renderApplied() {
   const apply = state.applied;
   const preview = apply.preview || {};
   const router = preview.router || {};
+  const adguardEnabled = !!preview.adguard?.enabled && !!preview.adguard?.available;
   return `
     <div class="apply-log">
       ${apply.phases.map(phase => `
@@ -492,12 +516,12 @@ function renderApplied() {
       ${reviewRow('Mock apply id', apply.id)}
       ${reviewRow('Applied at', apply.appliedAt)}
       ${reviewRow('VPN panel', router.vpnUrl || '-')}
-      ${reviewRow('AdGuard', router.adguardUrl || '-')}
+      ${reviewRow('AdGuard', adguardEnabled ? 'Configured' : 'Skipped')}
     </div>
     <div class="link-row">
       <a href="${attr(router.luciUrl || '#')}" target="_blank" rel="noreferrer">LuCI</a>
       <a href="${attr(router.vpnUrl || '#')}" target="_blank" rel="noreferrer">VPN panel</a>
-      <a href="${attr(router.adguardUrl || '#')}" target="_blank" rel="noreferrer">AdGuardHome</a>
+      ${adguardEnabled ? `<a href="${attr(router.adguardUrl || `http://${state.router.lanIp}:3000/`)}" target="_blank" rel="noreferrer">AdGuardHome</a>` : ''}
     </div>
   `;
 }
@@ -602,6 +626,9 @@ function bindEvents() {
     if (event.target.name === 'vpn-enabled')
       setNested('vpn.enabled', event.target.value === '1');
 
+    if (event.target.name === 'adguard-enabled')
+      setNested('adguard.enabled', event.target.value === '1');
+
     if (event.target.name === 'tailscale-enabled')
       setNested('tailscale.enabled', event.target.value === '1');
 
@@ -679,8 +706,10 @@ async function bootstrap() {
 
   state.router = data.router || state.router;
   state.filters = data.adguard?.filters || [];
+  state.adguardAvailable = !!data.adguard?.available;
   state.form.account.login = data.defaults?.accountLogin || state.form.account.login;
   state.form.vpn.enabled = data.defaults?.vpnEnabled ?? state.form.vpn.enabled;
+  state.form.adguard.enabled = state.adguardAvailable && !!data.defaults?.adguardEnabled;
   state.form.tailscale.enabled = data.defaults?.tailscaleEnabled ?? state.form.tailscale.enabled;
   state.form.tailscale.loginServer = data.defaults?.tailscaleLoginServer || state.form.tailscale.loginServer;
   state.form.adguard.selectedFilterIds = state.filters

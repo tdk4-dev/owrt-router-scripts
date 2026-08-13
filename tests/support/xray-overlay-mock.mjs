@@ -17,7 +17,24 @@ const eligibleRule = (rule, key) => rule && rule.type === 'field' &&
 	rule.outboundTag === 'direct' && Array.isArray(rule[key]) &&
 	rule[key].every(value => typeof value === 'string') &&
 	Object.keys(rule).every(name => ['type', 'outboundTag', key].includes(name));
+const inspectProxy = config => {
+	const matches = (config?.outbounds || []).map((outbound, index) => ({ outbound, index }))
+		.filter(({ outbound }) => outbound?.tag === 'proxy' && outbound.protocol === 'vless');
+	if (matches.length !== 1)
+		fail(`expected exactly one proxy VLESS outbound, found ${matches.length}`);
+	const { outbound, index } = matches[0];
+	const vnext = outbound.settings?.vnext;
+	const users = Array.isArray(vnext) && vnext.length === 1 ? vnext[0]?.users : null;
+	if (!Array.isArray(vnext) || vnext.length !== 1 || !vnext[0] ||
+		!Array.isArray(users) || users.length !== 1 || !users[0] ||
+		outbound.streamSettings?.network !== 'tcp' ||
+		outbound.streamSettings?.security !== 'reality' ||
+		!outbound.streamSettings?.realitySettings)
+		fail('proxy VLESS outbound is outside the supported single-server Reality TCP layout');
+	return index;
+};
 const inspect = config => {
+	const outboundIndex = inspectProxy(config);
 	const rules = config?.routing?.rules;
 	if (!Array.isArray(rules))
 		fail('Xray routing.rules is missing or is not an array');
@@ -33,6 +50,8 @@ const inspect = config => {
 		fail(`expected exactly one isolated direct IP array, found ${ips.length}`);
 	return {
 		ok: true,
+		capability: 'single-server-reality-tcp-v1',
+		proxy_outbound_index: outboundIndex,
 		domain_rule_index: domains[0],
 		ip_rule_index: ips[0],
 		domain_count: rules[domains[0]].domain.length,
@@ -75,11 +94,7 @@ const output = args[4];
 let profileUpdated = false;
 if (command === 'patch-profile') {
 	const profile = readJson(args[5]);
-	const matches = candidate.outbounds.map((outbound, index) => ({ outbound, index }))
-		.filter(({ outbound }) => outbound?.tag === 'proxy' && outbound.protocol === 'vless');
-	if (matches.length !== 1)
-		fail(`expected exactly one proxy VLESS outbound, found ${matches.length}`);
-	const outbound = matches[0].outbound;
+	const outbound = candidate.outbounds[details.proxy_outbound_index];
 	const server = outbound.settings?.vnext?.[0];
 	const user = server?.users?.[0];
 	const reality = outbound.streamSettings?.realitySettings;

@@ -8,16 +8,21 @@ ACTUAL_SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 ACTUAL_SOURCE_TREE="$(git -C "$ROOT_DIR" rev-parse 'HEAD^{tree}')"
 EXPECTED_SOURCE_TREE="${EXPECTED_SOURCE_TREE:-$ACTUAL_SOURCE_TREE}"
 REPORT_PATH="${TIER0_REPORT_PATH:-${TMPDIR:-/tmp}/router-ui-tier0-$ACTUAL_SOURCE_SHA.json}"
-WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-tier0.XXXXXX")"
+TIER0_PARENT="${TIER0_TEMP_ROOT:-${TMPDIR:-/tmp}}"
+WORK_ROOT="$(mktemp -d "$TIER0_PARENT/router-ui-tier0.XXXXXX")"
+CONTROLLED_TMP="$WORK_ROOT/tmp"
 RESULTS="$WORK_ROOT/results.ndjson"
 GUARD_LOG="$WORK_ROOT/guard.log"
 GUARD_BIN="$WORK_ROOT/guard-bin"
 ARTIFACTS_BEFORE="$WORK_ROOT/artifacts.before"
 ARTIFACTS_AFTER="$WORK_ROOT/artifacts.after"
 SUITE_OK=true
+GUARDED_ENTRYPOINT_COUNT=25
 : > "$RESULTS"
 : > "$GUARD_LOG"
-mkdir -p "$GUARD_BIN" "$(dirname "$REPORT_PATH")"
+mkdir -p "$GUARD_BIN" "$CONTROLLED_TMP" "$(dirname "$REPORT_PATH")"
+TMPDIR="$CONTROLLED_TMP"
+export TMPDIR
 
 cleanup() { rm -rf "$WORK_ROOT"; }
 trap cleanup EXIT INT TERM
@@ -46,8 +51,10 @@ case "$name" in
     category=compiler ;;
   usign|gpg|minisign)
     category=signing ;;
-  opkg|opkg-build|mksquashfs|mkfs.ext4|mkfs.ubifs|ubinize|docker|podman)
+  opkg|opkg-build|mksquashfs|mkfs.ext4|mkfs.ubifs|ubinize|mkimage|docker|podman)
     category=product-build ;;
+  qemu-system-*|qemu-img|VBoxManage)
+    category=vm-execution ;;
   *) category=forbidden-command ;;
 esac
 printf '%s:%s\n' "$category" "$name" >> "${ROUTER_UI_TIER0_GUARD_LOG:?}"
@@ -55,7 +62,8 @@ exit 97
 EOF
 chmod 755 "$GUARD_BIN/router-ui-forbidden-command"
 for command in cmake make ninja gcc g++ clang clang++ cc c++ meson cargo rustc go \
-  usign gpg minisign opkg opkg-build mksquashfs mkfs.ext4 mkfs.ubifs ubinize docker podman
+  usign gpg minisign opkg opkg-build mksquashfs mkfs.ext4 mkfs.ubifs ubinize mkimage \
+  docker podman qemu-system-x86_64 qemu-system-aarch64 qemu-img VBoxManage
 do
   ln -s router-ui-forbidden-command "$GUARD_BIN/$command"
 done
@@ -64,17 +72,19 @@ ROUTER_UI_TIER0_GUARD_LOG="$GUARD_LOG"
 export PATH ROUTER_UI_TIER0_GUARD_LOG
 
 artifact_inventory() {
-  find "$ROOT_DIR" -path "$ROOT_DIR/.git" -prune -o -type f \( \
+  for inventory_root in "$ROOT_DIR" "$CONTROLLED_TMP"; do
+    find "$inventory_root" -path "$ROOT_DIR/.git" -prune -o -type f \( \
       -name '*.ipk' -o -name '*.img' -o -name '*.img.gz' -o -name '*.bin' \
       -o -name '*.trx' -o -name '*.ubi' -o -name '*.itb' -o -name '*.iso' \
-      -o -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.pdf' \
+      -o -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.pyc' -o -name '*.pdf' \
       -o -name '*.tar.gz' -o -name '*.sig' -o -name 'Packages' \
       -o -name 'Packages.gz' -o -name 'SHA256SUMS' \
       -o -name 'router-release-manifest.json' -o -name 'installed-manifest.json' \
     \) -print |
     LC_ALL=C sort | while IFS= read -r file; do
-      printf '%s  %s\n' "$(sha256sum "$file" | awk '{print $1}')" "${file#$ROOT_DIR/}"
+      printf '%s  %s\n' "$(sha256sum "$file" | awk '{print $1}')" "$file"
     done
+  done | LC_ALL=C sort
 }
 
 record_result() {
@@ -106,8 +116,12 @@ run_test() {
 write_report() {
   artifact_new="$1"
   product_count="$(grep -Ec '^(product-build|package-integration-test|canonical-release-test):' "$GUARD_LOG" 2>/dev/null || true)"
+  image_count="$(grep -Ec '^image-build:' "$GUARD_LOG" 2>/dev/null || true)"
   compiler_count="$(grep -Ec '^compiler:' "$GUARD_LOG" 2>/dev/null || true)"
-  signing_count="$(grep -Ec '^(signing|staging|publisher|image-build|tool-install):' "$GUARD_LOG" 2>/dev/null || true)"
+  signing_count="$(grep -Ec '^(signing|staging):' "$GUARD_LOG" 2>/dev/null || true)"
+  publication_count="$(grep -Ec '^publisher:' "$GUARD_LOG" 2>/dev/null || true)"
+  tool_install_count="$(grep -Ec '^tool-install:' "$GUARD_LOG" 2>/dev/null || true)"
+  vm_count="$(grep -Ec '^vm-execution:' "$GUARD_LOG" 2>/dev/null || true)"
   guard_count="$(awk 'NF { count++ } END { print count + 0 }' "$GUARD_LOG")"
   jq -s \
     --argjson ok "$SUITE_OK" \
@@ -115,16 +129,31 @@ write_report() {
     --arg source_tree "$ACTUAL_SOURCE_TREE" \
     --arg generated_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
     --argjson product_build_invocations "$product_count" \
+    --argjson image_build_invocations "$image_count" \
     --argjson compiler_invocations "$compiler_count" \
     --argjson signing_or_staging_invocations "$signing_count" \
+    --argjson release_publication_invocations "$publication_count" \
+    --argjson tool_install_invocations "$tool_install_count" \
+    --argjson vm_execution_invocations "$vm_count" \
+    --argjson guarded_entrypoint_count "$GUARDED_ENTRYPOINT_COUNT" \
+    --arg controlled_tmp "$CONTROLLED_TMP" \
+    --arg package_root "$ROOT_DIR/.package-build" \
+    --arg output_root "$ROOT_DIR/output" \
+    --arg repo_tmp_root "$ROOT_DIR/tmp" \
     --argjson forbidden_invocations "$guard_count" \
     --argjson package_image_release_artifacts_generated "$artifact_new" \
-    '{schema_version:1,kind:"router-ui-tier0-source-preflight",ok:$ok,
+    '{schema_version:2,kind:"router-ui-tier0-source-preflight",ok:$ok,
       source_sha:$source_sha,source_tree:$source_tree,generated_at:$generated_at,
       product_build_invocations:$product_build_invocations,
+      image_build_invocations:$image_build_invocations,
       compiler_invocations:$compiler_invocations,
       signing_or_staging_invocations:$signing_or_staging_invocations,
+      release_publication_invocations:$release_publication_invocations,
+      tool_install_invocations:$tool_install_invocations,
+      vm_execution_invocations:$vm_execution_invocations,
       forbidden_invocations:$forbidden_invocations,
+      guarded_entrypoint_count:$guarded_entrypoint_count,
+      declared_temporary_and_output_roots:[$controlled_tmp,$package_root,$output_root,$repo_tmp_root],
       package_image_release_artifacts_generated:$package_image_release_artifacts_generated,
       tests:.}' "$RESULTS" > "$REPORT_PATH.new"
   mv "$REPORT_PATH.new" "$REPORT_PATH"
@@ -179,10 +208,11 @@ run_test git-diff-check sh -c 'git diff --check 18562f49bcac914acf3b07749f5b8863
 run_test scope-ledger sh -c '
   out="$1/scope-ledger.json"
   root="$2"
-  node "$root/scripts/generate-router-ui-rc8-scope-ledger.mjs" --output "$out" >/dev/null
-  cmp -s "$out" "$root/docs/evidence/router-ui-0.7.11-rc8-scope-ledger.json"
+  node "$root/scripts/generate-router-ui-rc9-scope-ledger.mjs" --output "$out" >/dev/null
+  cmp -s "$out" "$root/docs/evidence/router-ui-0.7.11-rc9-scope-ledger.json"
 ' sh "$WORK_ROOT" "$ROOT_DIR" || finish 1
 
+run_test tier0-zero-build-contracts sh tests/test-tier0-zero-build-contracts.sh || finish 1
 run_test control-census node tests/test-router-ui-control-census.mjs || finish 1
 run_test seven-state-rendering node tests/test-router-ui-state-rendering.mjs || finish 1
 run_test tailscale-ping-ui node tests/test-tailscale-ping-ui.mjs || finish 1
@@ -193,6 +223,7 @@ run_test updater-identity-contracts sh tests/test-vpn-hotfixes.sh || finish 1
 run_test updater-source-transactions sh tests/test-updater-source-contracts.sh || finish 1
 run_test updater-worker-locking sh tests/test-updater-worker-start.sh || finish 1
 run_test tailscale-registration sh tests/test-tailscale-registration.sh || finish 1
+run_test firstboot-optional-services sh tests/test-firstboot-optional-services.sh || finish 1
 run_test router-metadata sh tests/test-router-metadata.sh || finish 1
 run_test package-source-contracts sh tests/test-package-source-contracts.sh || finish 1
 run_test rd23-package-boundary sh tests/test-rd23-profile.sh || finish 1
