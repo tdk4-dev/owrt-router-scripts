@@ -1,506 +1,2235 @@
-#!/bin/ash
+#!/bin/sh
 set -u
+umask 077
+
+ROOT_PREFIX="${VPN_UI_ROOT_PREFIX:-}"
+LIB="${VPN_UI_UPDATE_LIB:-${ROOT_PREFIX}/usr/libexec/premier-router/update-lib.sh}"
+[ -r "$LIB" ] || {
+  printf 'ERROR: trusted update library is missing: %s\n' "$LIB" >&2
+  exit 70
+}
+. "$LIB"
 
 REPO="${VPN_UI_REPO:-tdk4-dev/owrt-router-scripts}"
-RELEASE_BASE="${VPN_UI_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
-VERSION_FILE="${VPN_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
-MANIFEST_NAME="router-release-manifest.json"
-PACKAGES_NAME="router-ui-packages.txt"
-REMOTE_VERSION_NAME="vpn-ui-version.txt"
-REMOTE_CHANGELOG_NAME="vpn-ui-changelog.txt"
-REMOTE_RELEASE_DATE_NAME="vpn-ui-release-date.txt"
-CONFIG_FILE="${VPN_UI_UPDATE_CONFIG:-/etc/vpn-ui-update.conf}"
-CACHE_DIR="${VPN_UI_UPDATE_CACHE:-/etc/vpn-ui-update-cache}"
-STATE_DIR="${VPN_UI_UPDATE_STATE:-/tmp/vpn-ui-update}"
-LOCK_DIR="${VPN_UI_UPDATE_LOCK:-/tmp/vpn-ui-update.lock}"
-LOG_FILE="${VPN_UI_UPDATE_LOG:-/tmp/vpn-ui-update.log}"
-CRON_FILE="${VPN_UI_UPDATE_CRON:-/etc/crontabs/root}"
+RELEASE_ORIGIN="${VPN_UI_RELEASE_ORIGIN:-https://github.com/$REPO}"
+DISCOVERY_BASE="${VPN_UI_DISCOVERY_BASE:-$RELEASE_ORIGIN/releases/latest/download}"
+RELEASE_CHANNEL="${VPN_UI_RELEASE_CHANNEL:-stable}"
+case "$RELEASE_CHANNEL" in stable|candidate) ;; *)
+  printf 'ERROR: unsupported update channel: %s\n' "$RELEASE_CHANNEL" >&2
+  exit 64
+esac
+POINTER_NAME="$RELEASE_CHANNEL-channel.json"
+VERSION_FILE="${VPN_UI_VERSION_FILE:-${ROOT_PREFIX}/usr/share/vpn-ui/version}"
+BUILD_INFO="${VPN_UI_BUILD_INFO:-${ROOT_PREFIX}/usr/share/premier-router/build-info}"
+PUBLIC_KEY="${VPN_UI_RELEASE_PUBLIC_KEY:-${ROOT_PREFIX}/usr/share/premier-router/keys/release.pub}"
+KEY_ID_FILE="${VPN_UI_RELEASE_KEY_ID_FILE:-${ROOT_PREFIX}/usr/share/premier-router/keys/release-key-id}"
+TRUSTED_KEYS_REGISTRY="${VPN_UI_TRUSTED_KEYS_REGISTRY:-${ROOT_PREFIX}/usr/share/premier-router/keys/trusted-keys.json}"
+TRUSTED_KEYS_PUBLIC_ROOT="${VPN_UI_TRUSTED_KEYS_PUBLIC_ROOT:-${ROOT_PREFIX}/usr/share/premier-router/keys/release}"
+CONFIG_FILE="${VPN_UI_UPDATE_CONFIG:-${ROOT_PREFIX}/etc/vpn-ui-update.conf}"
+CRON_FILE="${VPN_UI_UPDATE_CRON:-${ROOT_PREFIX}/etc/crontabs/root}"
 RESTART_CRON="${VPN_UI_UPDATE_RESTART_CRON:-1}"
-CRON_MARKER="/usr/sbin/vpn-ui-update auto"
-BACKUP_DIR="${VPN_UI_UPDATE_BACKUPS:-/root/router-ui-backups}"
+PERSIST_ROOT="${VPN_UI_UPDATE_PERSIST_ROOT:-${ROOT_PREFIX}/root/premier-router-updates}"
+CACHE_DIR="${VPN_UI_UPDATE_CACHE:-${ROOT_PREFIX}/etc/premier-router/update-cache}"
+LOCK_DIR="${VPN_UI_UPDATE_LOCK:-$PERSIST_ROOT/update.lock}"
+ACTIVE_FILE="${VPN_UI_UPDATE_ACTIVE:-$PERSIST_ROOT/active-transaction}"
+LOG_FILE="${VPN_UI_UPDATE_LOG:-${ROOT_PREFIX}/tmp/premier-router-update.log}"
+WORKER_HANDSHAKE_DIR="${VPN_UI_WORKER_HANDSHAKE_DIR:-$PERSIST_ROOT/worker-handshakes}"
+WORKER_HANDSHAKE_TIMEOUT="${VPN_UI_WORKER_HANDSHAKE_TIMEOUT:-10}"
+INSTALLED_MANIFEST="${VPN_UI_INSTALLED_MANIFEST:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json}"
+INSTALLED_SIGNATURE="${VPN_UI_INSTALLED_SIGNATURE:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json.sig}"
+PR_INSTALLED_MANIFEST_FILE="$INSTALLED_MANIFEST"
+export PR_INSTALLED_MANIFEST_FILE
+KNOWN_GOOD="${VPN_UI_KNOWN_GOOD:-$PERSIST_ROOT/known-good}"
+QUARANTINE_DIR="${VPN_UI_QUARANTINE:-$PERSIST_ROOT/quarantine}"
+TEST_MARKER="${VPN_UI_TEST_MARKER:-${ROOT_PREFIX}/etc/premier-router/test-mode}"
+SYSUPGRADE_BIN="${VPN_UI_SYSUPGRADE_BIN:-sysupgrade}"
+OPKG_BIN="${VPN_UI_OPKG_BIN:-opkg}"
+SELF_PATH="${VPN_UI_UPDATE_SELF:-$0}"
+AUTO_UPDATE=0
+AUTO_SCHEDULE='Sunday 04:17'
+LOCK_TOKEN=""
+TXN_DIR=""
+JOURNAL=""
+J_TRANSACTION_ID=""
+J_SOURCE_APP_VERSION=""
+J_SOURCE_PACKAGE_VERSION=""
+J_SOURCE_UPDATER_PROTOCOL=""
+J_SOURCE_TYPE=""
+J_TARGET_APP_VERSION=""
+J_TARGET_PACKAGE_VERSION=""
+J_TARGET_TAG=""
+J_TARGET_MANIFEST_HASH=""
+J_STATE="idle"
+J_LAST_COMPLETED_STATE="idle"
+J_MUTATION_STARTED=false
+J_BACKUP_PATH=""
+J_ROLLBACK_BUNDLE_PATH=""
+J_ROLLBACK_STATUS="not_started"
+J_ERROR_CLASS=""
+J_ERROR_CODE=""
+J_ERROR_MESSAGE=""
+J_CREATED_AT=""
+J_UPDATED_AT=""
+J_BOOT_ID=""
+J_WORKER_TOKEN=""
+J_INVOCATION=""
+J_NEEDS_REBOOT_VALIDATION=false
 
-json_escape() {
-  printf '%s' "$1" |
-    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' |
-    awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+RC5_BRIDGE_APP_VERSION='0.7.11-rc.5'
+RC5_BRIDGE_PACKAGE_VERSION='0.7.11~rc5-1'
+RC5_BRIDGE_SOURCE_COMMIT='d02b3bcd187a44d366469ed1f37bb1b273e60529'
+RC5_BRIDGE_SOURCE_DATE_EPOCH='1785839862'
+RC5_BRIDGE_SIGNING_KEY_ID='production-2026-07'
+RC5_BRIDGE_SIGNING_KEY_FINGERPRINT='d055711acf1d9a5b'
+RC5_BRIDGE_MANIFEST_SHA256='52c6c4321d08ce5763a2472ac4d2b093b8547c2da7f5be857ea4986f63041365'
+RC5_BRIDGE_SIGNATURE_SHA256='814922b2647b486ac49ae9688b054170077a1f00476587bbad6ccabe22975517'
+RC5_BRIDGE_UPDATER_SHA256='14c15b6e3bfc38e8cb8f87a0ac57b4ab11270f9b4d31445719f1c04b7bc6681e'
+RC5_BRIDGE_UPDATE_LIB_SHA256='fb18f1f65970baa29f41acc6f727f75829eba0d6fce0934b84ff82bdbc200f0a'
+RC5_BRIDGE_VALIDATOR_SHA256='2cfca674925ada88a31e94c0b7a7870e5d0cb1148aa2af9315eb214a0fc65669'
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  RC5_BRIDGE_SOURCE_DATE_EPOCH="${VPN_UI_TEST_RC5_SOURCE_DATE_EPOCH:-$RC5_BRIDGE_SOURCE_DATE_EPOCH}"
+  RC5_BRIDGE_SIGNING_KEY_ID="${VPN_UI_TEST_RC5_SIGNING_KEY_ID:-$RC5_BRIDGE_SIGNING_KEY_ID}"
+  RC5_BRIDGE_SIGNING_KEY_FINGERPRINT="${VPN_UI_TEST_RC5_SIGNING_KEY_FINGERPRINT:-$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT}"
+  RC5_BRIDGE_MANIFEST_SHA256="${VPN_UI_TEST_RC5_MANIFEST_SHA256:-$RC5_BRIDGE_MANIFEST_SHA256}"
+  RC5_BRIDGE_SIGNATURE_SHA256="${VPN_UI_TEST_RC5_SIGNATURE_SHA256:-$RC5_BRIDGE_SIGNATURE_SHA256}"
+  RC5_BRIDGE_UPDATER_SHA256="${VPN_UI_TEST_RC5_UPDATER_SHA256:-$RC5_BRIDGE_UPDATER_SHA256}"
+  RC5_BRIDGE_UPDATE_LIB_SHA256="${VPN_UI_TEST_RC5_UPDATE_LIB_SHA256:-$RC5_BRIDGE_UPDATE_LIB_SHA256}"
+  RC5_BRIDGE_VALIDATOR_SHA256="${VPN_UI_TEST_RC5_VALIDATOR_SHA256:-$RC5_BRIDGE_VALIDATOR_SHA256}"
+fi
+
+now() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+boot_id() {
+  pr_read_first "${VPN_UI_BOOT_ID_FILE:-${ROOT_PREFIX}/proc/sys/kernel/random/boot_id}"
 }
-
-json_string() {
-  printf '"%s"' "$(json_escape "$1")"
+process_start_id() {
+  local pid="$1"
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ -n "${VPN_UI_TEST_PROCESS_START_ID:-}" ]; then
+    printf '%s\n' "$VPN_UI_TEST_PROCESS_START_ID"
+    return 0
+  fi
+  awk '{ print $22 }' "${VPN_UI_PROCESS_ROOT:-${ROOT_PREFIX}/proc}/$pid/stat" 2>/dev/null
 }
-
-one_line() {
-  printf '%s' "$1" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g' | cut -c 1-500
+random_token() {
+  local token
+  token="$({
+    printf '%s|%s|%s|%s|' "$$" "$(date +%s)" "$(process_start_id $$)" "$(boot_id)"
+    if [ -r "${ROOT_PREFIX}/dev/urandom" ]; then
+      dd if="${ROOT_PREFIX}/dev/urandom" bs=16 count=1 2>/dev/null || true
+    fi
+  } | sha256sum | awk '{print $1}')"
+  [ "${#token}" -eq 64 ] || return 1
+  case "$token" in *[!0-9a-f]*) return 1 ;; esac
+  printf '%s\n' "$token"
 }
-
-die_json() {
-  printf '{"ok":false,"error":'
-  json_string "$(one_line "$*")"
-  printf '}\n'
-  exit 0
-}
-
-shell_quote() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-}
-
-current_version() {
-  cat "$VERSION_FILE" 2>/dev/null || printf 'development'
-}
-
-version_is_newer() {
-  awk -v remote="$1" -v current="$2" 'BEGIN {
-    remote_lower = tolower(remote)
-    current_lower = tolower(current)
-    remote_rc_pos = index(remote_lower, "rc")
-    current_rc_pos = index(current_lower, "rc")
-    remote_is_rc = remote_rc_pos > 0
-    current_is_rc = current_rc_pos > 0
-    remote_rc = remote_is_rc ? substr(remote_lower, remote_rc_pos + 2) + 0 : 0
-    current_rc = current_is_rc ? substr(current_lower, current_rc_pos + 2) + 0 : 0
-    remote_base = remote_is_rc ? substr(remote_lower, 1, remote_rc_pos - 1) : remote_lower
-    current_base = current_is_rc ? substr(current_lower, 1, current_rc_pos - 1) : current_lower
-    rn = split(remote_base, r, ".")
-    cn = split(current_base, c, ".")
-    n = rn > cn ? rn : cn
-    for (i = 1; i <= n; i++) {
-      rv = (r[i] ~ /^[0-9]+$/) ? r[i] + 0 : 0
-      cv = (c[i] ~ /^[0-9]+$/) ? c[i] + 0 : 0
-      if (rv > cv) exit 0
-      if (rv < cv) exit 1
-    }
-    if (remote_is_rc && current_is_rc && remote_rc > current_rc) exit 0
-    if (!remote_is_rc && current_is_rc) exit 0
-    exit 1
-  }'
-}
-
-read_file() {
-  [ -f "$1" ] && cat "$1" || true
-}
-
-write_atomic() {
-  local dst="$1"
-  local tmp="$dst.$$"
+atomic_from_stdin() {
+  local dst="$1" tmp="$1.new.$$"
   mkdir -p "$(dirname "$dst")"
   cat > "$tmp"
+  chmod 600 "$tmp"
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
   mv "$tmp" "$dst"
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
 }
-
+atomic_sort_file() {
+  local file="$1" ordering="${2:-plain}" tmp="$1.sorted.$$"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+  if ! (
+    umask 077
+    case "$ordering" in
+      plain) LC_ALL=C sort "$file" ;;
+      unique) LC_ALL=C sort -u "$file" ;;
+      *) exit 2 ;;
+    esac
+  ) > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 600 "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$file" || {
+    rm -f "$tmp"
+    return 1
+  }
+}
+read_config_value() {
+  local key="$1" file="$2"
+  sed -n "s/^$key=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$file" |
+    sed -n '1p'
+}
 ensure_config() {
-  if [ ! -f "$CONFIG_FILE" ]; then
-    {
-      printf "AUTO_UPDATE='0'\n"
-      printf "AUTO_SCHEDULE='Sunday 04:17'\n"
-    } > "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
-  fi
+  [ -f "$CONFIG_FILE" ] && return 0
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  {
+    printf "AUTO_UPDATE='0'\n"
+    printf "AUTO_SCHEDULE='Sunday 04:17'\n"
+  } | atomic_from_stdin "$CONFIG_FILE"
 }
-
+load_config_readonly() {
+  AUTO_UPDATE="$(read_config_value AUTO_UPDATE "$CONFIG_FILE")"
+  AUTO_SCHEDULE="$(read_config_value AUTO_SCHEDULE "$CONFIG_FILE")"
+  case "$AUTO_UPDATE" in 0|1) ;; *) AUTO_UPDATE=0 ;; esac
+  [ -n "$AUTO_SCHEDULE" ] || AUTO_SCHEDULE='Sunday 04:17'
+}
 load_config() {
-  AUTO_UPDATE="0"
-  AUTO_SCHEDULE="Sunday 04:17"
-  if [ -f "$CONFIG_FILE" ]; then
-    # shellcheck disable=SC1090
-    . "$CONFIG_FILE"
-  fi
-}
-
-configure_cron() {
-  local tmp="$CRON_FILE.vpn-ui-update.$$"
   ensure_config
+  load_config_readonly
+}
+configure_cron() {
+  local tmp="$CRON_FILE.new.$$"
   load_config
   mkdir -p "$(dirname "$CRON_FILE")"
   touch "$CRON_FILE"
-  grep -vF "$CRON_MARKER" "$CRON_FILE" > "$tmp" 2>/dev/null || true
+  grep -vF '/usr/sbin/vpn-ui-update auto' "$CRON_FILE" > "$tmp" 2>/dev/null || true
   if [ "$AUTO_UPDATE" = "1" ]; then
     printf '%s\n' '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' >> "$tmp"
   fi
+  chmod 600 "$tmp"
   mv "$tmp" "$CRON_FILE"
-  chmod 600 "$CRON_FILE"
   if [ "$RESTART_CRON" = "1" ]; then
-    /etc/init.d/cron enable >/dev/null 2>&1 || true
-    /etc/init.d/cron restart >/dev/null 2>&1 || true
+    "${ROOT_PREFIX}/etc/init.d/cron" enable >/dev/null 2>&1 || true
+    "${ROOT_PREFIX}/etc/init.d/cron" restart >/dev/null 2>&1 || true
   fi
 }
-
-set_auto_update() {
-  local enabled="$1"
-  case "$enabled" in
-    0|1) ;;
-    *) die_json "auto-update setting must be 0 or 1" ;;
-  esac
+set_auto() {
+  case "${1:-}" in 0|1) ;; *) pr_fail "auto-update setting must be 0 or 1"; return 2 ;; esac
   {
-    printf 'AUTO_UPDATE=%s\n' "$(shell_quote "$enabled")"
+    printf "AUTO_UPDATE='%s'\n" "$1"
     printf "AUTO_SCHEDULE='Sunday 04:17'\n"
-  } > "$CONFIG_FILE"
-  chmod 600 "$CONFIG_FILE"
+  } | atomic_from_stdin "$CONFIG_FILE"
   configure_cron
-  status_json
 }
 
+journal_emit() {
+  printf '{\n'
+  printf '  "transaction_id":'; pr_json_string "$J_TRANSACTION_ID"; printf ',\n'
+  printf '  "source_app_version":'; pr_json_string "$J_SOURCE_APP_VERSION"; printf ',\n'
+  printf '  "source_package_version":'; pr_json_string "$J_SOURCE_PACKAGE_VERSION"; printf ',\n'
+  printf '  "source_updater_protocol":%s,\n' "${J_SOURCE_UPDATER_PROTOCOL:-0}"
+  printf '  "source_type":'; pr_json_string "$J_SOURCE_TYPE"; printf ',\n'
+  printf '  "target_app_version":'; pr_json_string "$J_TARGET_APP_VERSION"; printf ',\n'
+  printf '  "target_package_version":'; pr_json_string "$J_TARGET_PACKAGE_VERSION"; printf ',\n'
+  printf '  "target_tag":'; pr_json_string "$J_TARGET_TAG"; printf ',\n'
+  printf '  "target_manifest_hash":'; pr_json_string "$J_TARGET_MANIFEST_HASH"; printf ',\n'
+  printf '  "state":'; pr_json_string "$J_STATE"; printf ',\n'
+  printf '  "last_completed_state":'; pr_json_string "$J_LAST_COMPLETED_STATE"; printf ',\n'
+  printf '  "mutation_started":%s,\n' "$J_MUTATION_STARTED"
+  printf '  "backup_path":'; pr_json_string "$J_BACKUP_PATH"; printf ',\n'
+  printf '  "rollback_bundle_path":'; pr_json_string "$J_ROLLBACK_BUNDLE_PATH"; printf ',\n'
+  printf '  "rollback_status":'; pr_json_string "$J_ROLLBACK_STATUS"; printf ',\n'
+  printf '  "error_class":'; pr_json_string "$J_ERROR_CLASS"; printf ',\n'
+  printf '  "error_code":'; pr_json_string "$J_ERROR_CODE"; printf ',\n'
+  printf '  "error_message":'; pr_json_string "$J_ERROR_MESSAGE"; printf ',\n'
+  printf '  "created_at":'; pr_json_string "$J_CREATED_AT"; printf ',\n'
+  printf '  "updated_at":'; pr_json_string "$J_UPDATED_AT"; printf ',\n'
+  printf '  "boot_id":'; pr_json_string "$J_BOOT_ID"; printf ',\n'
+  printf '  "worker_ownership_token":'; pr_json_string "$J_WORKER_TOKEN"; printf ',\n'
+  printf '  "invocation":'; pr_json_string "$J_INVOCATION"; printf ',\n'
+  printf '  "needs_reboot_validation":%s\n' "$J_NEEDS_REBOOT_VALIDATION"
+  printf '}\n'
+}
+journal_write() {
+  J_UPDATED_AT="$(now)"
+  journal_emit | atomic_from_stdin "$JOURNAL"
+}
+journal_load() {
+  JOURNAL="$1"
+  [ -s "$JOURNAL" ] || return 1
+  J_TRANSACTION_ID="$(pr_json_get "$JOURNAL" '@.transaction_id' '.transaction_id // empty')"
+  J_SOURCE_APP_VERSION="$(pr_json_get "$JOURNAL" '@.source_app_version' '.source_app_version // empty')"
+  J_SOURCE_PACKAGE_VERSION="$(pr_json_get "$JOURNAL" '@.source_package_version' '.source_package_version // empty')"
+  J_SOURCE_UPDATER_PROTOCOL="$(pr_json_get "$JOURNAL" '@.source_updater_protocol' '.source_updater_protocol // 0')"
+  J_SOURCE_TYPE="$(pr_json_get "$JOURNAL" '@.source_type' '.source_type // empty')"
+  J_TARGET_APP_VERSION="$(pr_json_get "$JOURNAL" '@.target_app_version' '.target_app_version // empty')"
+  J_TARGET_PACKAGE_VERSION="$(pr_json_get "$JOURNAL" '@.target_package_version' '.target_package_version // empty')"
+  J_TARGET_TAG="$(pr_json_get "$JOURNAL" '@.target_tag' '.target_tag // empty')"
+  J_TARGET_MANIFEST_HASH="$(pr_json_get "$JOURNAL" '@.target_manifest_hash' '.target_manifest_hash // empty')"
+  J_STATE="$(pr_json_get "$JOURNAL" '@.state' '.state // empty')"
+  J_LAST_COMPLETED_STATE="$(pr_json_get "$JOURNAL" '@.last_completed_state' '.last_completed_state // empty')"
+  J_MUTATION_STARTED="$(pr_json_get "$JOURNAL" '@.mutation_started' '.mutation_started // false')"
+  J_BACKUP_PATH="$(pr_json_get "$JOURNAL" '@.backup_path' '.backup_path // empty')"
+  J_ROLLBACK_BUNDLE_PATH="$(pr_json_get "$JOURNAL" '@.rollback_bundle_path' '.rollback_bundle_path // empty')"
+  J_ROLLBACK_STATUS="$(pr_json_get "$JOURNAL" '@.rollback_status' '.rollback_status // empty')"
+  J_ERROR_CLASS="$(pr_json_get "$JOURNAL" '@.error_class' '.error_class // empty')"
+  J_ERROR_CODE="$(pr_json_get "$JOURNAL" '@.error_code' '.error_code // empty')"
+  J_ERROR_MESSAGE="$(pr_json_get "$JOURNAL" '@.error_message' '.error_message // empty')"
+  J_CREATED_AT="$(pr_json_get "$JOURNAL" '@.created_at' '.created_at // empty')"
+  J_UPDATED_AT="$(pr_json_get "$JOURNAL" '@.updated_at' '.updated_at // empty')"
+  J_BOOT_ID="$(pr_json_get "$JOURNAL" '@.boot_id' '.boot_id // empty')"
+  J_WORKER_TOKEN="$(pr_json_get "$JOURNAL" '@.worker_ownership_token' '.worker_ownership_token // empty')"
+  J_INVOCATION="$(pr_json_get "$JOURNAL" '@.invocation' '.invocation // empty')"
+  J_NEEDS_REBOOT_VALIDATION="$(pr_json_get "$JOURNAL" '@.needs_reboot_validation' '.needs_reboot_validation // false')"
+}
 set_state() {
-  local status="$1"
-  local stage="$2"
-  local message="$3"
-  local target="${4:-}"
-  local backup="${5:-}"
-  mkdir -p "$STATE_DIR"
-  printf '%s\n' "$status" | write_atomic "$STATE_DIR/status"
-  printf '%s\n' "$stage" | write_atomic "$STATE_DIR/stage"
-  printf '%s\n' "$message" | write_atomic "$STATE_DIR/message"
-  printf '%s\n' "$target" | write_atomic "$STATE_DIR/target"
-  printf '%s\n' "$backup" | write_atomic "$STATE_DIR/backup"
-  date -u '+%Y-%m-%dT%H:%M:%SZ' | write_atomic "$STATE_DIR/updated_at"
+  J_LAST_COMPLETED_STATE="$J_STATE"
+  J_STATE="$1"
+  journal_write
+  test_boundary "$1"
 }
-
-clear_state() {
-  rm -rf "$STATE_DIR"
-  set_state "idle" "idle" "" "" ""
+set_error() {
+  J_ERROR_CLASS="$1"
+  J_ERROR_CODE="$2"
+  J_ERROR_MESSAGE="$(pr_one_line "$3")"
+  journal_write
 }
-
-acquire_lock() {
-  local owner=""
-  if [ -d "$LOCK_DIR" ]; then
-    owner="$(read_file "$LOCK_DIR/pid" | sed -n '1p')"
-    if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$LOCK_DIR"
-    fi
+test_boundary() {
+  local configured="${VPN_UI_TEST_FAIL_AFTER:-}"
+  [ -f "$TEST_MARKER" ] || return 0
+  [ -n "$configured" ] || configured="$(pr_read_first "$TEST_MARKER.fail-after")"
+  [ "$configured" = "$1" ] || return 0
+  rm -f "$TEST_MARKER.fail-after"
+  if [ "${VPN_UI_TEST_FAIL_MODE:-kill}" = "return" ]; then
+    return 97
   fi
-  mkdir "$LOCK_DIR" 2>/dev/null || return 1
-  printf '%s\n' "$$" > "$LOCK_DIR/pid"
+  kill -9 $$
 }
 
-release_lock() {
-  rm -rf "$LOCK_DIR"
+lock_owner_field() {
+  sed -n "s/^$1=//p" "$LOCK_DIR/owner" 2>/dev/null | sed -n '1p'
+}
+lock_is_live() {
+  local pid owner_boot owner_start
+  [ -s "$LOCK_DIR/owner" ] || return 1
+  pid="$(lock_owner_field pid)"
+  owner_boot="$(lock_owner_field boot_id)"
+  owner_start="$(lock_owner_field start_id)"
+  [ -n "$pid" ] && [ "$owner_boot" = "$(boot_id)" ] &&
+    [ "$owner_start" = "$(process_start_id "$pid")" ]
+}
+lock_recover_stale() {
+  [ -d "$LOCK_DIR" ] || return 0
+  lock_is_live && return 1
+  rm -f "$LOCK_DIR/owner" 2>/dev/null || return 1
+  rmdir "$LOCK_DIR" 2>/dev/null
+}
+lock_acquire() {
+  local token="${1:-$(random_token)}" start
+  mkdir -p "$PERSIST_ROOT"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_recover_stale || return 1
+    mkdir "$LOCK_DIR" 2>/dev/null || return 1
+  fi
+  start="$(process_start_id $$)"
+  {
+    printf 'token=%s\n' "$token"
+    printf 'pid=%s\n' "$$"
+    printf 'boot_id=%s\n' "$(boot_id)"
+    printf 'start_id=%s\n' "$start"
+  } > "$LOCK_DIR/owner"
+  chmod 600 "$LOCK_DIR/owner"
+  LOCK_TOKEN="$token"
+}
+lock_assert() {
+  [ -n "$1" ] && [ "$(lock_owner_field token)" = "$1" ] || return 1
+  lock_is_live
+}
+lock_release() {
+  [ -n "${1:-}" ] && [ "$(lock_owner_field token)" = "$1" ] || return 1
+  rm -f "$LOCK_DIR/owner"
+  rmdir "$LOCK_DIR"
+}
+lock_transfer_to_child() {
+  local token="$1" child_pid="$2" start
+  [ "$(lock_owner_field token)" = "$token" ] || return 1
+  start="$(process_start_id "$child_pid")"
+  [ -n "$start" ] || return 1
+  {
+    printf 'token=%s\n' "$token"
+    printf 'pid=%s\n' "$child_pid"
+    printf 'boot_id=%s\n' "$(boot_id)"
+    printf 'start_id=%s\n' "$start"
+  } > "$LOCK_DIR/owner.new"
+  chmod 600 "$LOCK_DIR/owner.new"
+  mv "$LOCK_DIR/owner.new" "$LOCK_DIR/owner"
 }
 
-lock_is_active() {
-  local owner=""
-  [ -d "$LOCK_DIR" ] || return 1
-  owner="$(read_file "$LOCK_DIR/pid" | sed -n '1p')"
-  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+current_version() { pr_read_first "$VERSION_FILE"; }
+source_protocol() {
+  sed -n 's/^UPDATER_PROTOCOL=//p' "$BUILD_INFO" 2>/dev/null | sed -n '1p'
+}
+source_package_version() {
+  sed -n 's/^PACKAGE_VERSION=//p' "$BUILD_INFO" 2>/dev/null | sed -n '1p'
+}
+detect_source_type() {
+  if "$OPKG_BIN" status premier-router-core 2>/dev/null |
+    grep -q '^Status:.* installed'; then
+    printf ipk
+  else
+    printf legacy
+  fi
+}
+
+pointer_validate() {
+  local pointer="$1" expected_key_id="$2"
+  local expected_fingerprint="${3:-}" schema channel version tag manifest_file manifest_hash key_id key_fingerprint
+  schema="$(pr_json_get "$pointer" '@.schema_version' '.schema_version // empty')"
+  channel="$(pr_json_get "$pointer" '@.channel' '.channel // empty')"
+  version="$(pr_json_get "$pointer" '@.target_version' '.target_version // empty')"
+  tag="$(pr_json_get "$pointer" '@.release_tag' '.release_tag // empty')"
+  manifest_file="$(pr_json_get "$pointer" '@.manifest_filename' '.manifest_filename // empty')"
+  manifest_hash="$(pr_json_get "$pointer" '@.manifest_sha256' '.manifest_sha256 // empty')"
+  key_id="$(pr_json_get "$pointer" '@.signing_key_id' '.signing_key_id // empty')"
+  key_fingerprint="$(pr_json_get "$pointer" '@.signing_key_fingerprint' '.signing_key_fingerprint // empty')"
+  [ "$schema" = "1" ] && [ "$channel" = "$RELEASE_CHANNEL" ] || return 1
+  pr_version_valid "$version" || return 1
+  [ "$tag" = "vpn-panel-v$version" ] || return 1
+  [ "$manifest_file" = router-release-manifest.json ] || return 1
+  printf '%s' "$manifest_hash" | grep -Eq '^[0-9a-f]{64}$' || return 1
+  [ "$key_id" = "$expected_key_id" ] || return 1
+  [ -z "$expected_fingerprint" ] || [ "$key_fingerprint" = "$expected_fingerprint" ]
+}
+
+discover_release() {
+  local work="$1" source_version="$2" source_proto="$3"
+  local pointer="$work/$POINTER_NAME" pointer_sig="$work/$POINTER_NAME.sig"
+  local manifest="$work/router-release-manifest.json"
+  local manifest_sig="$work/router-release-manifest.json.sig"
+  local key_id key_fingerprint tag version expected_hash release_base selected_public_key
+
+  pr_download "$DISCOVERY_BASE/$POINTER_NAME" "$pointer" || return 1
+  pr_download "$DISCOVERY_BASE/$POINTER_NAME.sig" "$pointer_sig" || return 1
+  key_id="$(pr_json_get "$pointer" '@.signing_key_id' '.signing_key_id // empty')"
+  if [ -s "$TRUSTED_KEYS_REGISTRY" ]; then
+    pr_resolve_trusted_release_key "$TRUSTED_KEYS_REGISTRY" \
+      "$TRUSTED_KEYS_PUBLIC_ROOT" "$key_id" || return 1
+    selected_public_key="$PR_TRUSTED_PUBLIC_KEY"
+    key_fingerprint="$PR_TRUSTED_KEY_FINGERPRINT"
+  else
+    [ "$key_id" = "$(pr_read_first "$KEY_ID_FILE")" ] && [ -s "$PUBLIC_KEY" ] || return 1
+    selected_public_key="$PUBLIC_KEY"
+    key_fingerprint=""
+  fi
+  pr_verify_signature "$pointer" "$pointer_sig" "$selected_public_key" || return 1
+  pointer_validate "$pointer" "$key_id" "$key_fingerprint" || return 1
+  tag="$(pr_json_get "$pointer" '@.release_tag' '.release_tag // empty')"
+  version="$(pr_json_get "$pointer" '@.target_version' '.target_version // empty')"
+  expected_hash="$(pr_json_get "$pointer" '@.manifest_sha256' '.manifest_sha256 // empty')"
+  release_base="$RELEASE_ORIGIN/releases/download/$tag"
+  pr_download "$release_base/router-release-manifest.json" "$manifest" || return 1
+  pr_download "$release_base/router-release-manifest.json.sig" "$manifest_sig" || return 1
+  [ "$(pr_sha256 "$manifest")" = "$expected_hash" ] || return 1
+  pr_verify_signature "$manifest" "$manifest_sig" "$selected_public_key" || return 1
+  [ "$(pr_json_get "$manifest" '@.channel' '.channel // empty')" = "$RELEASE_CHANNEL" ] || return 1
+  pr_manifest_validate "$manifest" "$key_id" "$source_version" "$source_proto" \
+    "$key_fingerprint" || return 1
+  mkdir -p "$CACHE_DIR/$tag"
+  cp "$pointer" "$CACHE_DIR/$POINTER_NAME.new"
+  cp "$pointer_sig" "$CACHE_DIR/$POINTER_NAME.sig.new"
+  cp "$manifest" "$CACHE_DIR/$tag/router-release-manifest.json.new"
+  cp "$manifest_sig" "$CACHE_DIR/$tag/router-release-manifest.json.sig.new"
+  mv "$CACHE_DIR/$POINTER_NAME.new" "$CACHE_DIR/$POINTER_NAME"
+  mv "$CACHE_DIR/$POINTER_NAME.sig.new" "$CACHE_DIR/$POINTER_NAME.sig"
+  mv "$CACHE_DIR/$tag/router-release-manifest.json.new" "$CACHE_DIR/$tag/router-release-manifest.json"
+  mv "$CACHE_DIR/$tag/router-release-manifest.json.sig.new" "$CACHE_DIR/$tag/router-release-manifest.json.sig"
+  printf '%s\n' "$tag" | atomic_from_stdin "$CACHE_DIR/resolved-tag"
+  printf '%s\n' "$(now)" | atomic_from_stdin "$CACHE_DIR/checked-at"
+  printf '%s\n' "$version"
+}
+
+latest_journal() {
+  local transaction
+  transaction="$(pr_read_first "$ACTIVE_FILE")"
+  [ -n "$transaction" ] || return 1
+  printf '%s/%s/state.json\n' "$PERSIST_ROOT" "$transaction"
+}
+status_json() {
+  local current current_channel latest checked state job_status message target rollback quarantine needs_reboot
+  load_config_readonly
+  current="$(current_version)"
+  case "$current" in
+    *-rc.*|*RC[0-9]*|*-test*) current_channel=candidate ;;
+    *) current_channel=stable ;;
+  esac
+  latest="$current"
+  checked="$(pr_read_first "$CACHE_DIR/checked-at")"
+  state=idle
+  message=""
+  target=""
+  rollback=not_started
+  needs_reboot=false
+  if [ -s "$CACHE_DIR/$POINTER_NAME" ]; then
+    latest="$(pr_json_get "$CACHE_DIR/$POINTER_NAME" '@.target_version' '.target_version // empty')"
+  fi
+  if journal="$(latest_journal 2>/dev/null)" && journal_load "$journal"; then
+    state="$J_STATE"
+    message="$J_ERROR_MESSAGE"
+    target="$J_TARGET_APP_VERSION"
+    rollback="$J_ROLLBACK_STATUS"
+    needs_reboot="$J_NEEDS_REBOOT_VALIDATION"
+  fi
+  case "$state" in
+    committed) job_status=success ;;
+    committed_pending_reboot_validation) job_status=pending_reboot ;;
+    idle) job_status=idle ;;
+    failed_before_mutation|rolled_back|rollback_failed|recovery_required)
+      job_status=failed ;;
+    *) job_status=running ;;
+  esac
+  quarantine=false
+  find "$QUARANTINE_DIR" -type f -name '*.json' 2>/dev/null | grep -q . && quarantine=true
+  printf '{"ok":true,"protocol":2,"current":'; pr_json_string "$current"
+  printf ',"current_channel":'; pr_json_string "$current_channel"
+  printf ',"latest":'; pr_json_string "$latest"
+  available=false
+  pr_version_newer "$latest" "$current" 2>/dev/null && available=true
+  printf ',"available":%s,"checked_at":' "$available"; pr_json_string "$checked"
+  printf ',"auto_update":%s,"auto_schedule":' "$([ "$AUTO_UPDATE" = 1 ] && printf true || printf false)"
+  pr_json_string "$AUTO_SCHEDULE"
+  printf ',"quarantined":%s,"job":{"status":' "$quarantine"; pr_json_string "$job_status"
+  printf ',"stage":'; pr_json_string "$state"
+  printf ',"message":'; pr_json_string "$message"
+  printf ',"target":'; pr_json_string "$target"
+  printf ',"rollback_status":'; pr_json_string "$rollback"
+  printf ',"needs_reboot_validation":%s' "$needs_reboot"
+  printf '}}\n'
+}
+
+derive_candidate_owned_paths() {
+  local assets="$1" manifest="$2" paths="$3" dirs="$4"
+  local index=0 package filename member logical control_name include_dir legacy_include
+  : > "$paths"
+  : > "$dirs"
+  while [ "$index" -lt 16 ]; do
+    package="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$package" ] || break
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    tar -xzOf "$assets/$filename" ./data.tar.gz | tar -tzf - |
+      while IFS= read -r member; do
+        member="${member#./}"
+        [ -n "$member" ] || continue
+        case "$member" in /*|../*|*/../*|*/..|..|*\\*) return 1 ;; esac
+        logical="/$member"
+        case "$logical" in */) printf '%s\n' "${logical%/}" >> "$dirs" ;; *) printf '%s\n' "$logical" >> "$paths" ;; esac
+      done || return 1
+    tar -xzOf "$assets/$filename" ./control.tar.gz | tar -tzf - |
+      while IFS= read -r member; do
+        control_name="${member#./}"
+        case "$control_name" in
+          control|conffiles|preinst|postinst|prerm|postrm)
+            printf '/usr/lib/opkg/info/%s.%s\n' "$package" "$control_name" >> "$paths"
+            ;;
+        esac
+      done || return 1
+    printf '/usr/lib/opkg/info/%s.list\n' "$package" >> "$paths"
+    index=$((index + 1))
+  done
+  [ "$index" = 3 ] || return 1
+  printf '%s\n' \
+    /usr/lib/opkg/status \
+    /etc/premier-router/installed-manifest.json \
+    /etc/premier-router/installed-manifest.json.sig \
+    /etc/premier-router/compat-source-version \
+    /www/luci-static/resources/view/status/include/_35_vpn.js >> "$paths"
+  include_dir="${ROOT_PREFIX}/www/luci-static/resources/view/status/include"
+  for legacy_include in "$include_dir"/35_vpn*.js "$include_dir"/_35_vpn*.js; do
+    [ -e "$legacy_include" ] || [ -L "$legacy_include" ] || continue
+    printf '/www/luci-static/resources/view/status/include/%s\n' \
+      "${legacy_include##*/}" >> "$paths"
+  done
+  atomic_sort_file "$paths" unique || return 1
+  atomic_sort_file "$dirs" unique || return 1
+}
+
+protected_path_list() {
+  printf '%s\n' \
+    /etc/config \
+    /etc/xray \
+    /etc/premier-router/xray-ownership.json \
+    /etc/vpn-ui-update.conf \
+    /etc/crontabs/root \
+    /usr/lib/opkg/status
+  for package in $PR_PROJECT_PACKAGES; do
+    find "${ROOT_PREFIX}/usr/lib/opkg/info" -maxdepth 1 -type f \
+      -name "$package.*" -print 2>/dev/null | while IFS= read -r path; do
+        printf '/%s\n' "${path#${ROOT_PREFIX}/}"
+      done
+  done
+}
+
+protected_validation_path_list() {
+  printf '%s\n' \
+    /etc/config \
+    /etc/xray \
+    /etc/premier-router/xray-ownership.json \
+    /etc/vpn-ui-update.conf \
+    /etc/crontabs/root
+}
+
+fingerprint_one() {
+  local actual="$1" logical="$2" out="$3" mode sha link
+  if [ -L "$actual" ]; then
+    mode="$(stat -c '%a:%u:%g' "$actual" 2>/dev/null || printf unknown)"
+    link="$(readlink "$actual")"
+    printf 'link %s %s %s\n' "$mode" "$link" "$logical" >> "$out"
+  elif [ -f "$actual" ]; then
+    mode="$(stat -c '%a:%u:%g' "$actual" 2>/dev/null || printf unknown)"
+    sha="$(pr_sha256 "$actual")"
+    printf 'file %s %s %s\n' "$mode" "$sha" "$logical" >> "$out"
+  elif [ -d "$actual" ]; then
+    mode="$(stat -c '%a:%u:%g' "$actual" 2>/dev/null || printf unknown)"
+    printf 'dir %s - %s\n' "$mode" "$logical" >> "$out"
+  else
+    printf 'missing - - %s\n' "$logical" >> "$out"
+  fi
+}
+
+fingerprint_paths() {
+  local list="$1" out="$2" path actual item logical
+  : > "$out"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    actual="${ROOT_PREFIX}${path}"
+    if [ -d "$actual" ] && [ ! -L "$actual" ]; then
+      find "$actual" -print | LC_ALL=C sort | while IFS= read -r item; do
+        logical="$path${item#$actual}"
+        fingerprint_one "$item" "$logical" "$out"
+      done
+    else
+      fingerprint_one "$actual" "$path" "$out"
+    fi
+  done < "$list"
+}
+
+regular_nonsymlink_file() {
+  [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+rc5_expected_protected_paths() {
+  local manifest="$1" source_dir="$2" out="$3"
+  local index=0 count=0 package expected_package filename version architecture size sha ipk member control_name install_order
+  local names="$out.names" members="$out.members"
+  : > "$out"
+  : > "$names"
+  printf '%s\n' \
+    /etc/config \
+    /etc/crontabs/root \
+    /etc/vpn-ui-update.conf \
+    /etc/xray \
+    /usr/lib/opkg/status >> "$out"
+  while [ "$index" -lt 16 ]; do
+    package="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$package" ] || break
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    version="$(pr_json_get "$manifest" "@.packages[$index].version" ".packages[$index].version // empty")"
+    architecture="$(pr_json_get "$manifest" "@.packages[$index].architecture" ".packages[$index].architecture // empty")"
+    size="$(pr_json_get "$manifest" "@.packages[$index].size" ".packages[$index].size // empty")"
+    sha="$(pr_json_get "$manifest" "@.packages[$index].sha256" ".packages[$index].sha256 // empty")"
+    install_order="$(pr_json_get "$manifest" "@.packages[$index].install_order" ".packages[$index].install_order // empty")"
+    expected_package="$(printf '%s\n' $PR_PROJECT_PACKAGES | sed -n "$((index + 1))p")"
+    [ "$package" = "$expected_package" ] || return 1
+    grep -Fqx "$package" "$names" 2>/dev/null && return 1
+    [ "$version" = "$RC5_BRIDGE_PACKAGE_VERSION" ] || return 1
+    [ "$architecture" = all ] && [ "$install_order" = "$((index + 1))" ] &&
+      [ "$filename" = "${package}_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk" ] || return 1
+    pr_safe_asset_name "$filename" || return 1
+    ipk="$source_dir/$filename"
+    regular_nonsymlink_file "$ipk" || return 1
+    pr_validate_ipk "$ipk" "$package" "$version" "$architecture" "$size" "$sha" || return 1
+    tar -xzOf "$ipk" ./control.tar.gz 2>/dev/null | tar -tzf - > "$members" || return 1
+    while IFS= read -r member; do
+      member="${member#./}"
+      [ -n "$member" ] || continue
+      case "$member" in
+        control|conffiles|preinst|prerm|postinst|postrm)
+          control_name="$member"
+          printf '/usr/lib/opkg/info/%s.%s\n' "$package" "$control_name" >> "$out"
+          ;;
+        */) ;;
+        *) return 1 ;;
+      esac
+    done < "$members"
+    printf '/usr/lib/opkg/info/%s.list\n' "$package" >> "$out"
+    printf '%s\n' "$package" >> "$names"
+    count=$((count + 1))
+    index=$((index + 1))
+  done
+  [ "$count" = 3 ] || return 1
+  printf '%s\n' $PR_PROJECT_PACKAGES | LC_ALL=C sort > "$names.expected"
+  atomic_sort_file "$names" || return 1
+  cmp -s "$names.expected" "$names" || return 1
+  atomic_sort_file "$out" unique || return 1
+  rm -f "$names" "$names.expected" "$members"
+}
+
+rc5_source_evidence_validate() {
+  local expected_paths="$1" rollback="$TXN_DIR/rollback"
+  local manifest="$rollback/source-manifest.json" signature="$rollback/source-manifest.json.sig"
+  local path_file="$rollback/source-known-good-path" source_hash source_dir
+  local cached_manifest cached_signature validator extracted_validator core_ipk core_filename
+  local source_supervisor source_lib extracted_updater extracted_lib usign_bin
+  [ "$J_SOURCE_APP_VERSION" = "$RC5_BRIDGE_APP_VERSION" ] &&
+    [ "$J_SOURCE_PACKAGE_VERSION" = "$RC5_BRIDGE_PACKAGE_VERSION" ] &&
+    [ "$J_SOURCE_UPDATER_PROTOCOL" = 2 ] && [ "$J_SOURCE_TYPE" = ipk ] || return 1
+  regular_nonsymlink_file "$manifest" && regular_nonsymlink_file "$signature" &&
+    regular_nonsymlink_file "$path_file" || return 1
+  [ "$(wc -l < "$path_file" | tr -d ' ')" = 1 ] || return 1
+  [ "$(pr_sha256 "$manifest")" = "$RC5_BRIDGE_MANIFEST_SHA256" ] &&
+    [ "$(pr_sha256 "$signature")" = "$RC5_BRIDGE_SIGNATURE_SHA256" ] || return 1
+  usign_bin="${PR_USIGN_BIN:-usign}"
+  [ -x "$usign_bin" ] || command -v "$usign_bin" >/dev/null 2>&1 || return 1
+  [ "$("$usign_bin" -F -p "$PUBLIC_KEY" 2>/dev/null)" = "$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT" ] || return 1
+  pr_verify_signature "$manifest" "$signature" "$PUBLIC_KEY" || return 1
+  [ "$(pr_json_get "$manifest" '@.schema_version' '.schema_version // empty')" = 1 ] &&
+    [ "$(pr_json_get "$manifest" '@.kind' '.kind // empty')" = installed-package-set ] &&
+    [ "$(pr_json_get "$manifest" '@.app_version' '.app_version // empty')" = "$RC5_BRIDGE_APP_VERSION" ] &&
+    [ "$(pr_json_get "$manifest" '@.package_version' '.package_version // empty')" = "$RC5_BRIDGE_PACKAGE_VERSION" ] &&
+    [ "$(pr_json_get "$manifest" '@.source_commit' '.source_commit // empty')" = "$RC5_BRIDGE_SOURCE_COMMIT" ] &&
+    [ "$(pr_json_get "$manifest" '@.source_dirty' '.source_dirty')" = false ] &&
+    [ "$(pr_json_get "$manifest" '@.source_date_epoch' '.source_date_epoch // empty')" = "$RC5_BRIDGE_SOURCE_DATE_EPOCH" ] &&
+    [ "$(pr_json_get "$manifest" '@.signing_key_id' '.signing_key_id // empty')" = "$RC5_BRIDGE_SIGNING_KEY_ID" ] &&
+    [ "$(pr_json_get "$manifest" '@.signing_key_fingerprint' '.signing_key_fingerprint // empty')" = "$RC5_BRIDGE_SIGNING_KEY_FINGERPRINT" ] || return 1
+  source_hash="$(pr_sha256 "$manifest")"
+  source_dir="$(pr_read_first "$path_file")"
+  [ "$source_hash" = "$RC5_BRIDGE_MANIFEST_SHA256" ] &&
+    [ -d "$PERSIST_ROOT" ] && [ ! -L "$PERSIST_ROOT" ] &&
+    [ -d "$KNOWN_GOOD" ] && [ ! -L "$KNOWN_GOOD" ] &&
+    [ "$source_dir" = "$KNOWN_GOOD/$source_hash" ] && [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+  cached_manifest="$source_dir/router-release-manifest.json"
+  cached_signature="$source_dir/router-release-manifest.json.sig"
+  regular_nonsymlink_file "$cached_manifest" && regular_nonsymlink_file "$cached_signature" || return 1
+  cmp -s "$manifest" "$cached_manifest" && cmp -s "$signature" "$cached_signature" || return 1
+  rc5_expected_protected_paths "$manifest" "$source_dir" "$expected_paths" || return 1
+  core_filename="premier-router-core_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk"
+  core_ipk="$source_dir/$core_filename"
+  validator="$source_dir/router-candidate-validator"
+  extracted_validator="$expected_paths.validator"
+  extracted_updater="$expected_paths.updater"
+  extracted_lib="$expected_paths.update-lib"
+  source_supervisor="$rollback/source-supervisor"
+  source_lib="$rollback/update-lib.sh"
+  regular_nonsymlink_file "$validator" && [ -x "$validator" ] &&
+    regular_nonsymlink_file "$source_supervisor" && [ -x "$source_supervisor" ] &&
+    regular_nonsymlink_file "$source_lib" && [ -x "$source_lib" ] || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/libexec/premier-router/candidate-validator > "$extracted_validator" || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/sbin/vpn-ui-update > "$extracted_updater" || return 1
+  tar -xzOf "$core_ipk" ./data.tar.gz 2>/dev/null |
+    tar -xzOf - ./usr/libexec/premier-router/update-lib.sh > "$extracted_lib" || return 1
+  [ "$(pr_sha256 "$extracted_validator")" = "$RC5_BRIDGE_VALIDATOR_SHA256" ] &&
+    [ "$(pr_sha256 "$extracted_updater")" = "$RC5_BRIDGE_UPDATER_SHA256" ] &&
+    [ "$(pr_sha256 "$extracted_lib")" = "$RC5_BRIDGE_UPDATE_LIB_SHA256" ] &&
+    cmp -s "$extracted_validator" "$validator" &&
+    cmp -s "$extracted_updater" "$source_supervisor" &&
+    cmp -s "$extracted_lib" "$source_lib" || return 1
+  rm -f "$extracted_validator" "$extracted_updater" "$extracted_lib"
+}
+
+rc5_fingerprint_syntax_validate() {
+  local list="$1" fingerprint="$2" logical_paths="$3"
+  awk '
+    NR == FNR { roots[$0] = 1; next }
+    NF != 4 { exit 1 }
+    {
+      kind=$1; mode=$2; value=$3; path=$4
+      if (path !~ /^\/[A-Za-z0-9._+:\/-]+$/) exit 1
+      if (kind == "file") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (length(value) != 64 || value ~ /[^0-9a-f]/) exit 1
+      } else if (kind == "dir") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (value != "-") exit 1
+      } else if (kind == "missing") {
+        if (mode != "-" || value != "-") exit 1
+      } else if (kind == "link") {
+        if (mode != "unknown" && mode !~ /^[0-7]+:[0-9]+:[0-9]+$/) exit 1
+        if (value !~ /^\/?[A-Za-z0-9._+:\/-]+$/) exit 1
+      } else exit 1
+      covered=0
+      for (root in roots) {
+        if (path == root || ((root == "/etc/config" || root == "/etc/xray") &&
+            index(path, root "/") == 1)) covered=1
+      }
+      if (!covered) exit 1
+      if (seen[path]++) exit 1
+      print path
+    }
+    END { if (NR == FNR) exit 1 }
+  ' "$list" "$fingerprint" > "$logical_paths" || return 1
+  LC_ALL=C sort -u "$logical_paths" > "$logical_paths.sorted"
+  cmp -s "$logical_paths" "$logical_paths.sorted" || return 1
+  while IFS= read -r path; do
+    grep -Fqx "$path" "$logical_paths" || return 1
+  done < "$list"
+  rm -f "$logical_paths.sorted"
+}
+
+rc5_retained_postinst_snapshot_validate() {
+  local fingerprint="$1" temp="$2"
+  local rollback="$TXN_DIR/rollback" archive="$rollback/protected-state.tar.gz"
+  local source_path="$rollback/source-known-good-path" source_dir archive_members archive_listing
+  local package member logical record fingerprint_sha ipk ipk_postinst archived_postinst
+  regular_nonsymlink_file "$archive" && regular_nonsymlink_file "$source_path" || return 1
+  source_dir="$(pr_read_first "$source_path")"
+  [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+  archive_members="$temp/protected-archive.members"
+  archive_listing="$temp/protected-archive.listing"
+  tar -tzf "$archive" > "$archive_members" 2>/dev/null || return 1
+  tar -tvzf "$archive" > "$archive_listing" 2>/dev/null || return 1
+  for package in $PR_PROJECT_PACKAGES; do
+    member="usr/lib/opkg/info/$package.postinst"
+    logical="/$member"
+    [ "$(grep -Fxc "$member" "$archive_members" 2>/dev/null || true)" = 1 ] || return 1
+    if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+      [ "$(awk -v path="$member" '$1 == "-rwxr-xr-x" && $NF == path { count++ }
+        END { print count + 0 }' "$archive_listing")" = 1 ] || return 1
+    else
+      [ "$(awk -v path="$member" '$1 == "-rwxr-xr-x" && $2 == "0/0" &&
+        $NF == path { count++ } END { print count + 0 }' "$archive_listing")" = 1 ] || return 1
+    fi
+    [ "$(awk -v path="$logical" '$4 == path { count++ } END { print count + 0 }' \
+      "$fingerprint")" = 1 ] || return 1
+    record="$(awk -v path="$logical" '$4 == path { print }' "$fingerprint")"
+    set -- $record
+    [ "$#" = 4 ] && [ "$1" = file ] && [ "$4" = "$logical" ] || return 1
+    fingerprint_sha="$3"
+    printf '%s\n' "$fingerprint_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    ipk="$source_dir/${package}_${RC5_BRIDGE_PACKAGE_VERSION}_all.ipk"
+    regular_nonsymlink_file "$ipk" || return 1
+    ipk_postinst="$temp/$package.ipk.postinst"
+    archived_postinst="$temp/$package.archived.postinst"
+    tar -xzOf "$ipk" ./control.tar.gz 2>/dev/null |
+      tar -xzOf - ./postinst 2>/dev/null |
+      dd of="$ipk_postinst" bs=1 count=65537 2>/dev/null || return 1
+    tar -xzOf "$archive" "$member" 2>/dev/null |
+      dd of="$archived_postinst" bs=1 count=65537 2>/dev/null || return 1
+    [ -s "$ipk_postinst" ] && [ -s "$archived_postinst" ] || return 1
+    [ "$(wc -c < "$ipk_postinst" | tr -d ' ')" -le 65536 ] &&
+      [ "$(wc -c < "$archived_postinst" | tr -d ' ')" -le 65536 ] || return 1
+    cmp -s "$ipk_postinst" "$archived_postinst" || return 1
+    [ "$(pr_sha256 "$archived_postinst")" = "$fingerprint_sha" ] || return 1
+  done
+}
+
+rc5_managed_cron_transition_validate() {
+  local stable_source="$1" stable_current="$2" temp="$3"
+  local rollback="$TXN_DIR/rollback" archive="$rollback/protected-state.tar.gz"
+  local source_record current_record source_kind source_sha current_kind
+  local source_cron="$temp/source-root.cron" expected_cron="$temp/expected-root.cron"
+  local archive_members="$temp/protected-archive.members" member_count metadata auto_update
+  [ "$(awk '$4 == "/etc/crontabs/root" { count++ } END { print count + 0 }' \
+    "$stable_source")" = 1 ] || return 1
+  [ "$(awk '$4 == "/etc/crontabs/root" { count++ } END { print count + 0 }' \
+    "$stable_current")" = 1 ] || return 1
+  source_record="$(awk '$4 == "/etc/crontabs/root" { print }' "$stable_source")"
+  current_record="$(awk '$4 == "/etc/crontabs/root" { print }' "$stable_current")"
+  set -- $source_record
+  [ "$#" = 4 ] && [ "$4" = /etc/crontabs/root ] || return 1
+  source_kind="$1"
+  source_sha="$3"
+  set -- $current_record
+  [ "$#" = 4 ] && [ "$4" = /etc/crontabs/root ] || return 1
+  current_kind="$1"
+  [ "$current_kind" = file ] || return 1
+  regular_nonsymlink_file "${ROOT_PREFIX}/etc/crontabs/root" || return 1
+  metadata="$(LC_ALL=C ls -ldn "${ROOT_PREFIX}/etc/crontabs/root" 2>/dev/null |
+    awk 'NR == 1 { sub(/[@+]$/, "", $1); print $1 ":" $3 ":" $4 }')"
+  case "$metadata" in
+    -rw-------:*) ;;
+    *) return 1 ;;
+  esac
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
+    [ "$metadata" = '-rw-------:0:0' ] || return 1
+  fi
+
+  regular_nonsymlink_file "$archive" || return 1
+  # Cap the temporary extraction at one byte beyond the accepted size. Both
+  # temporary copies remain covered by the transaction's 4 MiB evidence reserve.
+  [ "$(wc -c < "${ROOT_PREFIX}/etc/crontabs/root" | tr -d ' ')" -le 65536 ] || return 1
+  tar -tzf "$archive" > "$archive_members" 2>/dev/null || return 1
+  member_count="$(grep -Fxc 'etc/crontabs/root' "$archive_members" 2>/dev/null || true)"
+  case "$source_kind" in
+    file)
+      [ "$member_count" = 1 ] || return 1
+      printf '%s\n' "$source_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+      tar -xzOf "$archive" etc/crontabs/root 2>/dev/null |
+        dd of="$source_cron" bs=1 count=65537 2>/dev/null || return 1
+      [ "$(wc -c < "$source_cron" | tr -d ' ')" -le 65536 ] || return 1
+      [ "$(pr_sha256 "$source_cron")" = "$source_sha" ] || return 1
+      ;;
+    missing)
+      [ "$source_sha" = - ] && [ "$member_count" = 0 ] || return 1
+      : > "$source_cron"
+      ;;
+    *) return 1 ;;
+  esac
+
+  awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+    index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' \
+    "$source_cron" > "$expected_cron" || return 1
+  printf '%s\n' \
+    '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' \
+    >> "$expected_cron"
+  auto_update="$(read_config_value AUTO_UPDATE "$CONFIG_FILE")"
+  case "$auto_update" in 1) ;;
+    *) auto_update=0 ;;
+  esac
+  if [ "$auto_update" = 1 ]; then
+    printf '%s\n' \
+      '17 4 * * 0 /usr/sbin/vpn-ui-update auto >/tmp/vpn-ui-auto-update.log 2>&1' \
+      >> "$expected_cron"
+  fi
+  cmp -s "$expected_cron" "${ROOT_PREFIX}/etc/crontabs/root"
+}
+
+rc5_legacy_protected_validate_and_materialize_inner() {
+  local temp="$1"
+  local rollback="$TXN_DIR/rollback" legacy_list="$rollback/protected.paths.list"
+  local legacy_fingerprint="$rollback/protected-source.fingerprint"
+  local protected_sha="$rollback/protected.sha256"
+  local expected="$temp/expected-protected.paths"
+  local expected_without_postinst="$temp/expected-protected-without-postinst.paths"
+  local logical="$temp/protected-logical.paths"
+  local stable_list="$temp/stable.paths" stable_source="$temp/stable-source.fingerprint"
+  local stable_current="$temp/stable-current.fingerprint"
+  local stable_source_without_cron="$temp/stable-source-without-cron.fingerprint"
+  local stable_current_without_cron="$temp/stable-current-without-cron.fingerprint"
+  local expected_hashes="$temp/protected-hashes.expected"
+  local actual_hashes="$temp/protected-hashes.actual"
+  local new_list="$rollback/protected-validation.paths.list" new_source="$rollback/protected-validation-source.fingerprint"
+  local new_list_tmp="$temp/protected-validation.paths.list" new_source_tmp="$temp/protected-validation-source.fingerprint"
+  local retained_postinst=0
+  regular_nonsymlink_file "$legacy_list" && regular_nonsymlink_file "$legacy_fingerprint" &&
+    regular_nonsymlink_file "$protected_sha" || return 1
+  rc5_source_evidence_validate "$expected" || return 1
+  awk '$0 !~ /\.postinst$/' "$expected" > "$expected_without_postinst" || return 1
+  if cmp -s "$expected_without_postinst" "$legacy_list"; then
+    :
+  elif cmp -s "$expected" "$legacy_list"; then
+    retained_postinst=1
+  else
+    return 1
+  fi
+  rc5_fingerprint_syntax_validate "$legacy_list" "$legacy_fingerprint" "$logical" || return 1
+  [ "$retained_postinst" != 1 ] ||
+    rc5_retained_postinst_snapshot_validate "$legacy_fingerprint" "$temp" || return 1
+  printf '%s\n' /etc/config /etc/crontabs/root /etc/vpn-ui-update.conf /etc/xray |
+    LC_ALL=C sort > "$stable_list"
+  awk '$4 == "/etc/config" || index($4, "/etc/config/") == 1 ||
+    $4 == "/etc/crontabs/root" || $4 == "/etc/vpn-ui-update.conf" ||
+    $4 == "/etc/xray" || index($4, "/etc/xray/") == 1 { print }' \
+    "$legacy_fingerprint" > "$stable_source"
+  fingerprint_paths "$stable_list" "$stable_current" || return 1
+  awk '$4 != "/etc/crontabs/root" { print }' "$stable_source" > "$stable_source_without_cron"
+  awk '$4 != "/etc/crontabs/root" { print }' "$stable_current" > "$stable_current_without_cron"
+  cmp -s "$stable_source_without_cron" "$stable_current_without_cron" || return 1
+  rc5_managed_cron_transition_validate "$stable_source" "$stable_current" "$temp" || return 1
+  awk '$1 == "file" { print $3 " " substr($4, 2) }' "$stable_source" |
+    LC_ALL=C sort > "$expected_hashes"
+  awk '
+    NF != 2 || length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 !~ /^(etc\/config\/|etc\/xray\/|etc\/vpn-ui-update\.conf$|etc\/crontabs\/root$)/ { exit 1 }
+    { print $1 " " $2 }
+  ' "$protected_sha" | LC_ALL=C sort > "$actual_hashes" || return 1
+  cmp -s "$expected_hashes" "$actual_hashes" || return 1
+  [ -d "${ROOT_PREFIX}/etc/config" ] && [ ! -L "${ROOT_PREFIX}/etc/config" ] || return 1
+  [ ! -L "${ROOT_PREFIX}/etc/xray" ] || return 1
+  [ ! -e "${ROOT_PREFIX}/etc/xray" ] || [ -d "${ROOT_PREFIX}/etc/xray" ] || return 1
+  for path in "${ROOT_PREFIX}/etc/vpn-ui-update.conf" "${ROOT_PREFIX}/etc/crontabs/root"; do
+    [ ! -L "$path" ] || return 1
+  done
+  [ ! -e "${ROOT_PREFIX}/etc/premier-router/xray-ownership.json" ] &&
+    [ ! -L "${ROOT_PREFIX}/etc/premier-router/xray-ownership.json" ] || return 1
+  [ ! -e "$new_list" ] && [ ! -L "$new_list" ] &&
+    [ ! -e "$new_source" ] && [ ! -L "$new_source" ] || return 1
+  protected_validation_path_list | LC_ALL=C sort -u > "$new_list_tmp" || return 1
+  fingerprint_paths "$new_list_tmp" "$new_source_tmp" || return 1
+  grep -Fqx 'missing - - /etc/premier-router/xray-ownership.json' "$new_source_tmp" || return 1
+  chmod 600 "$new_list_tmp" "$new_source_tmp" || return 1
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
+  mv "$new_source_tmp" "$new_source" || return 1
+  mv "$new_list_tmp" "$new_list" || return 1
+}
+
+rc5_legacy_protected_validate_and_materialize() {
+  local rollback="$TXN_DIR/rollback" temp rc=0
+  [ -d "$rollback" ] && [ ! -L "$rollback" ] || return 1
+  temp="$(mktemp -d "$rollback/.rc5-protected.XXXXXX")" || return 1
+  [ -d "$temp" ] && [ ! -L "$temp" ] || return 1
+  rc5_legacy_protected_validate_and_materialize_inner "$temp" || rc=$?
+  rm -rf "$temp"
+  return "$rc"
+}
+
+target_protected_state_validate() {
+  local phase="$1" rollback="$TXN_DIR/rollback"
+  local list="$rollback/protected-validation.paths.list"
+  local source="$rollback/protected-validation-source.fingerprint"
+  local temp expected current rc=0
+  [ -d "$rollback" ] && [ ! -L "$rollback" ] || return 1
+  temp="$(mktemp -d "$rollback/.target-protected.XXXXXX")" || return 1
+  [ -d "$temp" ] && [ ! -L "$temp" ] || return 1
+  expected="$temp/protected-validation.paths.expected"
+  current="$temp/$phase-protected-validation.fingerprint"
+  if [ -e "$list" ] || [ -L "$list" ] || [ -e "$source" ] || [ -L "$source" ]; then
+    regular_nonsymlink_file "$list" && regular_nonsymlink_file "$source" || rc=1
+    [ "$rc" != 0 ] || protected_validation_path_list | LC_ALL=C sort -u > "$expected" || rc=1
+    [ "$rc" != 0 ] || cmp -s "$expected" "$list" || rc=1
+  else
+    rc5_legacy_protected_validate_and_materialize || rc=1
+  fi
+  [ "$rc" != 0 ] || fingerprint_paths "$list" "$current" || rc=1
+  [ "$rc" != 0 ] || cmp -s "$source" "$current" || rc=1
+  rm -rf "$temp"
+  return "$rc"
+}
+
+snapshot_legacy() {
+  local rollback list existing path rel
+  rollback="$TXN_DIR/rollback"
+  list="$rollback/paths.list"
+  existing="$rollback/existing.list"
+  mkdir -p "$rollback"
+  cp "$TXN_DIR/candidate.paths.list" "$list"
+  cp "$TXN_DIR/candidate.dirs.list" "$rollback/dirs.list"
+  : > "$existing"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -e "${ROOT_PREFIX}${path}" ] || [ -L "${ROOT_PREFIX}${path}" ]; then
+      rel="${path#/}"
+      printf '%s\n' "$rel" >> "$existing"
+    fi
+  done < "$list"
+  fingerprint_paths "$list" "$rollback/source.fingerprint"
+  if [ -s "$existing" ]; then
+    tar -czf "$rollback/legacy-files.tar.gz" -C "${ROOT_PREFIX:-/}" -T "$existing" ||
+      return 1
+    tar -tzf "$rollback/legacy-files.tar.gz" >/dev/null || return 1
+  else
+    tar -czf "$rollback/legacy-files.tar.gz" -T /dev/null || return 1
+  fi
+  J_ROLLBACK_BUNDLE_PATH="$rollback/legacy-files.tar.gz"
+}
+
+protected_hashes() {
+  local out="$1" rel
+  : > "$out"
+  (
+    cd "${ROOT_PREFIX:-/}" || exit 1
+    for rel in etc/vpn-ui-update.conf etc/crontabs/root \
+      etc/premier-router/xray-ownership.json; do
+      [ -f "$rel" ] && sha256sum "$rel"
+    done
+    for rel in etc/xray etc/config; do
+      [ -d "$rel" ] || continue
+      find "$rel" -type f -print | sort | while IFS= read -r file; do
+        sha256sum "$file"
+      done
+    done
+  ) > "$out"
+}
+
+snapshot_protected_state() {
+  local rollback="$TXN_DIR/rollback" list="$TXN_DIR/rollback/protected.paths.list"
+  local validation_list="$TXN_DIR/rollback/protected-validation.paths.list"
+  local existing="$TXN_DIR/rollback/protected.existing.list" path rel
+  protected_path_list | LC_ALL=C sort -u > "$list"
+  protected_validation_path_list | LC_ALL=C sort -u > "$validation_list"
+  : > "$existing"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -e "${ROOT_PREFIX}${path}" ] || [ -L "${ROOT_PREFIX}${path}" ]; then
+      rel="${path#/}"
+      printf '%s\n' "$rel" >> "$existing"
+    fi
+  done < "$list"
+  fingerprint_paths "$list" "$rollback/protected-source.fingerprint"
+  fingerprint_paths "$validation_list" "$rollback/protected-validation-source.fingerprint"
+  if [ -s "$existing" ]; then
+    tar -czf "$rollback/protected-state.tar.gz" -C "${ROOT_PREFIX:-/}" -T "$existing" || return 1
+  else
+    tar -czf "$rollback/protected-state.tar.gz" -T /dev/null || return 1
+  fi
+  tar -tzf "$rollback/protected-state.tar.gz" >/dev/null || return 1
+}
+
+restore_protected_state() {
+  local rollback="$TXN_DIR/rollback" path current
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rm -rf "${ROOT_PREFIX}${path}"
+  done < "$rollback/protected.paths.list"
+  tar -xzpf "$rollback/protected-state.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
+  current="$rollback/protected-restored.fingerprint"
+  fingerprint_paths "$rollback/protected.paths.list" "$current"
+  cmp -s "$rollback/protected-source.fingerprint" "$current"
+}
+
+record_services() {
+  local out="$1" service enabled running
+  : > "$out"
+  for service in cron rpcd uhttpd xray-transparent; do
+    enabled=false
+    running=false
+    [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
+    "${ROOT_PREFIX}/etc/init.d/$service" enabled >/dev/null 2>&1 && enabled=true
+    "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1 && running=true
+    printf '%s %s %s\n' "$service" "$enabled" "$running" >> "$out"
+  done
+}
+
+services_match() {
+  local service enabled running actual_enabled actual_running
+  [ -f "$TXN_DIR/rollback/services" ] || return 1
+  while read -r service enabled running; do
+    [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || return 1
+    actual_enabled=false
+    actual_running=false
+    "${ROOT_PREFIX}/etc/init.d/$service" enabled >/dev/null 2>&1 && actual_enabled=true
+    "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1 && actual_running=true
+    [ "$enabled" = "$actual_enabled" ] && [ "$running" = "$actual_running" ] || return 1
+  done < "$TXN_DIR/rollback/services"
+}
+
+restore_services() {
+  local service enabled running
+  [ -f "$TXN_DIR/rollback/services" ] || return 0
+  while read -r service enabled running; do
+    [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
+    if [ "$enabled" = true ]; then
+      "${ROOT_PREFIX}/etc/init.d/$service" enable >/dev/null 2>&1 || return 1
+    else
+      "${ROOT_PREFIX}/etc/init.d/$service" disable >/dev/null 2>&1 || return 1
+    fi
+    if [ "$running" = true ]; then
+      "${ROOT_PREFIX}/etc/init.d/$service" restart >/dev/null 2>&1 || return 1
+    else
+      "${ROOT_PREFIX}/etc/init.d/$service" stop >/dev/null 2>&1 || return 1
+    fi
+  done < "$TXN_DIR/rollback/services"
+}
+
+snapshot_ipk_source() {
+  local installed_hash previous_dir package filename size sha version architecture index=0
+  [ -s "$INSTALLED_MANIFEST" ] && [ -s "$INSTALLED_SIGNATURE" ] || return 1
+  pr_verify_signature "$INSTALLED_MANIFEST" "$INSTALLED_SIGNATURE" "$PUBLIC_KEY" || return 1
+  installed_hash="$(pr_sha256 "$INSTALLED_MANIFEST")"
+  previous_dir="$KNOWN_GOOD/$installed_hash"
+  [ -d "$previous_dir" ] || return 1
+  cp "$INSTALLED_MANIFEST" "$TXN_DIR/rollback/source-manifest.json"
+  cp "$INSTALLED_SIGNATURE" "$TXN_DIR/rollback/source-manifest.json.sig"
+  while [ "$index" -lt 16 ]; do
+    package="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$package" ] || break
+    filename="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    version="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].version" ".packages[$index].version // empty")"
+    architecture="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].architecture" ".packages[$index].architecture // empty")"
+    size="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].size" ".packages[$index].size // empty")"
+    sha="$(pr_json_get "$INSTALLED_MANIFEST" "@.packages[$index].sha256" ".packages[$index].sha256 // empty")"
+    [ -f "$previous_dir/$filename" ] || return 1
+    pr_validate_ipk "$previous_dir/$filename" "$package" "$version" "$architecture" "$size" "$sha" ||
+      return 1
+    index=$((index + 1))
+  done
+  [ "$index" = 3 ] || return 1
+  [ -x "$previous_dir/router-candidate-validator" ] || return 1
+  printf '%s\n' "$previous_dir" > "$TXN_DIR/rollback/source-known-good-path"
+  J_ROLLBACK_BUNDLE_PATH="$previous_dir"
+}
+
+create_config_recovery() {
+  local archive="$TXN_DIR/openwrt-configuration-recovery.tar.gz"
+  local temporary="${ROOT_PREFIX}/tmp/premier-router-config-$J_TRANSACTION_ID.tar.gz"
+  if [ -n "${VPN_UI_EXISTING_CONFIG_RECOVERY:-}" ]; then
+    [ -s "$VPN_UI_EXISTING_CONFIG_RECOVERY" ] &&
+      tar -tzf "$VPN_UI_EXISTING_CONFIG_RECOVERY" >/dev/null 2>&1 || return 1
+    ln "$VPN_UI_EXISTING_CONFIG_RECOVERY" "$archive" 2>/dev/null ||
+      cp "$VPN_UI_EXISTING_CONFIG_RECOVERY" "$archive" || return 1
+    printf '%s  %s\n' "$(pr_sha256 "$archive")" "$(basename "$archive")" > "$archive.sha256"
+    J_BACKUP_PATH="$archive"
     return 0
   fi
-  rm -rf "$LOCK_DIR"
-  return 1
+  command -v "$SYSUPGRADE_BIN" >/dev/null 2>&1 || return 1
+  rm -f "$temporary"
+  "$SYSUPGRADE_BIN" -b "$temporary" >> "$LOG_FILE" 2>&1 || return 1
+  [ -s "$temporary" ] && tar -tzf "$temporary" >/dev/null 2>&1 || return 1
+  cp "$temporary" "$archive" || return 1
+  rm -f "$temporary"
+  tar -tzf "$archive" >/dev/null 2>&1 || return 1
+  printf '%s  %s\n' "$(pr_sha256 "$archive")" "$(basename "$archive")" > "$archive.sha256"
+  J_BACKUP_PATH="$archive"
 }
 
-download_file() {
-  local url="$1"
-  local dst="$2"
-  local attempt=1
+bytes_to_kib() { awk -v bytes="${1:-0}" 'BEGIN { print int((bytes + 1023) / 1024) }'; }
+filesystem_free_bytes() {
+  local path="$1" blocks
+  blocks="$(df -Pk "$path" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+  case "$blocks" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' $((blocks * 1024))
+}
 
-  while [ "$attempt" -le 3 ]; do
-    if command -v curl >/dev/null 2>&1; then
-      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 90 \
-        "$url" -o "$dst" && return 0
-    elif command -v wget >/dev/null 2>&1; then
-      wget -4 -T 90 -qO "$dst" "$url" && return 0
-    elif command -v uclient-fetch >/dev/null 2>&1; then
-      uclient-fetch -4 -T 90 -q -O "$dst" "$url" && return 0
+space_test_override() {
+  local configured="$1"
+  [ -f "$TEST_MARKER" ] || return 1
+  case "$configured" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$configured"
+}
+
+candidate_existing_bytes() {
+  local list="$1" path actual
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    actual="${ROOT_PREFIX}${path}"
+    if [ -f "$actual" ] || [ -L "$actual" ]; then
+      wc -c < "$actual" 2>/dev/null || printf '0\n'
+    fi
+  done < "$list" | awk '{ total += $1 } END { print total + 0 }'
+}
+
+tree_bytes() {
+  local total=0 path
+  for path in "$@"; do
+    [ -e "$path" ] || continue
+    if [ -f "$path" ] || [ -L "$path" ]; then
+      wc -c < "$path" 2>/dev/null || true
+    else
+      find "$path" -type f -exec wc -c {} \; 2>/dev/null || true
+    fi
+  done | awk '{ total += $1 } END { print total + 0 }'
+}
+
+candidate_extraction_bytes() {
+  local assets="$1" manifest="$2" index=0 filename
+  while [ "$index" -lt 16 ]; do
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    [ -n "$filename" ] || break
+    tar -xzOf "$assets/$filename" ./data.tar.gz | gzip -dc | wc -c
+    tar -xzOf "$assets/$filename" ./control.tar.gz | gzip -dc | wc -c
+    index=$((index + 1))
+  done | awk '{ total += $1 } END { print total + 0 }'
+}
+
+space_preflight() {
+  local assets="$1" manifest="$2" asset_bytes extraction_bytes rollback_bytes config_bytes
+  local subtotal_kib safety_kib safety_bytes required_bytes
+  local temporary_required_bytes persistent_free_bytes temporary_free_bytes
+  local asset_kib extraction_kib rollback_kib config_kib metadata_kib evidence_kib
+  local required_kib persistent_free_kib temporary_required_kib temporary_free_kib
+  local reservation="$TXN_DIR/reservation.json"
+  derive_candidate_owned_paths "$assets" "$manifest" "$TXN_DIR/candidate.paths.list" \
+    "$TXN_DIR/candidate.dirs.list" || return 1
+  asset_bytes="$(find "$assets" -type f -exec wc -c {} \; 2>/dev/null |
+    awk '{ total += $1 } END { print total + 0 }')"
+  extraction_bytes="$(candidate_extraction_bytes "$assets" "$manifest")"
+  if [ "$J_SOURCE_TYPE" = legacy ]; then
+    rollback_bytes="$(candidate_existing_bytes "$TXN_DIR/candidate.paths.list")"
+  else
+    rollback_bytes=0
+  fi
+  config_bytes="$(tree_bytes "${ROOT_PREFIX}/etc/config" "${ROOT_PREFIX}/etc/xray" \
+    "${ROOT_PREFIX}/etc/vpn-ui-update.conf" "${ROOT_PREFIX}/etc/crontabs/root" \
+    "${ROOT_PREFIX}/usr/lib/opkg/status")"
+  asset_kib="$(bytes_to_kib "$asset_bytes")"
+  extraction_kib="$(bytes_to_kib "$extraction_bytes")"
+  rollback_kib="$(bytes_to_kib "$rollback_bytes")"
+  config_kib="$(bytes_to_kib "$config_bytes")"
+  metadata_kib=2048
+  evidence_kib=4096
+  subtotal_kib=$((asset_kib + extraction_kib + rollback_kib + config_kib +
+    metadata_kib + evidence_kib))
+  safety_kib=$((subtotal_kib / 5))
+  [ "$safety_kib" -ge 8192 ] || safety_kib=8192
+  safety_bytes=$((safety_kib * 1024))
+  required_bytes=$(((subtotal_kib + safety_kib) * 1024))
+  temporary_required_bytes=$(((asset_kib + rollback_kib + config_kib + evidence_kib) * 1024))
+  persistent_free_bytes="$(space_test_override "${VPN_UI_TEST_PERSISTENT_FREE_BYTES:-}" ||
+    filesystem_free_bytes "$PERSIST_ROOT" || true)"
+  temporary_free_bytes="$(space_test_override "${VPN_UI_TEST_TMP_FREE_BYTES:-}" ||
+    filesystem_free_bytes "${ROOT_PREFIX}/tmp" || true)"
+  required_kib="$(bytes_to_kib "$required_bytes")"
+  persistent_free_kib=$((${persistent_free_bytes:-0} / 1024))
+  temporary_required_kib="$(bytes_to_kib "$temporary_required_bytes")"
+  temporary_free_kib=$((${temporary_free_bytes:-0} / 1024))
+  {
+    printf '{"persistent_required_bytes":%s,"persistent_free_bytes":%s,' \
+      "$required_bytes" "${persistent_free_bytes:-0}"
+    printf '"temporary_required_bytes":%s,"temporary_free_bytes":%s,' \
+      "$temporary_required_bytes" "${temporary_free_bytes:-0}"
+    printf '"persistent_required_kib":%s,"persistent_free_kib":%s,' \
+      "$required_kib" "$persistent_free_kib"
+    printf '"temporary_required_kib":%s,"temporary_free_kib":%s,' \
+      "$temporary_required_kib" "$temporary_free_kib"
+    printf '"target_assets_kib":%s,"source_rollback_kib":%s,' "$asset_kib" "$rollback_kib"
+    printf '"configuration_recovery_kib":%s,"candidate_extraction_kib":%s,' "$config_kib" "$extraction_kib"
+    printf '"metadata_and_manifests_kib":%s,"journal_and_evidence_kib":%s,' "$metadata_kib" "$evidence_kib"
+    printf '"safety_margin_bytes":%s,"safety_margin_kib":%s}\n' \
+      "$safety_bytes" "$safety_kib"
+  } | atomic_from_stdin "$reservation"
+  [ -n "$persistent_free_bytes" ] &&
+    [ "$persistent_free_bytes" -ge "$required_bytes" ] || return 1
+  [ -n "$temporary_free_bytes" ] &&
+    [ "$temporary_free_bytes" -ge "$temporary_required_bytes" ]
+}
+
+validate_asset_set() {
+  local assets="$1" manifest="$2" index=0 name filename version arch size sha
+  local object object_file object_size object_sha
+  while [ "$index" -lt 16 ]; do
+    name="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$name" ] || break
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    version="$(pr_json_get "$manifest" "@.packages[$index].version" ".packages[$index].version // empty")"
+    arch="$(pr_json_get "$manifest" "@.packages[$index].architecture" ".packages[$index].architecture // empty")"
+    size="$(pr_json_get "$manifest" "@.packages[$index].size" ".packages[$index].size // empty")"
+    sha="$(pr_json_get "$manifest" "@.packages[$index].sha256" ".packages[$index].sha256 // empty")"
+    [ -f "$assets/$filename" ] || return 1
+    pr_validate_ipk "$assets/$filename" "$name" "$version" "$arch" "$size" "$sha" || return 1
+    index=$((index + 1))
+  done
+  [ "$index" = 3 ] || return 1
+  for object in candidate_validator transaction_supervisor update_library compatibility.status_0_7_9; do
+    object_file="$(pr_json_get "$manifest" "@.$object.filename" ".$object.filename // empty")"
+    object_size="$(pr_json_get "$manifest" "@.$object.size" ".$object.size // empty")"
+    object_sha="$(pr_json_get "$manifest" "@.$object.sha256" ".$object.sha256 // empty")"
+    [ -f "$assets/$object_file" ] &&
+      [ "$(pr_size "$assets/$object_file")" = "$object_size" ] &&
+      [ "$(pr_sha256 "$assets/$object_file")" = "$object_sha" ] || return 1
+  done
+  sh -n "$assets/$(pr_json_get "$manifest" '@.candidate_validator.filename' '.candidate_validator.filename // empty')" &&
+    sh -n "$assets/$(pr_json_get "$manifest" '@.transaction_supervisor.filename' '.transaction_supervisor.filename // empty')" &&
+    sh -n "$assets/$(pr_json_get "$manifest" '@.update_library.filename' '.update_library.filename // empty')"
+}
+
+download_assets() {
+  local tag="$1" manifest="$2" out="$3" base index=0 filename object
+  base="$RELEASE_ORIGIN/releases/download/$tag"
+  mkdir -p "$out"
+  while [ "$index" -lt 16 ]; do
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    [ -n "$filename" ] || break
+    pr_download "$base/$filename" "$out/$filename" || return 1
+    index=$((index + 1))
+  done
+  for object in candidate_validator transaction_supervisor update_library compatibility.status_0_7_9; do
+    filename="$(pr_json_get "$manifest" "@.$object.filename" ".$object.filename // empty")"
+    pr_download "$base/$filename" "$out/$filename" || return 1
+  done
+  validate_asset_set "$out" "$manifest"
+}
+
+legacy_source_validate() {
+  local version="$(current_version)"
+  [ "$version" = "$J_SOURCE_APP_VERSION" ] || return 1
+  case "$version" in
+    0.7.9)
+      [ -f "${ROOT_PREFIX}/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
+        [ -f "${ROOT_PREFIX}/www/luci-static/resources/view/status/include/_35_vpn.js" ]
+      ;;
+    0.7.10)
+      [ -f "${ROOT_PREFIX}/www/luci-static/resources/view/status/include/35_vpn.js" ] &&
+        [ ! -e "${ROOT_PREFIX}/www/luci-static/resources/view/status/include/_35_vpn.js" ]
+      ;;
+    0.5.1|0.5.2|0.6.0|0.7.0|0.7.1|0.7.2|0.7.3|0.7.4|0.7.5|0.7.6|0.7.8)
+      [ -x "${ROOT_PREFIX}/usr/sbin/vpn-ui" ] &&
+        [ -s "${ROOT_PREFIX}/usr/share/luci/menu.d/luci-app-vpn-ui.json" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+prepare_rollback() {
+  mkdir -p "$TXN_DIR/rollback"
+  protected_hashes "$TXN_DIR/rollback/protected.sha256" || return 1
+  snapshot_protected_state || return 1
+  record_services "$TXN_DIR/rollback/services" || return 1
+  cp "$SELF_PATH" "$TXN_DIR/rollback/source-supervisor"
+  cp "$LIB" "$TXN_DIR/rollback/update-lib.sh"
+  chmod 700 "$TXN_DIR/rollback/source-supervisor" "$TXN_DIR/rollback/update-lib.sh"
+  if [ "$J_SOURCE_TYPE" = ipk ]; then
+    snapshot_ipk_source || return 1
+  else
+    legacy_source_validate || return 1
+    snapshot_legacy || return 1
+  fi
+  ROLLBACK_SCRIPT="$TXN_DIR/rollback.sh"
+  {
+    printf '#!/bin/ash\n'
+    printf 'set -u\n'
+    printf 'VPN_UI_UPDATE_LIB=%s VPN_UI_UPDATE_PERSIST_ROOT=%s VPN_UI_ROOT_PREFIX=%s \\\n' \
+      "$TXN_DIR/rollback/update-lib.sh" "$PERSIST_ROOT" "$ROOT_PREFIX"
+    printf '  %s rollback %s\n' "$TXN_DIR/rollback/source-supervisor" "$J_TRANSACTION_ID"
+  } > "$ROLLBACK_SCRIPT"
+  chmod 700 "$ROLLBACK_SCRIPT"
+  if [ -n "${VPN_UI_ROLLBACK_MARKER:-}" ]; then
+    printf '%s\n' "$ROLLBACK_SCRIPT" > "$VPN_UI_ROLLBACK_MARKER"
+    chmod 600 "$VPN_UI_ROLLBACK_MARKER"
+  fi
+}
+
+install_packages() {
+  local manifest="$1" assets="$2" order=1 index name filename found preserve_cron=0
+  [ "$J_SOURCE_TYPE" != legacy ] || preserve_cron=1
+  while [ "$order" -le 3 ]; do
+    index=0
+    found=false
+    while [ "$index" -lt 16 ]; do
+      name="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+      [ -n "$name" ] || break
+      if [ "$(pr_json_get "$manifest" "@.packages[$index].install_order" ".packages[$index].install_order // empty")" = "$order" ]; then
+        filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+        PREMIER_ROUTER_PRESERVE_CRON="$preserve_cron" \
+          "$OPKG_BIN" install --force-reinstall "$assets/$filename" >> "$LOG_FILE" 2>&1 ||
+          return 1
+        test_boundary "after-$name" || return 1
+        found=true
+        break
+      fi
+      index=$((index + 1))
+    done
+    [ "$found" = true ] || return 1
+    order=$((order + 1))
+  done
+}
+
+apply_compatibility() {
+  local assets="$1"
+  local include_dir="${ROOT_PREFIX}/www/luci-static/resources/view/status/include"
+  local compat="$include_dir/_35_vpn.js" legacy_include
+  mkdir -p "${ROOT_PREFIX}/etc/premier-router"
+  for legacy_include in "$include_dir"/35_vpn*.js "$include_dir"/_35_vpn*.js; do
+    [ -e "$legacy_include" ] || [ -L "$legacy_include" ] || continue
+    [ "${legacy_include##*/}" = 35_vpn.js ] && continue
+    rm -f "$legacy_include"
+  done
+  if [ "$J_SOURCE_APP_VERSION" = 0.7.9 ]; then
+    [ -s "$assets/0.7.9-_35_vpn.js" ] || return 1
+    cp "$assets/0.7.9-_35_vpn.js" "$compat"
+    chmod 644 "$compat"
+    printf '%s\n' 0.7.9 > "${ROOT_PREFIX}/etc/premier-router/compat-source-version"
+  else
+    rm -f "$compat"
+    rm -f "${ROOT_PREFIX}/etc/premier-router/compat-source-version"
+  fi
+}
+
+restart_local_services() {
+  rm -f "${ROOT_PREFIX}/tmp"/luci-indexcache.*.json 2>/dev/null || true
+  for service in rpcd uhttpd; do
+    [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
+    "${ROOT_PREFIX}/etc/init.d/$service" restart >> "$LOG_FILE" 2>&1 || return 1
+  done
+}
+
+candidate_validate() {
+  local manifest="$1" assets="$2" phase="$3" validator output
+  regular_nonsymlink_file "$TXN_DIR/rollback/protected.sha256" || return 1
+  if [ "$phase" = candidate ] && [ -f "$TEST_MARKER.force-candidate-failure" ]; then
+    rm -f "$TEST_MARKER.force-candidate-failure"
+    return 1
+  fi
+  validator="$(pr_json_get "$manifest" '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
+  [ -f "$assets/$validator" ] || return 1
+  chmod 700 "$assets/$validator" || return 1
+  output="$TXN_DIR/validator-$phase.json"
+  PREMIER_ROUTER_UPDATE_LIB="$LIB" \
+  PREMIER_ROUTER_ROOT="$ROOT_PREFIX" \
+  PREMIER_ROUTER_OPKG_BIN="$OPKG_BIN" \
+  PREMIER_ROUTER_VPN_UI_BIN="${ROOT_PREFIX}/usr/sbin/vpn-ui" \
+  PREMIER_ROUTER_INSTALLED_MANIFEST="$INSTALLED_MANIFEST" \
+  PREMIER_ROUTER_BUILD_INFO="$BUILD_INFO" \
+  "$assets/$validator" --manifest "$manifest" --source-version "$J_SOURCE_APP_VERSION" \
+    --phase "$phase" --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
+    > "$output" 2>> "$LOG_FILE" || return 1
+  [ "$(pr_json_get "$output" '@.ok' '.ok // false')" = true ] || return 1
+  target_protected_state_validate "$phase"
+}
+
+commit_target() {
+  local assets="$1" manifest="$2" signature="$3" validator cache_dir file
+  local index=0 filename sha destination
+  mkdir -p "$(dirname "$INSTALLED_MANIFEST")" "$KNOWN_GOOD/$J_TARGET_MANIFEST_HASH"
+  cp "$manifest" "$INSTALLED_MANIFEST.new"
+  cp "$signature" "$INSTALLED_SIGNATURE.new"
+  mv "$INSTALLED_MANIFEST.new" "$INSTALLED_MANIFEST"
+  mv "$INSTALLED_SIGNATURE.new" "$INSTALLED_SIGNATURE"
+  cache_dir="$KNOWN_GOOD/$J_TARGET_MANIFEST_HASH"
+  while [ "$index" -lt 16 ]; do
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    [ -n "$filename" ] || break
+    sha="$(pr_json_get "$manifest" "@.packages[$index].sha256" ".packages[$index].sha256 // empty")"
+    file="$assets/$filename"
+    destination="$cache_dir/$filename"
+    if [ -s "$destination" ]; then
+      [ "$(pr_sha256 "$destination")" = "$sha" ] || return 1
+    elif [ -s "$file" ]; then
+      ln "$file" "$destination" 2>/dev/null || mv "$file" "$destination" || return 1
     else
       return 1
     fi
-    rm -f "$dst"
-    sleep $((attempt * 2))
-    attempt=$((attempt + 1))
+    index=$((index + 1))
+  done
+  [ "$index" = 3 ] || return 1
+  validator="$(pr_json_get "$manifest" '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
+  cp "$assets/$validator" "$cache_dir/router-candidate-validator"
+  chmod 700 "$cache_dir/router-candidate-validator"
+  cp "$manifest" "$cache_dir/router-release-manifest.json"
+  cp "$signature" "$cache_dir/router-release-manifest.json.sig"
+  J_NEEDS_REBOOT_VALIDATION=true
+  set_state committing
+  J_NEEDS_REBOOT_VALIDATION=true
+  set_state committed_pending_reboot_validation
+}
+
+remove_candidate_paths() {
+  local path
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rm -f "${ROOT_PREFIX}${path}"
+  done < "$TXN_DIR/rollback/paths.list"
+  awk '{ print length($0), $0 }' "$TXN_DIR/rollback/dirs.list" | LC_ALL=C sort -rn |
+    sed 's/^[0-9][0-9]* //' | while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      rmdir "${ROOT_PREFIX}${path}" 2>/dev/null || true
+    done
+}
+
+restore_legacy() {
+  local list="$TXN_DIR/rollback/paths.list" current="$TXN_DIR/rollback/restored.fingerprint"
+  remove_candidate_paths || return 1
+  tar -xzpf "$TXN_DIR/rollback/legacy-files.tar.gz" -C "${ROOT_PREFIX:-/}" || return 1
+  fingerprint_paths "$list" "$current"
+  cmp -s "$TXN_DIR/rollback/source.fingerprint" "$current"
+}
+
+legacy_project_packages_absent() {
+  local package status="${ROOT_PREFIX}/usr/lib/opkg/status"
+  [ -f "$status" ] || return 1
+  for package in $PR_PROJECT_PACKAGES; do
+    if awk -v package="$package" '
+      BEGIN { RS=""; FS="\n"; found=0 }
+      {
+        named=0; installed=0
+        for (i=1; i<=NF; i++) {
+          if ($i == "Package: " package) named=1
+          if ($i ~ /^Status: .* installed$/) installed=1
+        }
+        if (named && installed) found=1
+      }
+      END { exit found ? 0 : 1 }
+    ' "$status"; then
+      return 1
+    fi
+  done
+}
+
+validate_legacy_source() {
+  local current="$TXN_DIR/rollback/validated-source.fingerprint"
+  legacy_source_validate || return 1
+  fingerprint_paths "$TXN_DIR/rollback/paths.list" "$current"
+  cmp -s "$TXN_DIR/rollback/source.fingerprint" "$current" || return 1
+  fingerprint_paths "$TXN_DIR/rollback/protected.paths.list" \
+    "$TXN_DIR/rollback/validated-protected.fingerprint"
+  cmp -s "$TXN_DIR/rollback/protected-source.fingerprint" \
+    "$TXN_DIR/rollback/validated-protected.fingerprint" || return 1
+  legacy_project_packages_absent
+}
+
+restore_ipks() {
+  local manifest="$TXN_DIR/rollback/source-manifest.json"
+  local index=0 package filename source_dir
+  [ -s "$manifest" ] || return 1
+  source_dir="$(pr_read_first "$TXN_DIR/rollback/source-known-good-path")"
+  [ -d "$source_dir" ] || return 1
+  while [ "$index" -lt 16 ]; do
+    package="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$package" ] || break
+    filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+    "$OPKG_BIN" install --force-reinstall "$source_dir/$filename" \
+      >> "$LOG_FILE" 2>&1 || return 1
+    test_boundary "rollback-after-$package" || return 1
+    index=$((index + 1))
+  done
+  [ "$index" = 3 ] || return 1
+  cp "$manifest" "$INSTALLED_MANIFEST"
+  cp "$TXN_DIR/rollback/source-manifest.json.sig" "$INSTALLED_SIGNATURE"
+}
+
+validate_ipk_source() {
+  local manifest="$TXN_DIR/rollback/source-manifest.json" source_dir
+  source_dir="$(pr_read_first "$TXN_DIR/rollback/source-known-good-path")"
+  [ -x "$source_dir/router-candidate-validator" ] || return 1
+  PREMIER_ROUTER_UPDATE_LIB="$LIB" \
+  PREMIER_ROUTER_ROOT="$ROOT_PREFIX" \
+  PREMIER_ROUTER_OPKG_BIN="$OPKG_BIN" \
+  PREMIER_ROUTER_VPN_UI_BIN="${ROOT_PREFIX}/usr/sbin/vpn-ui" \
+  PREMIER_ROUTER_INSTALLED_MANIFEST="$INSTALLED_MANIFEST" \
+  PREMIER_ROUTER_BUILD_INFO="$BUILD_INFO" \
+    "$source_dir/router-candidate-validator" --manifest "$manifest" \
+    --source-version "$J_SOURCE_APP_VERSION" --phase installed \
+    --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
+    >> "$LOG_FILE" 2>&1 || return 1
+  fingerprint_paths "$TXN_DIR/rollback/protected.paths.list" \
+    "$TXN_DIR/rollback/validated-protected.fingerprint"
+  cmp -s "$TXN_DIR/rollback/protected-source.fingerprint" \
+    "$TXN_DIR/rollback/validated-protected.fingerprint"
+}
+
+quarantine_transaction() {
+  local key file
+  [ "$J_INVOCATION" = auto ] || return 0
+  mkdir -p "$QUARANTINE_DIR"
+  key="$(printf '%s|%s|%s' "$J_SOURCE_APP_VERSION" "$J_TARGET_TAG" "$J_TARGET_MANIFEST_HASH" |
+    sha256sum | awk '{print $1}')"
+  file="$QUARANTINE_DIR/$key.json"
+  {
+    printf '{"source_version":'; pr_json_string "$J_SOURCE_APP_VERSION"
+    printf ',"target_tag":'; pr_json_string "$J_TARGET_TAG"
+    printf ',"manifest_sha256":'; pr_json_string "$J_TARGET_MANIFEST_HASH"
+    printf ',"created_at":'; pr_json_string "$(now)"
+    printf '}\n'
+  } | atomic_from_stdin "$file"
+}
+
+rollback_transaction() {
+  local transaction="$1"
+  TXN_DIR="$PERSIST_ROOT/$transaction"
+  JOURNAL="$TXN_DIR/state.json"
+  journal_load "$JOURNAL" || return 1
+  if [ "$J_STATE" = rolled_back ]; then
+    services_match || return 1
+    if [ "$J_SOURCE_TYPE" = ipk ]; then validate_ipk_source; else validate_legacy_source; fi
+    return $?
+  fi
+  J_ROLLBACK_STATUS=running
+  set_state rolling_back
+  if [ "$J_SOURCE_TYPE" = ipk ]; then
+    restore_ipks || {
+      J_ROLLBACK_STATUS=failed
+      set_error rollback restore_ipk_failed "exact previous IPKs could not be restored"
+      set_state rollback_failed
+      return 1
+    }
+  else
+    restore_legacy || {
+      J_ROLLBACK_STATUS=failed
+      set_error rollback restore_legacy_failed "exact legacy source validation failed"
+      set_state recovery_required
+      return 1
+    }
+  fi
+  restore_protected_state || {
+    J_ROLLBACK_STATUS=failed
+    set_error rollback protected_restore_failed "protected configuration or opkg metadata could not be restored"
+    set_state recovery_required
+    return 1
+  }
+  restore_services || {
+    J_ROLLBACK_STATUS=failed
+    set_error rollback service_restore_failed "source services could not be restored"
+    set_state rollback_failed
+    return 1
+  }
+  if [ "$J_SOURCE_TYPE" = ipk ]; then
+    validate_ipk_source || {
+      J_ROLLBACK_STATUS=failed
+      set_error rollback source_validation_failed "exact package source validation failed after rollback"
+      set_state recovery_required
+      return 1
+    }
+  else
+    validate_legacy_source || {
+      J_ROLLBACK_STATUS=failed
+      set_error rollback source_validation_failed "exact legacy source contract failed after rollback"
+      set_state recovery_required
+      return 1
+    }
+  fi
+  J_ROLLBACK_STATUS=succeeded
+  set_state rolled_back
+  quarantine_transaction
+}
+
+transaction_init() {
+  local manifest="$1" invocation="$2"
+  J_TRANSACTION_ID="$(date -u '+%Y%m%dT%H%M%SZ')-$(random_token | cut -c 1-16)"
+  TXN_DIR="$PERSIST_ROOT/$J_TRANSACTION_ID"
+  JOURNAL="$TXN_DIR/state.json"
+  mkdir -p "$TXN_DIR/downloads" "$TXN_DIR/rollback"
+  J_SOURCE_APP_VERSION="$(current_version)"
+  J_SOURCE_TYPE="$(detect_source_type)"
+  J_SOURCE_UPDATER_PROTOCOL="$(source_protocol)"
+  [ -n "$J_SOURCE_UPDATER_PROTOCOL" ] || J_SOURCE_UPDATER_PROTOCOL=1
+  J_SOURCE_PACKAGE_VERSION="$(source_package_version)"
+  J_TARGET_APP_VERSION="$(pr_json_get "$manifest" '@.app_version' '.app_version // empty')"
+  J_TARGET_PACKAGE_VERSION="$(pr_json_get "$manifest" '@.package_version' '.package_version // empty')"
+  J_TARGET_TAG="$(pr_json_get "$manifest" '@.release_tag' '.release_tag // empty')"
+  J_TARGET_MANIFEST_HASH="$(pr_sha256 "$manifest")"
+  J_STATE=idle
+  J_LAST_COMPLETED_STATE=idle
+  J_MUTATION_STARTED=false
+  J_ROLLBACK_STATUS=not_started
+  J_ERROR_CLASS=""
+  J_ERROR_CODE=""
+  J_ERROR_MESSAGE=""
+  J_CREATED_AT="$(now)"
+  J_UPDATED_AT="$J_CREATED_AT"
+  J_BOOT_ID="$(boot_id)"
+  J_WORKER_TOKEN="$LOCK_TOKEN"
+  J_INVOCATION="$invocation"
+  J_NEEDS_REBOOT_VALIDATION=false
+  journal_write
+  printf '%s\n' "$J_TRANSACTION_ID" | atomic_from_stdin "$ACTIVE_FILE"
+}
+
+quarantine_exists() {
+  local key
+  key="$(printf '%s|%s|%s' "$J_SOURCE_APP_VERSION" "$J_TARGET_TAG" "$J_TARGET_MANIFEST_HASH" |
+    sha256sum | awk '{print $1}')"
+  [ -f "$QUARANTINE_DIR/$key.json" ]
+}
+
+fail_before_mutation() {
+  local code="$1" message="$2"
+  J_ERROR_CLASS=preflight
+  J_ERROR_CODE="$code"
+  J_ERROR_MESSAGE="$(pr_one_line "$message")"
+  J_MUTATION_STARTED=false
+  journal_write || true
+  set_state failed_before_mutation || true
+  return "$code"
+}
+
+apply_verified_assets() {
+  local assets="$1" manifest="$2" signature="$3" invocation="$4" delegate="${5:-no}"
+  local key_id rc="" source_version source_protocol target_version
+  key_id="$(pr_read_first "$KEY_ID_FILE")"
+  pr_verify_signature "$manifest" "$signature" "$PUBLIC_KEY" || return 21
+  source_version="$(current_version)"
+  source_protocol="$(source_protocol)"
+  [ -n "$source_protocol" ] || source_protocol=1
+  target_version="$(pr_json_get "$manifest" '@.app_version' '.app_version // empty')"
+  if [ "$target_version" = "$source_version" ]; then
+    pr_manifest_validate "$manifest" "$key_id" "$source_version" "$source_protocol" || return 23
+    validate_asset_set "$assets" "$manifest" || return 28
+    printf 'Router UI %s is already installed with the identical signed manifest.\n' "$source_version"
+    return 0
+  fi
+  transaction_init "$manifest" "$invocation" || return 22
+  pr_manifest_validate "$manifest" "$key_id" "$J_SOURCE_APP_VERSION" "$J_SOURCE_UPDATER_PROTOCOL" ||
+    fail_before_mutation 23 "signed manifest is incompatible with this source" || return $?
+  set_state discovered || return 24
+  if quarantine_exists && [ "$invocation" = auto ]; then
+    fail_before_mutation 25 "this exact failed source/target tuple is quarantined" || return $?
+  fi
+  validate_asset_set "$assets" "$manifest" ||
+    fail_before_mutation 28 "downloaded package or target asset verification failed" || return $?
+  space_preflight "$assets" "$manifest" ||
+    fail_before_mutation 26 "calculated transaction reservation exceeds temporary or persistent free space" || return $?
+  set_state preflight || return 27
+  cp "$manifest" "$TXN_DIR/router-release-manifest.json"
+  cp "$signature" "$TXN_DIR/router-release-manifest.json.sig"
+  cp "$assets"/* "$TXN_DIR/downloads/"
+  set_state downloaded || return 29
+  validate_asset_set "$TXN_DIR/downloads" "$TXN_DIR/router-release-manifest.json" ||
+    fail_before_mutation 30 "persistent downloaded asset verification failed" || return $?
+  set_state verified || return 31
+  create_config_recovery ||
+    fail_before_mutation 32 "OpenWrt configuration recovery archive creation failed" || return $?
+  prepare_rollback ||
+    fail_before_mutation 33 "exact application rollback preparation failed" || return $?
+  journal_write
+  set_state snapshot_ready || return 34
+  test_boundary before-mutation || return 35
+  J_MUTATION_STARTED=true
+  journal_write
+  set_state applying || return 35
+  install_packages "$manifest" "$TXN_DIR/downloads" || rc=36
+  if [ -z "${rc:-}" ]; then
+    apply_compatibility "$TXN_DIR/downloads" || rc=37
+  fi
+  if [ -z "${rc:-}" ]; then
+    mkdir -p "$(dirname "$INSTALLED_MANIFEST")"
+    cp "$manifest" "$INSTALLED_MANIFEST"
+    cp "$signature" "$INSTALLED_SIGNATURE"
+    restart_local_services || rc=38
+  fi
+  if [ -z "${rc:-}" ]; then
+    set_state validating || rc=39
+  fi
+  if [ -z "${rc:-}" ]; then
+    candidate_validate "$manifest" "$TXN_DIR/downloads" candidate || rc=40
+  fi
+  if [ -z "${rc:-}" ]; then
+    commit_target "$TXN_DIR/downloads" "$manifest" "$signature" || rc=41
+  fi
+  if [ -z "${rc:-}" ]; then
+    printf 'Router UI %s committed. Configuration recovery: %s\n' \
+      "$J_TARGET_APP_VERSION" "$J_BACKUP_PATH"
+    printf 'Exact rollback: sh %s\n' "$TXN_DIR/rollback.sh"
+    return 0
+  fi
+  set_error transaction "$rc" "candidate transaction failed"
+  J_ROLLBACK_STATUS=pending
+  set_state rollback_pending
+  [ "$delegate" = legacy-worker ] && return "$rc"
+  rollback_transaction "$J_TRANSACTION_ID" || return 90
+  return "$rc"
+}
+
+worker_start_error() {
+  local code="$1" message="$2"
+  printf '{"ok":false,"error":'
+  pr_json_string "$message"
+  printf ',"error_code":'
+  pr_json_string "$code"
+  printf '}\n'
+}
+
+worker_signal_ready() {
+  local kind="$1" token="$2" handshake="$3" tmp
+  [ -n "$handshake" ] || return 0
+  case "$handshake" in "$WORKER_HANDSHAKE_DIR/$token") ;; *) return 1 ;; esac
+  [ ! -L "$WORKER_HANDSHAKE_DIR" ] || return 1
+  mkdir -p "$WORKER_HANDSHAKE_DIR" || return 1
+  chmod 700 "$WORKER_HANDSHAKE_DIR" || return 1
+  [ ! -L "$handshake" ] || return 1
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ "${VPN_UI_TEST_WORKER_SKIP_HANDSHAKE:-0}" = 1 ]; then
+    [ -z "${VPN_UI_TEST_WORKER_HOLD_SECONDS:-}" ] || sleep "$VPN_UI_TEST_WORKER_HOLD_SECONDS"
+    return 0
+  fi
+  tmp="$handshake.new.$$"
+  {
+    printf 'kind=%s\n' "$kind"
+    printf 'token=%s\n' "$token"
+    printf 'pid=%s\n' "$$"
+    printf 'start_id=%s\n' "$(process_start_id $$)"
+  } > "$tmp" || return 1
+  chmod 600 "$tmp" || return 1
+  mv "$tmp" "$handshake"
+}
+
+worker_handshake_valid() {
+  local kind="$1" token="$2" child="$3" expected_start="$4" handshake="$5"
+  [ -s "$handshake" ] && [ ! -L "$handshake" ] || return 1
+  [ "$(sed -n 's/^kind=//p' "$handshake")" = "$kind" ] &&
+    [ "$(sed -n 's/^token=//p' "$handshake")" = "$token" ] &&
+    [ "$(sed -n 's/^pid=//p' "$handshake")" = "$child" ] &&
+    [ "$(sed -n 's/^start_id=//p' "$handshake")" = "$expected_start" ]
+}
+
+worker_assert() {
+  local tries=0
+  while [ "$tries" -lt 10 ]; do
+    if [ "$(lock_owner_field token)" = "$1" ] &&
+      [ "$(lock_owner_field pid)" = "$$" ] &&
+      [ "$(lock_owner_field start_id)" = "$(process_start_id $$)" ]; then
+      LOCK_TOKEN="$1"
+      return 0
+    fi
+    sleep 1
+    tries=$((tries + 1))
   done
   return 1
 }
 
-cache_release() {
-  local version_file="$1"
-  local changelog_file="$2"
-  local date_file="$3"
-  local compatible="$4"
-  local version
-  version="$(sed -n '1p' "$version_file" | tr -d '\r\n')"
-  [ -n "$version" ] || return 1
-  mkdir -p "$CACHE_DIR"
-  cp "$version_file" "$CACHE_DIR/version.new"
-  cp "$changelog_file" "$CACHE_DIR/changelog.new"
-  cp "$date_file" "$CACHE_DIR/released_at.new"
-  printf '%s\n' "$compatible" > "$CACHE_DIR/compatible.new"
-  date -u '+%Y-%m-%dT%H:%M:%SZ' > "$CACHE_DIR/checked_at.new"
-  mv "$CACHE_DIR/version.new" "$CACHE_DIR/version"
-  mv "$CACHE_DIR/changelog.new" "$CACHE_DIR/changelog"
-  mv "$CACHE_DIR/released_at.new" "$CACHE_DIR/released_at"
-  mv "$CACHE_DIR/compatible.new" "$CACHE_DIR/compatible"
-  mv "$CACHE_DIR/checked_at.new" "$CACHE_DIR/checked_at"
-  chmod 600 "$CACHE_DIR"/* 2>/dev/null || true
-}
-
-check_transaction() {
-  local tmpdir="/tmp/vpn-ui-update-check.$$"
-  local strict="${1:-0}"
-  local compatible=1
-  mkdir -p "$tmpdir"
-  download_file "$RELEASE_BASE/$REMOTE_VERSION_NAME" "$tmpdir/version" || {
-    rm -rf "$tmpdir"
-    return 1
+start_worker() {
+  local kind="$1" token child child_start handshake tries=0 nohup_bin
+  token="$(random_token)"
+  lock_acquire "$token" || {
+    worker_start_error update_lock_busy "another update transaction owns the lock"
+    return 73
   }
-  download_file "$RELEASE_BASE/$REMOTE_CHANGELOG_NAME" "$tmpdir/changelog" || {
-    rm -rf "$tmpdir"
-    return 1
-  }
-  download_file "$RELEASE_BASE/$REMOTE_RELEASE_DATE_NAME" "$tmpdir/released_at" || {
-    rm -rf "$tmpdir"
-    return 1
-  }
-  download_file "$RELEASE_BASE/$MANIFEST_NAME" "$tmpdir/manifest" || compatible=0
-  if [ "$compatible" = "1" ]; then
-    download_file "$RELEASE_BASE/$PACKAGES_NAME" "$tmpdir/packages" || compatible=0
+  if [ "${VPN_UI_SYNC_WORKER:-0}" = 1 ]; then
+    case "$kind" in
+      check) check_worker "$token" ;;
+      apply) apply_worker "$token" "" manual ;;
+      *) lock_release "$token"; return 2 ;;
+    esac
+    return $?
   fi
-  cache_release "$tmpdir/version" "$tmpdir/changelog" "$tmpdir/released_at" "$compatible" || {
-    rm -rf "$tmpdir"
-    return 1
+  nohup_bin="${VPN_UI_NOHUP_BIN:-nohup}"
+  if ! command -v "$nohup_bin" >/dev/null 2>&1; then
+    lock_release "$token" || true
+    worker_start_error missing_nohup "coreutils-nohup is required to start an asynchronous update worker"
+    return 74
+  fi
+  printf '%s' "$WORKER_HANDSHAKE_TIMEOUT" | grep -Eq '^[1-9][0-9]*$' || {
+    lock_release "$token" || true
+    worker_start_error invalid_handshake_timeout "worker handshake timeout is invalid"
+    return 74
   }
-  rm -rf "$tmpdir"
-  [ "$strict" != "1" ] || [ "$compatible" = "1" ]
+  [ ! -L "$WORKER_HANDSHAKE_DIR" ] || {
+    lock_release "$token" || true
+    worker_start_error unsafe_handshake_path "worker handshake directory is symlinked"
+    return 74
+  }
+  mkdir -p "$WORKER_HANDSHAKE_DIR" || {
+    lock_release "$token" || true
+    worker_start_error handshake_setup_failed "could not create the worker handshake directory"
+    return 74
+  }
+  chmod 700 "$WORKER_HANDSHAKE_DIR"
+  handshake="$WORKER_HANDSHAKE_DIR/$token"
+  rm -f "$handshake"
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
+    [ "${VPN_UI_TEST_WORKER_SPAWN_FAIL:-0}" = 1 ]; then
+    lock_release "$token" || true
+    worker_start_error worker_spawn_failed "asynchronous update worker did not start"
+    return 74
+  fi
+  "$nohup_bin" "$SELF_PATH" "$kind-worker" "$token" "$handshake" >> "$LOG_FILE" 2>&1 </dev/null &
+  child=$!
+  kill -0 "$child" 2>/dev/null || {
+    lock_release "$token"
+    worker_start_error worker_spawn_failed "asynchronous update worker did not start"
+    return 74
+  }
+  child_start="$(process_start_id "$child")"
+  [ -n "$child_start" ] || {
+    kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+    lock_release "$token" || true
+    worker_start_error worker_identity_unavailable "could not identify the asynchronous update worker"
+    return 75
+  }
+  lock_transfer_to_child "$token" "$child" || {
+    kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+    rm -f "$handshake"
+    lock_release "$token" || true
+    worker_start_error worker_ownership_transfer_failed "could not transfer update-lock ownership to the worker"
+    return 75
+  }
+  while [ "$tries" -lt "$WORKER_HANDSHAKE_TIMEOUT" ]; do
+    if worker_handshake_valid "$kind" "$token" "$child" "$child_start" "$handshake"; then
+      rm -f "$handshake"
+      printf '{"ok":true,"started":true,"job":'
+      pr_json_string "$kind"
+      printf ',"ownership_token":'
+      pr_json_string "$token"
+      printf '}\n'
+      return 0
+    fi
+    kill -0 "$child" 2>/dev/null || break
+    sleep 1
+    tries=$((tries + 1))
+  done
+  kill "$child" 2>/dev/null || true
+  wait "$child" 2>/dev/null || true
+  rm -f "$handshake"
+  lock_release "$token" || true
+  if [ "$tries" -ge "$WORKER_HANDSHAKE_TIMEOUT" ]; then
+    worker_start_error worker_handshake_timeout "asynchronous update worker did not acknowledge startup before the timeout"
+    return 76
+  fi
+  worker_start_error worker_exited_before_handshake "asynchronous update worker exited before acknowledging startup"
+  return 76
 }
 
 check_worker() {
-  local target compatible current
-  acquire_lock || {
-    set_state "failed" "check" "Another update task is already running." "" ""
-    return 1
-  }
-  set_state "running" "check" "Checking the release server…" "" ""
-  if check_transaction >>"$LOG_FILE" 2>&1; then
-    target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-    compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
-    current="$(current_version)"
-    if [ "$compatible" = "1" ]; then
-      set_state "success" "check" "Release information is current." "$target" ""
-    elif version_is_newer "$current" "$target"; then
-      set_state "success" "check" "Release server is reachable. Installed software is newer than the published legacy-format release; no package-first update is available." "$target" ""
-    else
-      set_state "success" "check" "Release server is reachable, but the published release uses the legacy bundle format and cannot be installed by the package-first updater." "$target" ""
-    fi
-    release_lock
-    return 0
+  local token="$1" handshake="${2:-}" work version rc=0
+  worker_assert "$token" || return 76
+  worker_signal_ready check "$token" "$handshake" || return 76
+  work="${ROOT_PREFIX}/tmp/premier-router-discovery.$$"
+  rm -rf "$work"
+  mkdir -p "$work"
+  version="$(current_version)"
+  protocol="$(source_protocol)"
+  [ -n "$protocol" ] || protocol=2
+  if target="$(discover_release "$work" "$version" "$protocol")"; then
+    printf 'Verified stable Router UI target: %s\n' "$target" >> "$LOG_FILE"
+  else
+    rc=77
   fi
-  set_state "failed" "check" "Could not contact or validate the release server." "" ""
-  release_lock
-  return 1
+  rm -rf "$work"
+  lock_release "$token" || true
+  return "$rc"
 }
 
-start_worker() {
-  local worker="$1"
-  if lock_is_active; then
-    die_json "another update task is already running"
-  fi
-  set_state "starting" "$worker" "Starting…" "" ""
-  "$0" "$worker-worker" >>"$LOG_FILE" 2>&1 </dev/null &
-  printf '{"ok":true,"started":true,"job":'
-  json_string "$worker"
-  printf '}\n'
-}
-
-create_full_backup() {
-  local target="$1"
-  local ts backup checksum temporary bytes size_kb free_kb
-  command -v sysupgrade >/dev/null 2>&1 || return 1
-  mkdir -p "$BACKUP_DIR"
-  chmod 700 "$BACKUP_DIR"
-  ts="$(date +%Y%m%d-%H%M%S)"
-  backup="$BACKUP_DIR/openwrt-before-router-ui-${target}-${ts}.tar.gz"
-  temporary="/tmp/openwrt-before-router-ui-${target}-${ts}.tar.gz"
-  rm -f "$temporary"
-  sysupgrade -b "$temporary" >>"$LOG_FILE" 2>&1 || {
-    rm -f "$temporary"
-    return 1
-  }
-  [ -s "$temporary" ] || {
-    rm -f "$temporary"
-    return 1
-  }
-  tar -tzf "$temporary" >/dev/null 2>&1 || {
-    rm -f "$temporary"
-    return 1
-  }
-  bytes="$(wc -c < "$temporary" | tr -d ' ')"
-  size_kb=$(((bytes + 1023) / 1024))
-  free_kb="$(df -Pk "$BACKUP_DIR" 2>/dev/null | awk 'NR == 2 { print $4 }')"
-  [ -n "$free_kb" ] && [ "$free_kb" -ge $((size_kb + 2048)) ] || {
-    rm -f "$temporary"
-    return 1
-  }
-  cp "$temporary" "$backup" || {
-    rm -f "$temporary" "$backup"
-    return 1
-  }
-  rm -f "$temporary"
-  tar -tzf "$backup" >/dev/null 2>&1 || {
-    rm -f "$backup"
-    return 1
-  }
-  checksum="$(sha256sum "$backup" | awk '{ print $1 }')"
-  printf '%s  %s\n' "$checksum" "$(basename "$backup")" > "$backup.sha256"
-  chmod 600 "$backup" "$backup.sha256"
-  printf '%s' "$backup"
-}
-
-validate_install() {
-  local target="$1"
-  [ "$(current_version)" = "$target" ] || return 1
-  /usr/sbin/vpn-ui check 2>/dev/null | grep -q '"ok":true' || return 1
-  /usr/sbin/vpn-ui vpn-summary 2>/dev/null | grep -q '"ok":true' || return 1
-  [ -f /www/luci-static/resources/view/network/vpn.js ] ||
-    [ -f /www/luci-static/resources/view/network/vpn-0-7-0.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/tailscale.js ] ||
-    [ -f /www/luci-static/resources/view/network/tailscale-0-7-5.js ] || return 1
-  [ -f /www/luci-static/resources/view/network/adguard.js ] || return 1
-  [ -f /www/luci-static/resources/tools/router_footer.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/update.js ] ||
-    [ -f /www/luci-static/resources/view/system/update-0-7-3.js ] || return 1
-  [ -f /www/luci-static/resources/view/system/reset.js ] ||
-    [ -f /www/luci-static/resources/view/system/reset-0-8-0.js ] || return 1
-  [ -x /usr/sbin/install-router-ui-release ] || return 1
-  [ -f /www/luci-static/resources/view/status/include/35_vpn.js ] || return 1
-  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '_35_vpn*.js' |
-    grep -q .; then
-    return 1
-  fi
-  if find /www/luci-static/resources/view/status/include -maxdepth 1 -type f -name '35_vpn-*.js' |
-    grep -q .; then
-    return 1
-  fi
-}
-
-apply_transaction() {
-  local target="$1"
-  local backup
-
-  set_state "running" "backup" "Creating and validating a full OpenWrt backup…" "$target" ""
-  backup="$(create_full_backup "$target")" || {
-    return 10
-  }
-  set_state "running" "download" "Downloading and verifying package release metadata…" "$target" "$backup"
-  check_transaction 1 >>"$LOG_FILE" 2>&1 || return 11
-
-  [ -x /usr/sbin/install-router-ui-release ] || return 16
-
-  set_state "running" "install" "Installing Premier Router packages through opkg…" "$target" "$backup"
-  ROUTER_UI_VERSION="$target" ROUTER_UI_REPO="$REPO" \
-    ROUTER_UI_SKIP_BACKUP=1 ROUTER_UI_EXISTING_BACKUP="$backup" \
-    sh /usr/sbin/install-router-ui-release >>"$LOG_FILE" 2>&1 || return 18
-
-  set_state "running" "validate" "Validating services, configuration, and LuCI files…" "$target" "$backup"
-  validate_install "$target" || return 19
-  printf '%s' "$backup"
+cached_release_files() {
+  local tag
+  tag="$(pr_read_first "$CACHE_DIR/resolved-tag")"
+  [ -n "$tag" ] || return 1
+  printf '%s\n' "$tag"
 }
 
 apply_worker() {
-  local target compatible backup rc
-  target="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-  [ -n "$target" ] || {
-    set_state "failed" "apply" "Check for updates before installing." "" ""
-    return 1
+  local token="$1" handshake="${2:-}" invocation="${3:-manual}" tag manifest signature work rc=0
+  worker_assert "$token" || return 78
+  worker_signal_ready apply "$token" "$handshake" || return 78
+  LOCK_TOKEN="$token"
+  tag="$(cached_release_files)" || {
+    lock_release "$token" || true
+    return 79
   }
-  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
-  [ "$compatible" = "1" ] || {
-    set_state "failed" "apply" "The published release does not contain package-first update metadata and cannot be installed by this updater." "$target" ""
-    return 1
+  manifest="$CACHE_DIR/$tag/router-release-manifest.json"
+  signature="$CACHE_DIR/$tag/router-release-manifest.json.sig"
+  [ -s "$manifest" ] && [ -s "$signature" ] || {
+    lock_release "$token" || true
+    return 80
   }
-  version_is_newer "$target" "$(current_version)" || {
-    set_state "failed" "apply" "No newer stable release is available." "$target" ""
-    return 1
-  }
-  acquire_lock || {
-    set_state "failed" "apply" "Another update task is already running." "$target" ""
-    return 1
-  }
-  backup=""
-  if backup="$(apply_transaction "$target")"; then
-    set_state "success" "complete" "Router software was updated and validated." "$target" "$backup"
-    release_lock
-    return 0
+  work="${ROOT_PREFIX}/tmp/premier-router-assets.$$"
+  rm -rf "$work"
+  mkdir -p "$work"
+  if download_assets "$tag" "$manifest" "$work"; then
+    apply_verified_assets "$work" "$manifest" "$signature" "$invocation" no || rc=$?
   else
-    rc="$?"
+    rc=81
   fi
-  backup="$(read_file "$STATE_DIR/backup" | sed -n '1p')"
-  set_state "failed" "complete" "Update failed safely (code $rc). Existing software was preserved or restored. See $LOG_FILE." "$target" "$backup"
-  release_lock
-  return 1
+  rm -rf "$work"
+  lock_release "$token" || true
+  return "$rc"
 }
 
-status_json() {
-  local current latest released_at changelog checked_at available compatible current_ahead release_reachable
-  local job_status job_stage job_message job_target job_backup job_updated
+apply_local() {
+  local assets="${1:-}" manifest="${2:-}" signature="${3:-}"
+  local invocation="${4:-standalone}" delegate="${5:-no}" token rc=0
+  [ -d "$assets" ] && [ -s "$manifest" ] && [ -s "$signature" ] || return 82
+  token="$(random_token)"
+  lock_acquire "$token" || return 83
+  LOCK_TOKEN="$token"
+  apply_verified_assets "$assets" "$manifest" "$signature" "$invocation" "$delegate" || rc=$?
+  lock_release "$token" || true
+  return "$rc"
+}
+
+cleanup_compatibility() {
+  local marker="${ROOT_PREFIX}/etc/premier-router/compat-source-version"
+  local compat="${ROOT_PREFIX}/www/luci-static/resources/view/status/include/_35_vpn.js"
+  if [ "$(pr_read_first "$marker")" = 0.7.9 ]; then
+    rm -f "$compat" "$marker"
+    rm -f "${ROOT_PREFIX}/tmp"/luci-indexcache.*.json 2>/dev/null || true
+    restart_local_services || return 1
+  fi
+  test_boundary compatibility-cleanup
+}
+
+cleanup_successful_storage() {
+  local active state_file state transaction keep_file="$PERSIST_ROOT/retained-manifests.$$"
+  local kept=0 dir hash manifest
+  active="$(pr_read_first "$ACTIVE_FILE")"
+  : > "$keep_file"
+  [ -s "$INSTALLED_MANIFEST" ] && pr_sha256 "$INSTALLED_MANIFEST" >> "$keep_file"
+  [ -s "$TXN_DIR/rollback/source-manifest.json" ] &&
+    pr_sha256 "$TXN_DIR/rollback/source-manifest.json" >> "$keep_file"
+  find "$PERSIST_ROOT" -mindepth 2 -maxdepth 2 -type f -name state.json -print 2>/dev/null |
+    while IFS= read -r state_file; do
+      transaction="$(basename "$(dirname "$state_file")")"
+      state="$(pr_json_get "$state_file" '@.state' '.state // empty')"
+      case "$state" in
+        rollback_pending|rolling_back|rollback_failed|recovery_required|committed_pending_reboot_validation)
+          continue
+          ;;
+      esac
+      [ "$transaction" = "$active" ] && continue
+      case "$state" in committed|rolled_back|failed_before_mutation) ;; *) continue ;; esac
+      printf '%s %s\n' "$(stat -c %Y "$state_file" 2>/dev/null || printf 0)" "$state_file"
+    done | LC_ALL=C sort -rn | while read -r _ state_file; do
+      transaction="$(basename "$(dirname "$state_file")")"
+      kept=$((kept + 1))
+      if [ "$kept" -le 2 ]; then
+        manifest="$(dirname "$state_file")/rollback/source-manifest.json"
+        [ -s "$manifest" ] && pr_sha256 "$manifest" >> "$keep_file"
+      else
+        rm -rf "$(dirname "$state_file")"
+      fi
+    done
+  if [ -d "$TXN_DIR/downloads" ]; then
+    find "$TXN_DIR/downloads" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} \;
+  fi
+  atomic_sort_file "$keep_file" unique || return 1
+  for dir in "$KNOWN_GOOD"/*; do
+    [ -d "$dir" ] || continue
+    hash="$(basename "$dir")"
+    grep -Fqx "$hash" "$keep_file" || rm -rf "$dir"
+  done
+  rm -f "$keep_file"
+}
+
+target_state_validate() {
+  local phase="$1" validator="$TXN_DIR/downloads/router-candidate-validator"
+  regular_nonsymlink_file "$TXN_DIR/rollback/protected.sha256" || return 1
+  if [ ! -x "$validator" ]; then
+    validator="$(pr_json_get "$TXN_DIR/router-release-manifest.json" \
+      '@.candidate_validator.filename' '.candidate_validator.filename // empty')"
+    validator="$TXN_DIR/downloads/$validator"
+  fi
+  PREMIER_ROUTER_UPDATE_LIB="$LIB" \
+  PREMIER_ROUTER_ROOT="$ROOT_PREFIX" \
+  PREMIER_ROUTER_OPKG_BIN="$OPKG_BIN" \
+  PREMIER_ROUTER_VPN_UI_BIN="${ROOT_PREFIX}/usr/sbin/vpn-ui" \
+  PREMIER_ROUTER_INSTALLED_MANIFEST="$INSTALLED_MANIFEST" \
+  PREMIER_ROUTER_BUILD_INFO="$BUILD_INFO" \
+    "$validator" --manifest "$TXN_DIR/router-release-manifest.json" \
+    --source-version "$J_SOURCE_APP_VERSION" --phase "$phase" \
+    --protected-hashes "$TXN_DIR/rollback/protected.sha256" \
+    >> "$LOG_FILE" 2>&1 || return 1
+  target_protected_state_validate "$phase"
+}
+
+recover_transaction() {
+  local journal state rc=0 token
+  journal="$(latest_journal 2>/dev/null)" || return 0
+  journal_load "$journal" || return 84
+  TXN_DIR="$(dirname "$journal")"
+  JOURNAL="$journal"
+  token="$(random_token)"
+  lock_acquire "$token" || return 85
+  LOCK_TOKEN="$token"
+  J_WORKER_TOKEN="$token"
+  journal_write
+  state="$J_STATE"
+  case "$state" in
+    idle|discovered|preflight|downloaded|verified|snapshot_ready)
+      J_ERROR_CLASS=recovery
+      J_ERROR_CODE=failed_before_mutation
+      J_ERROR_MESSAGE='unfinished transaction stopped before mutation'
+      set_state failed_before_mutation || rc=$?
+      ;;
+    applying|validating|committing)
+      if target_state_validate candidate; then
+        commit_target "$TXN_DIR/downloads" "$TXN_DIR/router-release-manifest.json" \
+          "$TXN_DIR/router-release-manifest.json.sig" || rc=$?
+      else
+        rollback_transaction "$J_TRANSACTION_ID" || rc=$?
+      fi
+      ;;
+    rollback_pending|rolling_back)
+      rollback_transaction "$J_TRANSACTION_ID" || rc=$?
+      ;;
+    committed_pending_reboot_validation)
+      if [ "$(boot_id)" = "$J_BOOT_ID" ]; then
+        rc=0
+      elif cleanup_compatibility && target_state_validate post-reboot &&
+        test_boundary post-reboot-validation; then
+        J_NEEDS_REBOOT_VALIDATION=false
+        set_state committed || rc=$?
+        [ "$rc" = 0 ] && cleanup_successful_storage || true
+      else
+        J_ROLLBACK_STATUS=pending
+        set_state rollback_pending || true
+        rollback_transaction "$J_TRANSACTION_ID" || rc=$?
+      fi
+      ;;
+    committed)
+      cleanup_successful_storage || rc=$?
+      ;;
+    rolled_back|failed_before_mutation)
+      ;;
+    rollback_failed|recovery_required)
+      rc=86
+      ;;
+    *)
+      J_ERROR_CLASS=recovery
+      J_ERROR_CODE=ambiguous_state
+      J_ERROR_MESSAGE="ambiguous state $state requires exact rollback"
+      journal_write
+      rollback_transaction "$J_TRANSACTION_ID" || rc=$?
+      ;;
+  esac
+  lock_release "$token" || true
+  return "$rc"
+}
+
+manual_rollback() {
+  local transaction="${1:-$(pr_read_first "$ACTIVE_FILE")}" token rc=0
+  [ -n "$transaction" ] || return 87
+  token="$(random_token)"
+  lock_acquire "$token" || return 88
+  LOCK_TOKEN="$token"
+  rollback_transaction "$transaction" || rc=$?
+  lock_release "$token" || true
+  return "$rc"
+}
+
+auto_run() {
+  local token work version protocol target tag manifest signature assets rc=0
   load_config
-  current="$(current_version)"
-  latest="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-  [ -n "$latest" ] || latest="$current"
-  released_at="$(read_file "$CACHE_DIR/released_at" | sed -n '1p' | tr -d '\r\n')"
-  changelog="$(read_file "$CACHE_DIR/changelog")"
-  checked_at="$(read_file "$CACHE_DIR/checked_at" | sed -n '1p' | tr -d '\r\n')"
-  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
-  [ "$compatible" = "1" ] && compatible=true || compatible=false
-  [ -n "$checked_at" ] && release_reachable=true || release_reachable=false
-  available="false"
-  [ "$compatible" = true ] && version_is_newer "$latest" "$current" && available="true"
-  current_ahead=false
-  version_is_newer "$current" "$latest" && current_ahead=true
-  job_status="$(read_file "$STATE_DIR/status" | sed -n '1p')"
-  [ -n "$job_status" ] || job_status="idle"
-  job_stage="$(read_file "$STATE_DIR/stage" | sed -n '1p')"
-  job_message="$(read_file "$STATE_DIR/message")"
-  job_target="$(read_file "$STATE_DIR/target" | sed -n '1p')"
-  job_backup="$(read_file "$STATE_DIR/backup" | sed -n '1p')"
-  job_updated="$(read_file "$STATE_DIR/updated_at" | sed -n '1p')"
-
-  printf '{"ok":true,"current":'
-  json_string "$current"
-  printf ',"latest":'
-  json_string "$latest"
-  printf ',"released_at":'
-  json_string "$released_at"
-  printf ',"changelog":'
-  json_string "$changelog"
-  printf ',"checked_at":'
-  json_string "$checked_at"
-  printf ',"available":%s,"compatible_release":%s,"release_reachable":%s,"current_ahead":%s,"auto_update":%s,"auto_schedule":' \
-    "$available" "$compatible" "$release_reachable" "$current_ahead" "$([ "$AUTO_UPDATE" = "1" ] && printf true || printf false)"
-  json_string "$AUTO_SCHEDULE"
-  printf ',"job":{"status":'
-  json_string "$job_status"
-  printf ',"stage":'
-  json_string "$job_stage"
-  printf ',"message":'
-  json_string "$job_message"
-  printf ',"target":'
-  json_string "$job_target"
-  printf ',"backup":'
-  json_string "$job_backup"
-  printf ',"updated_at":'
-  json_string "$job_updated"
-  printf '}}\n'
+  [ "$AUTO_UPDATE" = 1 ] || return 0
+  token="$(random_token)"
+  lock_acquire "$token" || return 89
+  LOCK_TOKEN="$token"
+  work="${ROOT_PREFIX}/tmp/premier-router-auto.$$"
+  assets="$work/assets"
+  mkdir -p "$assets"
+  version="$(current_version)"
+  protocol="$(source_protocol)"
+  [ -n "$protocol" ] || protocol=2
+  if ! target="$(discover_release "$work" "$version" "$protocol")"; then
+    rc=91
+  elif pr_version_newer "$target" "$version"; then
+    tag="$(cached_release_files)"
+    manifest="$CACHE_DIR/$tag/router-release-manifest.json"
+    signature="$CACHE_DIR/$tag/router-release-manifest.json.sig"
+    if download_assets "$tag" "$manifest" "$assets"; then
+      apply_verified_assets "$assets" "$manifest" "$signature" auto no || rc=$?
+    else
+      rc=92
+    fi
+  fi
+  rm -rf "$work"
+  lock_release "$token" || true
+  return "$rc"
 }
 
-auto_update() {
-  local current latest compatible
-  load_config
-  [ "$AUTO_UPDATE" = "1" ] || exit 0
-  check_worker || exit 1
-  current="$(current_version)"
-  latest="$(read_file "$CACHE_DIR/version" | sed -n '1p' | tr -d '\r\n')"
-  compatible="$(read_file "$CACHE_DIR/compatible" | sed -n '1p')"
-  [ "$compatible" = "1" ] || exit 0
-  [ -n "$latest" ] && version_is_newer "$latest" "$current" || exit 0
-  apply_worker
+clear_quarantine() {
+  local selector="${1:-}"
+  [ -d "$QUARANTINE_DIR" ] || return 0
+  case "$selector" in
+    --all)
+      find "$QUARANTINE_DIR" -maxdepth 1 -type f -name '*.json' -exec rm -f {} \;
+      ;;
+    [0-9a-f][0-9a-f]*)
+      [ -f "$QUARANTINE_DIR/$selector.json" ] || return 1
+      rm -f "$QUARANTINE_DIR/$selector.json"
+      ;;
+    *) pr_fail "clear-quarantine requires an exact tuple hash or --all"; return 2 ;;
+  esac
 }
+
+if [ "${VPN_UI_UPDATE_SOURCE_ONLY:-0}" = 1 ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 case "${1:-status}" in
-  status) status_json ;;
-  check-start) start_worker check ;;
-  check-worker) check_worker ;;
-  apply-start) start_worker apply ;;
-  apply-worker) apply_worker ;;
-  auto) auto_update ;;
-  set-auto) set_auto_update "${2:-}" ;;
-  configure-cron) configure_cron ;;
-  clear-state) clear_state; status_json ;;
-  *) die_json "unknown update action: ${1:-}" ;;
+  status)
+    status_json
+    ;;
+  check-start)
+    start_worker check
+    ;;
+  check-worker)
+    check_worker "${2:-}" "${3:-}"
+    ;;
+  apply-start)
+    start_worker apply
+    ;;
+  apply-worker)
+    apply_worker "${2:-}" "${3:-}" "${4:-manual}"
+    ;;
+  apply-local)
+    apply_local "${2:-}" "${3:-}" "${4:-}" "${5:-standalone}" "${6:-no}"
+    ;;
+  auto)
+    auto_run
+    ;;
+  set-auto)
+    set_auto "${2:-}"
+    status_json
+    ;;
+  configure-cron)
+    configure_cron
+    ;;
+  rollback)
+    manual_rollback "${2:-}"
+    ;;
+  recover)
+    recover_transaction
+    ;;
+  cleanup-compat)
+    cleanup_compatibility
+    ;;
+  clear-quarantine)
+    clear_quarantine "${2:-}"
+    status_json
+    ;;
+  *)
+    printf 'ERROR: unknown update command: %s\n' "${1:-}" >&2
+    exit 64
+    ;;
 esac
+
+# __APPEND_UPDATER__

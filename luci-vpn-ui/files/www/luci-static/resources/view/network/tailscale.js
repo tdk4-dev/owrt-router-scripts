@@ -3,9 +3,9 @@
 'require fs';
 'require ui';
 'require dom';
-'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
 var isReadonlyView = !L.hasViewPermission() || null;
 
 var css = '\
@@ -44,25 +44,19 @@ function parseResponse(res) {
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		var command = args && args[0];
+		var readCommand = command === 'tailscale-status' || command === 'tailscale-ping';
+
+		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return Promise.all([
-			this.callHelper(['tailscale-status']),
-			this.callHelper(['footer-info'])
-		]).then(function(result) {
-			result[0].metadata = result[1];
-			return result[0];
-		});
+		return this.callHelper(['tailscale-status']);
 	},
 
 	refresh: function(data) {
-		data.metadata = data.metadata || this.metadata || {};
-		this.metadata = data.metadata;
 		this.data = data;
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
-		routerFooter.apply(data.metadata);
 	},
 
 	runAction: function(args, title) {
@@ -126,14 +120,14 @@ return view.extend({
 			ui.showModal(title, [
 				E('p', { 'style': 'white-space:pre-wrap; overflow-wrap:anywhere' }, message),
 				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+					E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'tailscale-ping-close', 'click': ui.hideModal }, _('Close'))
 				])
 			]);
 		}).catch(function(err) {
 			ui.showModal(title, [
 				E('p', {}, err.message || err),
 				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+					E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'tailscale-ping-close', 'click': ui.hideModal }, _('Close'))
 				])
 			]);
 		});
@@ -175,6 +169,7 @@ return view.extend({
 				E('td', { 'class': 'td left' }, this.formatLastSeen(peer.last_seen, peer.online)),
 				E('td', { 'class': 'td right' }, [
 					E('a', {
+						'data-control-id': 'tailscale-peer-ping',
 						'class': 'cbi-button cbi-button-action',
 						'href': '#',
 						'aria-disabled': peer.ip ? 'false' : 'true',
@@ -247,6 +242,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-login-server' }, _('Login server')),
 					E('input', {
+						'data-control-id': 'tailscale-login-server',
 						'id': 'ts-login-server',
 						'type': 'text',
 						'value': tailscale.control_url || 'https://login.tailscale.com',
@@ -256,6 +252,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-hostname' }, _('Node hostname')),
 					E('input', {
+						'data-control-id': 'tailscale-hostname',
 						'id': 'ts-hostname',
 						'type': 'text',
 						'value': tailscale.hostname || '',
@@ -265,6 +262,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-auth-key' }, _('Preauth key')),
 					E('input', {
+						'data-control-id': 'tailscale-auth-key',
 						'id': 'ts-auth-key',
 						'type': 'password',
 						'autocomplete': 'off',
@@ -275,6 +273,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-routes' }, _('Advertise routes')),
 					E('input', {
+						'data-control-id': 'tailscale-routes',
 						'id': 'ts-routes',
 						'type': 'text',
 						'placeholder': '10.77.0.0/24',
@@ -283,6 +282,7 @@ return view.extend({
 				]),
 				E('label', { 'class': 'ts-check' }, [
 					E('input', {
+						'data-control-id': 'tailscale-exit-node',
 						'id': 'ts-exit-node',
 						'type': 'checkbox',
 						'disabled': isReadonlyView
@@ -292,21 +292,25 @@ return view.extend({
 			]),
 			E('div', { 'class': 'ts-actions' }, [
 				E('button', {
+					'data-control-id': 'tailscale-restart',
 					'class': 'cbi-button cbi-button-neutral',
 					'disabled': isReadonlyView,
 					'click': ui.createHandlerFn(this, 'handleRestart')
 				}, _('Restart')),
 				E('button', {
+					'data-control-id': 'tailscale-stop',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.running,
+					'disabled': (isReadonlyView || !tailscale.running) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleStop')
 				}, _('Stop service')),
 				E('button', {
+					'data-control-id': 'tailscale-logout',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.connected,
+					'disabled': (isReadonlyView || !tailscale.connected) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleLogout')
 				}, _('Log out')),
 				E('button', {
+					'data-control-id': 'tailscale-apply',
 					'class': 'cbi-button cbi-button-positive',
 					'disabled': isReadonlyView,
 					'click': ui.createHandlerFn(this, 'handleApply')
@@ -318,9 +322,7 @@ return view.extend({
 	},
 
 	render: function(data) {
-		this.metadata = data.metadata || {};
 		this.data = data;
-		routerFooter.apply(data.metadata);
 
 		return E('div', { 'class': 'cbi-map tailscale-ui' }, [
 			E('style', {}, css),

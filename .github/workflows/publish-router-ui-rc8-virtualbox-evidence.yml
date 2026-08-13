@@ -1,0 +1,237 @@
+name: Publish supervised Mac Pro VirtualBox RC8 evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact clean RC8 candidate source commit SHA
+        required: true
+        type: string
+      evidence_index_sha256:
+        description: SHA-256 of evidence-files-sha256sums independently retained on the Mac Pro
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: router-ui-mac-pro-virtualbox-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-evidence:
+    name: Publish already-supervised VirtualBox-only evidence
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: [self-hosted, linux, x64, mac-pro-evidence-publisher]
+    environment: router-ui-mac-pro-virtualbox-evidence
+    timeout-minutes: 20
+    steps:
+      - name: Validate the staged evidence without executing candidate code
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_EVIDENCE_INDEX_SHA256: ${{ inputs.evidence_index_sha256 }}
+          EVIDENCE_ROOT: /srv/router-ui-evidence
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          printf '%s' "$EXPECTED_SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$EXPECTED_EVIDENCE_INDEX_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+
+          evidence="$EVIDENCE_ROOT/rc8-final/$EXPECTED_SOURCE_SHA"
+          release="$EVIDENCE_ROOT/releases/$EXPECTED_SOURCE_SHA/release-v0.7.11-rc.8"
+          qualification="$evidence/qualification.json"
+          sums="$evidence/evidence-files-sha256sums"
+          manifest="$release/router-release-manifest.json"
+
+          test -d "$evidence" && test ! -L "$evidence"
+          test -d "$release" && test ! -L "$release"
+          test -s "$qualification" && test ! -L "$qualification"
+          test -s "$sums" && test ! -L "$sums"
+          test -s "$manifest" && test ! -L "$manifest"
+          test "$(stat -c %U "$evidence")" = root
+          test "$(stat -c %U "$release")" = root
+          test -z "$(find "$evidence" -perm /022 -print -quit)"
+          test -z "$(find "$release" -perm /022 -print -quit)"
+          test -z "$(find "$evidence" -type f -links +1 -print -quit)"
+          test -z "$(find "$evidence" -type l -print -quit)"
+          test -z "$(find "$evidence" ! -type d ! -type f -print -quit)"
+          test "$(find "$evidence" -type f | wc -l)" -eq 11
+          test "$(du -sk "$evidence" | awk '{print $1}')" -le 51200
+          test "$(sha256sum "$sums" | awk '{print $1}')" = "$EXPECTED_EVIDENCE_INDEX_SHA256"
+          ! grep -RIE 'vless://|tskey-|BEGIN [A-Z ]*PRIVATE KEY|subscription_url' "$evidence"
+
+          release_manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          test "$(jq -er '.source_commit' "$manifest")" = "$EXPECTED_SOURCE_SHA"
+          test "$(jq -er '.signing_key_fingerprint' "$manifest")" = d055711acf1d9a5b
+          jq -e \
+            --arg source "$EXPECTED_SOURCE_SHA" \
+            --arg manifest_sha "$release_manifest_sha" '
+            .schema_version == 1 and
+            .result == "PASS" and
+            .source_sha == $source and
+            .release_manifest_sha256 == $manifest_sha and
+            .signing_key_fingerprint == "d055711acf1d9a5b" and
+            .provider.platform == "Mac Pro" and
+            .provider.hypervisor == "VirtualBox" and
+            .provider.qemu_used == false and
+            .provider.supervised == true and
+            .vm.disposable_clone == true and
+            .vm.locally_recoverable == true and
+            .vm.hardware_disconnected == true and
+            .vm.final_power_state == "poweroff" and
+            .vm.clean_snapshot_restored == true and
+            .observations.vm_file == "observations/vm.json" and
+            .observations.transition_file == "observations/transition.json" and
+            .observations.tailscale_file == "observations/tailscale.json" and
+            .observations.luci_file == "observations/luci.json" and
+            .observations.browser_file == "observations/browser.json" and
+            .transition.source.app_version == "0.7.11-rc.5" and
+            .transition.source.package_version == "0.7.11~rc5-1" and
+            .transition.source.protocol == 2 and
+            .transition.source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
+            .transition.target.app_version == "0.7.11-rc.8" and
+            .transition.target.package_version == "0.7.11~rc8-1" and
+            .transition.target.protocol == 2 and
+            .transition.candidate_validation.adoption_preview_only == true and
+            .transition.candidate_validation.config_unchanged == true and
+            .transition.candidate_validation.ownership_absent == true and
+            .transition.pending_state == "committed_pending_reboot_validation" and
+            .transition.pre_reboot_mutation_refused == true and
+            .transition.boot_id_changed == true and
+            .transition.post_reboot_state == "committed" and
+            .transition.adoption_after_commit == true and
+            .transition.exact_rc5_rollback == true and
+            .luci_apply.rpc_acl_write_path == true and
+            .luci_apply.structural_config_update == true and
+            .luci_apply.xray_restart == true and
+            .luci_apply.rule_removal == true and
+            .luci_apply.exact_failure_rollback == true and
+            .luci_apply.tailscale_continuously_unchanged == true and
+            .browser.same_workstation == true and
+            .browser.localhost_direct == true and
+            .browser.screenshots == ["screenshots/update.png", "screenshots/vpn-rules.png"] and
+            .evidence_files == [
+              "observations/vm.json", "observations/transition.json",
+              "observations/tailscale.json", "observations/luci.json",
+              "observations/browser.json", "logs/controller.log",
+              "logs/vbox-showvminfo.txt"
+            ] and
+            ((.browser.screenshots + .evidence_files) as $paths |
+              ($paths | length) == ($paths | unique | length)) and
+            all((.browser.screenshots + .evidence_files)[];
+              type == "string" and length > 0 and
+              (startswith("/") | not) and (contains("..") | not))
+          ' "$qualification" >/dev/null
+
+          jq -e --arg source "$EXPECTED_SOURCE_SHA" --arg manifest "$release_manifest_sha" '
+            .schema_version == 1 and .source_sha == $source and
+            .release_manifest_sha256 == $manifest and .host_os == "Darwin" and
+            (.virtualbox_version | test("^6\\.1\\.50r[0-9]+$")) and
+            .base_vm == "RouterUI-RC5-X86-d02b3bcd" and
+            .base_snapshot == "exact-image-preboot" and
+            .base_archive_sha256 == "a3ac22e653fc8b0fa818163a4ae04b0693bf6a8bcf2e968feb4fdc791f3f5ad4" and
+            .base_vdi_sha256 == "54e37fdc012cb9d905219aeaf6c04e5da650b49bebfe5d6dfa8765fb3fb6614d" and
+            (.clone_name | startswith("RouterUI-RC8-Valera-")) and
+            (.clone_uuid | test("^[0-9a-fA-F-]{36}$")) and
+            .clone_uuid != .base_vm_uuid and .nic2 == "none" and
+            .final_power_state == "poweroff" and .qemu_processes_started == 0
+          ' "$evidence/observations/vm.json" >/dev/null
+          jq -e '
+            .schema_version == 1 and
+            .source.app_version == "0.7.11-rc.5" and
+            .source.package_version == "0.7.11~rc5-1" and .source.protocol == 2 and
+            .source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
+            .target.app_version == "0.7.11-rc.8" and
+            .target.package_version == "0.7.11~rc8-1" and .target.protocol == 2 and
+            (.boot_id_before | test("^[0-9a-f-]{36}$")) and
+            (.boot_id_after | test("^[0-9a-f-]{36}$")) and
+            .boot_id_before != .boot_id_after and
+            .candidate_state == "committed_pending_reboot_validation" and
+            .post_reboot_state == "committed" and
+            .ownership_before == "absent" and .ownership_after == "adopted-overlay" and
+            (.config_sha256_before | test("^[0-9a-f]{64}$")) and
+            .config_sha256_before == .config_sha256_after_candidate and
+            .config_sha256_before == .config_sha256_after_adoption and
+            .exact_rc5_rollback == true and .rc8_reapplied == true and
+            ([.packages[].name] | sort) == [
+              "luci-app-premier-router", "premier-router-core", "premier-router-setup"
+            ] and all(.packages[];
+              .version == "0.7.11~rc8-1" and (.sha256 | test("^[0-9a-f]{64}$")))
+          ' "$evidence/observations/transition.json" >/dev/null
+          jq -e '
+            .schema_version == 1 and .enrolled_test_identity == true and
+            .sample_count >= 60 and .failed_samples == 0 and
+            (.pid_before | type == "number" and . > 1) and .pid_before == .pid_after and
+            (.identity_sha256 | test("^[0-9a-f]{64}$")) and
+            (.route_sha256_before | test("^[0-9a-f]{64}$")) and
+            .route_sha256_before == .route_sha256_after and
+            .service_restarts == 0 and .admin_path_interruptions == 0
+          ' "$evidence/observations/tailscale.json" >/dev/null
+          jq -e '
+            .schema_version == 1 and .rpc_acl_write_path == true and
+            .sentinel_count_before == 0 and .sentinel_count_after_apply == 1 and
+            .sentinel_count_after_remove == 0 and
+            (.xray_pid_before | type == "number" and . > 1) and
+            (.xray_pid_after_apply | type == "number" and . > 1) and
+            .xray_pid_before != .xray_pid_after_apply and
+            (.config_sha256_before | test("^[0-9a-f]{64}$")) and
+            .config_sha256_before == .config_sha256_after_remove and
+            .config_sha256_before == .config_sha256_after_injected_failure and
+            .injected_restart_failure == true and .rollback_verified == true
+          ' "$evidence/observations/luci.json" >/dev/null
+          jq -e '
+            .schema_version == 1 and .host_os == "Darwin" and
+            .same_workstation == true and .browser == "Firefox" and
+            .direct_localhost == true and
+            .update_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/update" and
+            .vpn_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/network/vpn" and
+            .update_page_rc_badge == "0.7.11-rc.8" and
+            .vpn_page_mode == "adopted-overlay" and .console_errors == 0
+          ' "$evidence/observations/browser.json" >/dev/null
+
+          (cd "$evidence" && sha256sum -c evidence-files-sha256sums >/dev/null)
+          listed="$RUNNER_TEMP/virtualbox-evidence-listed"
+          actual="$RUNNER_TEMP/virtualbox-evidence-actual"
+          awk '{sub(/^\*/, "", $2); print $2}' "$sums" | LC_ALL=C sort > "$listed"
+          (cd "$evidence" &&
+            find . -type f ! -name evidence-files-sha256sums -print | LC_ALL=C sort) > "$actual"
+          cmp -s "$listed" "$actual"
+          cat > "$listed.expected" <<'EOF'
+          ./logs/controller.log
+          ./logs/vbox-showvminfo.txt
+          ./observations/browser.json
+          ./observations/luci.json
+          ./observations/tailscale.json
+          ./observations/transition.json
+          ./observations/vm.json
+          ./qualification.json
+          ./screenshots/update.png
+          ./screenshots/vpn-rules.png
+          EOF
+          cmp -s "$listed.expected" "$actual"
+          jq -r '.browser.screenshots[], .evidence_files[]' "$qualification" |
+            while IFS= read -r relative; do
+              test -s "$evidence/$relative" && test ! -L "$evidence/$relative"
+            done
+          jq -r '.browser.screenshots[]' "$qualification" |
+            while IFS= read -r relative; do
+              python3 -c '
+          import struct, sys
+          d = open(sys.argv[1], "rb").read()
+          assert len(d) >= 1024 and d[:8] == b"\x89PNG\r\n\x1a\n"
+          assert d[12:16] == b"IHDR" and d[-8:-4] == b"IEND"
+          w, h = struct.unpack(">II", d[16:24])
+          assert w >= 800 and h >= 600
+          ' "$evidence/$relative"
+            done
+
+          mkdir -p "$RUNNER_TEMP/virtualbox-evidence"
+          cp -a "$evidence/." "$RUNNER_TEMP/virtualbox-evidence/"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: router-ui-rc8-mac-pro-virtualbox-evidence-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/virtualbox-evidence/
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true

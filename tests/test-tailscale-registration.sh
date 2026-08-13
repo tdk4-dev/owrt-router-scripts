@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VPN_UI_LIB_ONLY=1 . "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
+VPN_UI_SOURCE_ONLY=1 . "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 
 MOCK_BACKEND=Running
 MOCK_IP=100.64.0.10
@@ -37,5 +37,6 @@ if grep -q '/tmp/vpn-ui-tailscale-up.log' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/
   printf 'fixed Tailscale auth log path must not retain registration output\n' >&2
   exit 1
 fi
+grep -Fq 'verify the login server, TLS, and preauth key' "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 
-printf '%s\n' 'Tailscale registration-state verification checks passed'
+printf '%s\n' 'Tailscale registration-state preservation checks passed'

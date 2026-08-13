@@ -7,11 +7,6 @@ import { fileURLToPath } from 'node:url';
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const webDir = join(rootDir, 'www');
 const port = Number(process.env.PORT || 8787);
-const applyDelayMs = Number(process.env.APPLY_DELAY_MS || 0);
-const mockStorageTotalBytes = Number(process.env.MOCK_STORAGE_TOTAL_BYTES || 128 * 1024 * 1024);
-let mockStorageUsedBytes = Number(process.env.MOCK_STORAGE_USED_BYTES || 40 * 1024 * 1024);
-const mockAdguardEstimateBytes = Number(process.env.MOCK_ADGUARD_ESTIMATE_BYTES || 32 * 1024 * 1024);
-let mockAdguardInstalled = process.env.MOCK_ADGUARD_INSTALLED === '1';
 
 const adguardFilters = [
   {
@@ -143,11 +138,6 @@ const adguardFilters = [
 ];
 
 let lastApply = null;
-const mockProgress = {
-  complete: false,
-  inProgress: false,
-  completedPhases: []
-};
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -186,49 +176,26 @@ function parsePayload(body) {
   return JSON.parse(body);
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function validatePayload(payload) {
   const errors = [];
-  const router = payload.router || {};
   const account = payload.account || {};
-  const wifi = payload.wifi || {};
   const vpn = payload.vpn || {};
   const tailscale = payload.tailscale || {};
 
-  const hostname = String(router.hostname || '').trim();
-  if (!hostname || hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(hostname))
-    errors.push('Router name must be 1 to 63 letters, numbers, or hyphens, and cannot begin or end with a hyphen.');
-  if (String(account.login || 'root').trim() !== 'root')
-    errors.push('The administrator account is fixed to root on this OpenWrt image.');
+  if (!account.login || !String(account.login).trim())
+    errors.push('SSH login is required.');
+  if (String(account.login || '').trim() !== 'root')
+    errors.push('This OpenWrt image supports root SSH login only.');
   if (!account.password || String(account.password).length < 8)
     errors.push('SSH password must be at least 8 characters.');
   if (account.password !== account.passwordConfirm)
     errors.push('Password confirmation does not match.');
-  if (wifi.enabled) {
-    if (!wifi.enable2g && !wifi.enable5g)
-      errors.push('Enable at least one Wi-Fi band.');
-    if (!String(wifi.ssid || '').trim() || String(wifi.ssid).length > 32)
-      errors.push('Wi-Fi network name must be 1 to 32 characters.');
-    if (!['sae-mixed', 'psk2', 'sae', 'none'].includes(wifi.security))
-      errors.push('Choose a supported Wi-Fi security mode.');
-    if (wifi.security !== 'none' && (String(wifi.password || '').length < 8 || String(wifi.password || '').length > 63))
-      errors.push('Wi-Fi password must be 8 to 63 characters.');
-    if (!/^[A-Za-z]{2}$/.test(String(wifi.country || '')))
-      errors.push('Wi-Fi country code must contain two letters.');
-    if (!/^(?:auto|[1-9]|1[0-3])$/.test(String(wifi.channel2g || '')))
-      errors.push('Choose a valid 2.4 GHz channel.');
-    if (!/^(?:auto|[0-9]{2}|1[0-9]{2})$/.test(String(wifi.channel5g || '')))
-      errors.push('Choose a valid 5 GHz channel.');
-  }
   if (vpn.enabled) {
     const vpnUrl = String(vpn.vlessUrl || '');
     if (!vpnUrl.startsWith('vless://') && !vpnUrl.startsWith('https://'))
       errors.push('A VLESS link or HTTPS subscription link is required when VPN is enabled.');
   }
-  if (payload.adguard?.enabled && (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0))
+  if (!Array.isArray(payload.adguard?.selectedFilterIds) || payload.adguard.selectedFilterIds.length === 0)
     errors.push('Select at least one AdGuard blocklist.');
   if (tailscale.enabled) {
     if (!String(tailscale.loginServer || '').trim().startsWith('https://'))
@@ -244,14 +211,13 @@ function redactedApply(payload) {
   const selected = new Set(payload.adguard?.selectedFilterIds || []);
   return {
     router: {
-      hostname: payload.router?.hostname || 'openwrt-fin0',
       lanIp: '10.77.0.1',
       luciUrl: 'http://10.77.0.1/cgi-bin/luci/',
       vpnUrl: 'http://10.77.0.1/cgi-bin/luci/admin/network/vpn',
       adguardUrl: 'http://10.77.0.1:3000/'
     },
     account: {
-      login: 'root',
+      login: payload.account?.login || 'root',
       passwordWillBeSet: !!payload.account?.password,
       sshKeyCount: String(payload.account?.authorizedKeys || '')
         .split('\n')
@@ -274,23 +240,6 @@ function redactedApply(payload) {
   };
 }
 
-function mockAdguardStorage() {
-  const projectedUsedBytes = mockStorageUsedBytes + (mockAdguardInstalled ? 0 : mockAdguardEstimateBytes);
-  const projectedUsedPercent = mockStorageTotalBytes > 0 ? (projectedUsedBytes / mockStorageTotalBytes) * 100 : 0;
-  const risk = !mockStorageTotalBytes ? 'unknown' : (projectedUsedPercent > 95 ? 'blocked' : (projectedUsedPercent >= 90 ? 'warning' : 'safe'));
-
-  return {
-    totalBytes: mockStorageTotalBytes,
-    usedBytes: mockStorageUsedBytes,
-    freeBytes: Math.max(0, mockStorageTotalBytes - mockStorageUsedBytes),
-    estimatedInstallBytes: mockAdguardEstimateBytes,
-    projectedUsedBytes,
-    usedPercent: mockStorageTotalBytes > 0 ? (mockStorageUsedBytes / mockStorageTotalBytes) * 100 : 0,
-    projectedUsedPercent,
-    risk
-  };
-}
-
 function bootstrapPayload() {
   return {
     router: {
@@ -301,23 +250,11 @@ function bootstrapPayload() {
     },
     defaults: {
       accountLogin: 'root',
-      wifiEnabled: false,
-      wifiSsid: 'OpenWrt',
-      wifiCountry: 'US',
       vpnEnabled: true,
       tailscaleEnabled: false,
       tailscaleLoginServer: 'https://headscale.example.com'
     },
-    wifi: {
-      radios: [
-        { device: 'radio0', band: '2g', label: '2.4 GHz' },
-        { device: 'radio1', band: '5g', label: '5 GHz' }
-      ]
-    },
     adguard: {
-      available: mockAdguardInstalled,
-      canInstall: !mockAdguardInstalled && mockAdguardStorage().risk !== 'blocked' && mockAdguardStorage().risk !== 'unknown',
-      storage: mockAdguardStorage(),
       source: 'mocked AdGuard Hostlists Registry plus openwrt-fin0 installed filters',
       filters: adguardFilters
     },
@@ -326,35 +263,8 @@ function bootstrapPayload() {
 }
 
 async function handleApi(req, res, pathname) {
-  if (req.method === 'GET' && pathname === '/api/status') {
-    sendJson(res, 200, { ok: true, ...mockProgress });
-    return;
-  }
-
   if (req.method === 'GET' && pathname === '/api/bootstrap') {
     sendJson(res, 200, { ok: true, data: bootstrapPayload() });
-    return;
-  }
-
-  if (req.method === 'POST' && pathname === '/api/adguard-install') {
-    const storage = mockAdguardStorage();
-    if (storage.risk === 'blocked' || storage.risk === 'unknown') {
-      sendJson(res, 422, { ok: false, errors: ['AdGuardHome would use more than 95% of persistent storage and cannot be installed safely.'] });
-      return;
-    }
-    if (!mockAdguardInstalled)
-      mockStorageUsedBytes += mockAdguardEstimateBytes;
-    mockAdguardInstalled = true;
-    sendJson(res, 200, {
-      ok: true,
-      data: {
-        adguard: {
-          available: true,
-          canInstall: false,
-          storage: mockAdguardStorage()
-        }
-      }
-    });
     return;
   }
 
@@ -366,26 +276,20 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 422, { ok: false, errors });
         return;
       }
-      if (applyDelayMs > 0)
-        await delay(applyDelayMs);
 
       lastApply = {
         id: `mock-${Date.now()}`,
         appliedAt: new Date().toISOString(),
         preview: redactedApply(payload),
         phases: [
-          'Set router name and root account',
+          'Set root account and SSH keys',
           'Configure LAN on 10.77.0.1',
-          payload.wifi?.enabled ? 'Configure Wi-Fi access points' : 'Leave Wi-Fi disabled',
-          payload.adguard?.enabled ? 'Write AdGuardHome filters' : 'Skip optional AdGuardHome',
+          'Write AdGuardHome filters',
           payload.vpn?.enabled ? 'Render and test Xray config' : 'Disable Xray services',
-          payload.tailscale?.enabled ? 'Run tailscale up and verify registration' : 'Leave Tailscale logged out',
+          payload.tailscale?.enabled ? 'Run tailscale up' : 'Leave Tailscale logged out',
           'Mark first-boot setup complete'
         ]
       };
-      mockProgress.complete = true;
-      mockProgress.inProgress = false;
-      mockProgress.completedPhases = ['account', 'network', 'wifi', 'adguard', 'vpn', 'tailscale'];
       sendJson(res, 200, { ok: true, data: lastApply });
     }
     catch (error) {

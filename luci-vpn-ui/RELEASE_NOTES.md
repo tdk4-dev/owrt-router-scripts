@@ -1,57 +1,61 @@
-Router UI 0.8.0RC2
+Router UI 0.7.11 RC8
 
-• Builds on Router UI 0.7.10 and retains its clean-unconfigured health state,
-  exact stable Update-route validation, single Status Overview include,
-  metadata-clean bundles, mandatory backups, rollback behavior, and retry-safe
-  release publication checks.
+Router UI `0.7.11-rc.8` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc8-1`, its
+channel is `candidate`, its future tag convention is
+`vpn-panel-v0.7.11-rc.8`, and its stable successor is `0.7.11` /
+`0.7.11-1`. It contains no Router UI 0.8 feature work.
 
-• Adds System > Reset for custom images. It asks for explicit confirmation,
-  clears first-boot, VPN, AdGuardHome, Tailscale, Wi-Fi, SSH key, and root
-  password state, then reboots back to the setup assistant.
-• Polishes reset progress handling. If LuCI loses the XHR while the router is
-  rebooting, the page keeps waiting for the setup assistant instead of showing
-  a timeout warning.
-• Adds the dark first-boot setup assistant for custom images, including account,
-  Wi-Fi, VPN, AdGuardHome filter, Tailscale/Headscale, and review/apply steps.
-• Replaces the setup assistant's text badge with the literal burger emoji and
-  removes the surrounding icon tile and padding.
-• Adds the owner preparation panel for pre-handoff checks, owner tailnet login,
-  customer access policy, backup validation, preview Wi-Fi radios, and sealing.
-• Adds custom ImageBuilder support for x86/64 and Xiaomi AX3000T/RD23 packages,
-  overlays, first-boot setup, router preparation, and generated image archives.
-• Converts release staging to real OpenWrt IPK packages with opkg feed
-  metadata, package-first running-router updates, legacy tar.gz migration, and
-  images built from the same package artifacts.
-• Adds preserved UCI router metadata for installation method, support level,
-  registration/support state, local random router ID, owner-prep state, and
-  sealing. Only a shortened router ID is exposed by helpers and UI.
-• Shows non-secret Router Scripts metadata on Status Overview, the VPN page,
-  and the existing LuCI footer through project-owned shared JavaScript. IPKs
-  intentionally do not own or overwrite LuCI theme footer files.
-• Fixes first-boot root password handling so LuCI and SSH authenticate with the
-  password entered in the setup wizard.
-• Makes the first-boot administrator identity unambiguous: OpenWrt's `root`
-  account is fixed for both SSH and LuCI, while router hostname, password, and
-  optional root SSH public keys remain configurable.
-• Fixes first-boot VLESS enablement when direct routing rules are empty, and
-  improves Apply setup progress feedback.
-• Makes AdGuardHome an explicit opt-in first-boot component, defaulting off for
-  memory-constrained routers. Skipping it preserves existing service and DNS
-  state; images that include AdGuardHome can enable it and choose filters.
-  Xiaomi AX3000T/RD23 images exclude it and hide/reject the setup option.
-• Expands the LuCI AdGuardHome page when the package is absent: it explains DNS
-  filtering, shows persistent-storage use plus the estimated install footprint,
-  enforces the same 90/95 percent safety thresholds as first boot, and keeps the
-  install action unavailable for the RD23 lean profile.
-• Adds an Installed build section to System > Update with project and package
-  versions, source commit/dirty state, staged and installed dates when recorded,
-  install method/source, OpenWrt target, and manifest/package verification state.
-  Unknown provenance remains explicitly unknown.
-• Ships exactly one LuCI Status Overview include so Router Scripts metadata is
-  rendered once instead of once per compatibility alias.
-• Lets the package-first installer validate a clean router before a VLESS
-  profile exists, while retaining live VPN checks for configured profiles.
-• Expands legacy migration snapshots so a failed package conversion restores
-  canonical LuCI, setup, preparation, CGI, and helper files as well as aliases.
-• Keeps the 0.7.5 Tailscale peer Ping behavior: immediate progress modal,
-  reachable/unreachable result, latency, and direct or DERP route.
+RC8 is not immutable release evidence merely because this identity is present
+in source. It becomes consumed when its sole provisional package-build
+invocation begins; Phase 1 can only nominate the exact source for a separately
+authorized Phase 2 freeze decision.
+
+RC8 preserves protocol-2 signed-manifest verification, transactional package
+updates, reboot validation, exact rollback/recovery, structured asynchronous
+Update Check/Apply results, and fail-closed compatibility, checksum, storage,
+and signature handling. RC5 and both materially different historical RC6 byte
+sets are supported source states, but their retained evidence does not qualify
+RC8. The missing signed-manifest digest for the first RC6 byte set remains
+unknown and is never replaced with the hotfix digest.
+
+Xray ownership has two supported modes. The generated
+`/etc/xray/exit-st-cf.json` path remains `native-generated`. A manual active
+configuration such as `/etc/xray/config.json` requires an authenticated,
+read-only preview and explicit confirmation before becoming an adopted
+overlay. Adoption records ownership without rewriting or restarting Xray.
+
+The complete VPN panel is enabled only while an adopted overlay is healthy:
+global VPN, profile add/use/delete, subscription import/sync/delete, ping
+refresh, automatic switching, direct rules, and device VPN. Adoption-required,
+drift/recovery, reboot-pending, and read-only states fail closed. Every adopted
+mutation is serialized, rechecks the live hash before persistence, changes only
+supported fields, validates Xray, preserves Tailscale and management-route
+invariants, and restores exact private preimages on failure.
+
+The active production trust identity remains the public contract for key
+`production-2026-07`, fingerprint `d055711acf1d9a5b`. Phase 1 does not use its
+private key, production signing environment, canonical build path, images,
+Factory, hardware, tags, releases, or rollout. Provisional Phase 1 packages and
+VM/browser evidence are explicitly non-production and do not establish full
+release readiness.
+
+Historical 0.7.10 notes
+
+• Supersedes the already shipped 0.7.9.1 candidate with a strictly newer
+  updater-visible version because the final payload is materially different.
+• Fixes clean installations with no VLESS profile yet configured. Backend
+  health checks now report a healthy, disabled state instead of forcing the
+  transactional installer to roll back.
+• Fixes standalone release validation for the stable unversioned
+  `system/update` LuCI route introduced in 0.7.9 while retaining support for
+  older version-suffixed Update routes.
+• Fixes the VPN service status card appearing twice on LuCI 24.10 Overview by
+  installing one canonical status include and removing the obsolete alias.
+• Keeps VPN and automatic switching disabled on an unconfigured router and
+  does not enroll Tailscale or install AdGuardHome.
+• Retains the stable LuCI assets, mandatory verified backups, automatic
+  rollback, background update jobs, and routing fixes from Router UI 0.7.9.
+• Makes tag publication retry-safe: an already existing release is accepted
+  only when its title and every expected asset are byte-identical, and existing
+  assets are never overwritten.

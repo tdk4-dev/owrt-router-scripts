@@ -1,6 +1,6 @@
 # Router UI VM test architecture
 
-The VM gate has three deliberately separate workflows:
+The test architecture has four deliberately separate workflows:
 
 1. Ordinary push/pull-request CI runs shell, unit, and fixture-contract tests.
    It never invokes production signing or a VM workflow.
@@ -15,8 +15,25 @@ The VM gate has three deliberately separate workflows:
    product/builder commits, manifest hashes, and signing provenance are derived
    into immutable descriptor files and checked against the downloaded bytes.
    Diagnostic mode rebuilds nothing and has no signing or publication
-   permission. The protected candidate and tagged release workflows use the
-   same descriptor verification for their full gates.
+   permission. Its QEMU results never authorize an RC8 candidate or release.
+4. `publish-router-ui-rc8-virtualbox-evidence.yml` runs from `main` only on a
+   protected, one-job Linux publisher runner hosted in an isolated Mac Pro VM.
+   It never checks out or executes candidate code. It validates and publishes
+   an already-supervised VirtualBox evidence bundle staged under the fixed
+   `/srv/router-ui-evidence` root. The protected candidate binds the artifact to
+   the exact trusted publisher commit, validates it again against the exact
+   signed candidate, and refuses QEMU-backed evidence. The tagged release
+   accepts only a successful pre-tag candidate whose VirtualBox-only job passed.
+
+The publisher workflow must exist on the default branch before it can be
+manually dispatched. For pre-merge RC8 qualification, merge a separate
+workflow-only bootstrap change containing exactly
+`.github/workflows/publish-router-ui-rc8-virtualbox-evidence.yml`; never merge
+RC8 merely to expose the workflow. Dispatch the publisher on `main`, record
+the Mac Pro's independently retained SHA-256 of
+`evidence-files-sha256sums`, and record its exact `head_sha`, artifact ID, and
+artifact ZIP SHA-256. The first value authorizes upload; pass the latter three
+identities to the RC8 protected-candidate workflow.
 
 Baseline compatibility is the digest emitted by
 `baseline-contract-digest.sh`, not equality between the baseline builder and
@@ -26,19 +43,34 @@ patching input. The builder commit remains separate provenance in the baseline
 descriptor and manifest. Every baseline guest must match the Xray binary hash
 derived from the exact locked Xray IPK before its own legacy validator can pass.
 
-Every VM is serial. QEMU receives `-m 256`; the harness records only the PID it
-started, terminates and waits for that PID, and does not inspect other host QEMU
-processes. Baseline consumers inject a fresh disposable SSH key and TLS CA over
-the serial console, so no private key is stored in the baseline artifact.
+Post-0.7.11 CI improvement: split immutable baseline-content compatibility
+from consumer-harness identity. The 0.7.11 release deliberately retains the
+single digest contract, so a VM gate or guest harness change requires one new
+self-validated baseline pack.
+
+Every diagnostic QEMU VM is serial. QEMU receives `-m 256`; the harness records
+only the PID it started, terminates and waits for that PID, and does not inspect
+other host QEMU processes. Baseline consumers inject a fresh disposable SSH key
+and TLS CA over the serial console, so no private key is stored in the baseline
+artifact. These diagnostics are not RC8 release evidence.
 
 ## Manual selectors
 
 `ROUTER_UI_VM_CASE` accepts `old-worker`, `rescue`, `protocol-v2`,
-`clean-image`, `concurrency`, `storage`, `fault`, or `full`.
+`clean-image`, `dual-daemon`, `concurrency`, `storage`, `fault`, or `full`.
 `ROUTER_UI_VM_SOURCE_VERSION` narrows old-worker or rescue runs. Storage phases
 are `normal`, `near-reservation`, `below-reservation`, and `rd23-ubootmod`.
 `ROUTER_UI_VM_FAULT_BOUNDARY` selects one power-loss boundary. Blank selectors
 expand only inside an explicitly dispatched case.
+
+The `dual-daemon` case boots the exact candidate x86 image with 256 MiB RAM,
+runs the installed `tailscaled` process without enrolling it, and runs the
+installed Xray binary with a non-secret loopback-only SOCKS configuration. It
+samples process RSS, available memory, writable-space headroom, Router UI
+status, local Xray traffic, and OOM evidence before and after a real reboot.
+This is x86 VM resource and persistence evidence only. It is not RD23 hardware
+proof, does not prove a Tailscale control-plane session, and does not authorize
+contact with a physical router.
 
 The shared `fail-closed-runner.sh` logs every phase through one exact `tee`
 child without a pipeline around the tested command. On failure it returns the
@@ -49,6 +81,7 @@ QEMU PID and serial evidence, terminates the owned process tree, and waits for
 it. Targeted diagnostic and single-version baseline jobs are capped at 90
 minutes; only complete matrices/packs retain the 360-minute job cap.
 
-Baseline artifacts and diagnostic artifacts are evidence, not release
-authorization. Only a fresh protected candidate run from the final exact source
-SHA can authorize merge, tag, draft, or publication.
+Baseline and QEMU diagnostic artifacts are not release authorization. RC8
+authorization requires the final exact source SHA, production fingerprint
+`d055711acf1d9a5b`, and an immutable supervised Mac Pro VirtualBox evidence
+bundle that passes `validate-rc8-virtualbox-evidence.sh`.

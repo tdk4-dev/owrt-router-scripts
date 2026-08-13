@@ -86,19 +86,19 @@ GitHub downloads or service restarts are in progress.
 
 Before any update changes files, the updater creates a full
 `sysupgrade -b` archive under `/root/router-ui-backups/`, verifies that it can
-be read, and stores its SHA-256. The release manifest and IPK package checksums
-are then verified before only this project's OpenWrt packages are installed
-with `opkg`. No global `opkg upgrade` is run.
+be read, and stores its SHA-256. The release bundle is then checksum-verified,
+checked for unsafe paths, installed transactionally, and validated. Any
+installer or post-install validation failure automatically runs the exact
+panel rollback created for that attempt.
 
 Weekly automatic stable updates are optional and disabled by default. When
 enabled from the Update page, they run Sunday at 04:17 router-local time and
 use the same backup, checksum, validation, and rollback path.
 
-Publishing a tag matching `vpn-panel-v<APP_VERSION>` runs the repository release
-workflow checks. Do not publish a GitHub release unless the user explicitly
-asks for one. A publishable v0.8.0+ release must include the IPKs, opkg feed
-metadata, manifest, checksums, version, release date, changelog, installer, and
-custom image archives built from the same IPKs.
+Publishing a tag matching `vpn-panel-v<VERSION>` runs the repository release
+workflow and attaches the bundle, checksum, version, release date, and
+changelog files required by the updater. It also attaches the standalone
+router-terminal installer.
 
 ## Install to a Running Router
 
@@ -108,9 +108,8 @@ From the repo root:
 ./install-openwrt-vpn-ui.sh
 ```
 
-The host-side installer uploads local checkout files by default, which is still
-useful for development. Published v0.8.0+ release updates use IPKs through
-`install-router-ui-release.sh`.
+The host-side installer uploads local checkout files by default, avoiding
+several separate raw GitHub downloads on the router.
 
 Use another SSH alias:
 
@@ -165,12 +164,9 @@ installed for testing:
 ROUTER_UI_VERSION=0.6.0 sh install-router-ui-release.sh
 ```
 
-The standalone installer verifies release metadata, downloads the IPKs listed
-in `router-ui-packages.txt`, checks SHA-256 and size, creates and validates a
-full OpenWrt backup, migrates legacy tar.gz-installed files when detected,
-installs packages with `opkg`, and validates VPN, Tailscale, LuCI, and setup
-state. The old tar.gz path remains only as a deprecated fallback for older
-releases that do not publish package metadata.
+The standalone installer verifies release metadata and SHA-256, creates and
+validates a full OpenWrt backup, installs the bundle, validates VPN and
+Tailscale state, and invokes the per-install rollback on failure.
 
 ## Status Overview
 
@@ -180,8 +176,15 @@ direct-domain rule count, and the selected server's cached connectivity ping.
 
 ## Custom Image Notes
 
-Custom images must install the built `premier-router-core`,
-`luci-app-premier-router`, and `premier-router-setup` IPKs through ImageBuilder.
-Do not copy `luci-vpn-ui/files/` directly into image overlays for release
-builds, because that lets images drift from the packages used by router
-updates.
+For a future x86 OpenWrt image, the files under `luci-vpn-ui/files/` can be
+used as an image overlay. The image still needs the base services/packages that
+the current router already has:
+
+- `luci`
+- `rpcd-mod-file`
+- `jsonfilter`
+- `xray-core`
+- the existing Xray transparent routing setup
+
+Run `/usr/sbin/vpn-ui init` after the Xray config exists, or from a first-boot
+script after router setup has rendered `/etc/xray/exit-st-cf.json`.

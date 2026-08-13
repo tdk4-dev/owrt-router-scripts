@@ -1,24 +1,32 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'staging:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
-PKG_VERSION="$APP_VERSION-${PKG_RELEASE:-1}"
+PKG_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION" | tr -d '\r\n')"
 IPK_DIR="${IPK_DIR:?IPK_DIR is required}"
 OUT_DIR="${OUT_DIR:?OUT_DIR is required}"
-SIGNING_KEY="${SIGNING_KEY:?SIGNING_KEY is required}"
 USIGN_BIN="${USIGN_BIN:-usign}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
+SOURCE_DIRTY="${SOURCE_DIRTY:-}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")}"
-PUBLIC_KEY="$ROOT_DIR/release/keys/router-ui-production.pub"
-KEY_ID="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.key-id" | tr -d '\r\n')"
+STRICT_RELEASE="${STRICT_RELEASE:-0}"
 PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
+ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
+export ROUTER_UI_RELEASE_ROOT
+. "$ROOT_DIR/scripts/release-key-lib.sh"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-[ "$APP_VERSION" = 0.7.11 ] || fail "installed package-set staging is scoped to 0.7.11"
-[ "$($USIGN_BIN -F -s "$SIGNING_KEY")" = "$($USIGN_BIN -F -p "$PUBLIC_KEY")" ] ||
-  fail "private signing key does not match the committed production public key"
+[ "${APP_VERSION%%-rc.*}" = 0.7.11 ] || fail "installed package-set staging is scoped to 0.7.11"
+if [ -n "$(git -C "$ROOT_DIR" status --short)" ]; then actual_source_dirty=true; else actual_source_dirty=false; fi
+if [ "$STRICT_RELEASE" = 1 ] && [ -n "$SOURCE_DIRTY" ] && [ "$SOURCE_DIRTY" != "$actual_source_dirty" ]; then
+  fail "SOURCE_DIRTY disagrees with the checkout state"
+fi
+SOURCE_DIRTY="${SOURCE_DIRTY:-$actual_source_dirty}"
+[ "$STRICT_RELEASE" != 1 ] || [ "$SOURCE_DIRTY" = false ] || fail "strict package-set staging refuses dirty source"
+pr_require_active_signing_key || exit 1
 mkdir -p "$OUT_DIR"
 
 index=0
@@ -41,14 +49,18 @@ done
 manifest="$OUT_DIR/installed-manifest.json"
 jq -n --arg app_version "$APP_VERSION" --arg package_version "$PKG_VERSION" \
   --arg source_commit "$SOURCE_COMMIT" --argjson source_date_epoch "$SOURCE_DATE_EPOCH" \
-  --arg signing_key_id "$KEY_ID" --argjson packages "$packages" \
+  --arg signing_key_id "$RELEASE_KEY_ID" \
+  --arg signing_key_fingerprint "$RELEASE_KEY_FINGERPRINT" \
+  --argjson source_dirty "$SOURCE_DIRTY" \
+  --argjson packages "$packages" \
   '{schema_version:1,kind:"installed-package-set",app_version:$app_version,
-    package_version:$package_version,source_commit:$source_commit,source_dirty:false,
-    source_date_epoch:$source_date_epoch,signing_key_id:$signing_key_id,packages:$packages}' |
+    package_version:$package_version,source_commit:$source_commit,source_dirty:$source_dirty,
+    source_date_epoch:$source_date_epoch,signing_key_id:$signing_key_id,
+    signing_key_fingerprint:$signing_key_fingerprint,packages:$packages}' |
   jq -S . > "$manifest"
 "$USIGN_BIN" -S -m "$manifest" -s "$SIGNING_KEY" -x "$OUT_DIR/installed-manifest.json.sig"
-cp "$PUBLIC_KEY" "$OUT_DIR/release.pub"
-printf '%s\n' "$KEY_ID" > "$OUT_DIR/release-key-id"
+cp "$RELEASE_PUBLIC_KEY" "$OUT_DIR/release.pub"
+printf '%s\n' "$RELEASE_KEY_ID" > "$OUT_DIR/release-key-id"
 for package in $PROJECT_PACKAGES; do cp "$IPK_DIR/${package}_${PKG_VERSION}_all.ipk" "$OUT_DIR/"; done
 tar -xzOf "$IPK_DIR/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -xzOf - ./usr/libexec/premier-router/candidate-validator > "$OUT_DIR/router-candidate-validator"

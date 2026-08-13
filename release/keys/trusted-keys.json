@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "active_key_id": "production-2026-07",
+  "keys": [
+    {
+      "key_id": "production-2026-07",
+      "fingerprint": "d055711acf1d9a5b",
+      "status": "active",
+      "creation_date": "2026-07-21",
+      "public_key_path": "release/keys/production-2026-07.pub"
+    },
+    {
+      "key_id": "router-ui-prod-5b001ed1f9e63c96",
+      "fingerprint": "5b001ed1f9e63c96",
+      "status": "previous",
+      "creation_date": "2026-07-20",
+      "retirement_date": "2026-07-21",
+      "public_key_path": "release/keys/router-ui-production.pub"
+    }
+  ]
+}
