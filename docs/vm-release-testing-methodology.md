@@ -1,448 +1,257 @@
-# Premier Router VM Release Testing Methodology
+# VM Release Testing Methodology
 
-Last updated: 2026-07-08
+Use this method before publishing router UI releases and before merging high
+risk changes that affect setup, update, packaging, reset, VPN, Tailscale, or
+authentication.
 
-This document is the release testing contract for Router UI / Premier Router
-releases. A release is not ready for publication until the relevant checklist
-below has been executed and the evidence is recorded.
+## Phase 1 provisional three-IPK checkpoint
 
-## Release Rule
+Phase 1 is a single, non-production functional checkpoint before canonical
+qualification. It uses at most one three-IPK byte set from an exact clean
+source SHA. It is not an A/B reproducibility build, a signed candidate,
+distribution collateral, an image build, or release evidence.
 
-- Production release commits must be contained in `origin/main` before tagging.
-- Do not publish from a dirty worktree, feature branch, unmerged PR, or local
-  VM-only patch.
-- Do not create a GitHub release, push a tag, or publish artifacts unless the
-  user explicitly writes `PUBLISH RELEASE <version>` in the current task.
-- Release assets must be built from one exact commit and one exact package set.
-- Do not overwrite router configuration, VPN profiles, secrets, Tailscale
-  identity, or generated state during upgrade tests.
+- Commit and push the intended source, open a draft PR, and wait for the
+  reusable exact-SHA source preflight to pass before producing packages.
+- Use no production key or protected signing environment. If the disposable
+  path requires signatures, use an explicitly non-production test identity.
+- Record the exact source commit/tree, input locks, filenames, sizes, and
+  SHA-256 hashes before VM installation. Never change tracked source after the
+  checkpoint begins.
+- Create or prove a uniquely named disposable clone/snapshot. Never mutate,
+  reuse, unregister, delete, sanitize, or replace a historical, operational,
+  or sensitive evidence VM.
+- Record host, VM UUID/name, snapshot/clone parent, boot ID, configured RAM,
+  package hashes, and pre-install configuration/service/route hashes.
+- Install the unchanged bytes and exercise every applicable machine-readable
+  census entry through real LuCI → RPC/ACL → backend behavior.
+- Run the browser on the same workstation that hosts the VM and use a direct
+  localhost port. An SSH tunnel, VPN path, LAN address, remote browser, or
+  remote automation result is not same-workstation browser proof.
+- Retain screenshots or DOM evidence, backend/RPC results, zero browser-console
+  errors, admin and Tailscale route invariants, and exact post-test restoration
+  hashes.
+- The complete adopted panel is enabled only for a healthy adopted overlay and
+  fails closed in adoption-required, drift/recovery, reboot-pending, and
+  read-only states.
 
-## VM Resource Limit
+If the checkpoint finds a source or packaged-file defect, mark its evidence
+invalid, restore the disposable VM, and stop. Do not build replacement bytes in
+the same Phase 1 run and do not nominate a freeze. Canonical package, image,
+signing, full-matrix, hardware, Factory, tag, release, distribution, and rollout
+gates remain skipped.
 
-- Allocate no more than 300 MB of RAM to an OpenWrt release-test VM.
-- Record the configured RAM amount with the test evidence.
-- If a test genuinely cannot run within 300 MB, treat that as a failed resource
-  check and investigate the workload instead of silently increasing VM memory.
+## Test Inputs
 
-## Expected Release Assets
+Record:
 
-Every distribution release should contain:
+- source commit;
+- `APP_VERSION`;
+- `OPENWRT_VERSION`;
+- package filenames and SHA-256 hashes;
+- image archive filename and SHA-256 hash;
+- VM name and host;
+- network mode and expected test URL.
 
-- x86/64 custom OpenWrt image archive.
-- Xiaomi AX3000 / RD23 compatible image archive for stock layout, when buildable.
-- Xiaomi AX3000 / RD23 compatible image archive for ubootmod layout, when buildable.
-- OpenWrt IPK packages for installing/upgrading a running router:
-  - `premier-router-core`
-  - `luci-app-premier-router`
-  - `premier-router-setup`
-- Installer or updater script used by the Update panel / legacy updater path.
-- Machine-readable release manifest.
-- `SHA256SUMS`.
-- Changelog and version metadata.
-- Local opkg feed output:
-  - `Packages`
-  - `Packages.gz`
-  - package files
-  - optional signature only when real signing is configured.
+The remaining sections define later canonical/release qualification unless a
+section explicitly says it applies to the Phase 1 provisional checkpoint.
 
-Images must include the exact same IPKs that are attached as release assets.
-Do not copy application files directly into an image if those files are owned by
-the project packages.
+## Diagnostic QEMU boundary
 
-## Developed Feature Inventory
+- QEMU is diagnostic-only for RC7 and cannot authorize candidate or release
+  publication. The mandatory qualification hypervisor is VirtualBox on the Mac
+  Pro, using a disposable, locally recoverable clone under supervision.
+- Configure every diagnostic OpenWrt QEMU VM with exactly 256 MiB RAM.
+- Run every project VM case strictly serially, with exactly one project VM at
+  a time and workflow/matrix parallelism fixed at 1.
+- Track only the exact QEMU PID started by the current case. Terminate and wait
+  for that PID before starting the next case, including on failure or
+  cancellation. Never scan or kill unrelated host QEMU processes.
+- Boot the disposable x86 baseline with an IDE disk and e1000 NIC, matching
+  drivers present in the exact generated image, and retain its serial console
+  log with the case evidence.
+- Never inject commands into a guest during its preinit/failsafe window. The
+  clean release image may receive its disposable test key and CA only after
+  the serial console-ready marker, using paced UART input.
+- Record configured RAM and `/proc/meminfo` `MemTotal` for every VM start.
+- Treat any request for 300 MiB or more, or any overlapping diagnostic project
+  VM case, as a failed diagnostic run.
 
-### Router UI / LuCI
+The Mac Pro qualification evidence must bind the exact source SHA and signed
+release-manifest hash, prove fingerprint `d055711acf1d9a5b`, record a changed
+boot ID, and cover RC5 → RC7 candidate preview, post-reboot commit, adoption,
+LuCI/RPC direct-rule apply and removal, Xray restart, exact rollback, and
+continuous Tailscale invariants. Same-workstation browser proof must use direct
+localhost access. `validate-rc7-virtualbox-evidence.sh` enforces this contract.
 
-- Network > VPN panel.
-- Network > Tailscale panel.
-- System > Update panel.
-- System > Reset panel.
-- Status overview VPN card/include.
-- Package-safe Router Scripts metadata in Status Overview and Router UI.
-- `vpn-ui footer-info` compact label with version, install method, support
-  level, and registration state.
-- No project package ownership of LuCI theme `footer.ut` files.
-- Stable LuCI asset names:
-  - `network/vpn.js`
-  - `network/tailscale.js`
-  - `system/update.js`
-  - `system/reset.js`
-  - `status/include/35_vpn.js`
-- Transitional legacy LuCI asset aliases for routable views only. Status
-  includes must never have aliases because LuCI auto-renders every file in the
-  include directory.
+## Pre-merge VirtualBox evidence publication
 
-### VPN Features
+GitHub can dispatch a manual workflow only after that workflow path exists on
+the default branch. Expose the evidence publisher with a separate bootstrap PR
+from `origin/main` containing exactly
+`.github/workflows/publish-router-ui-rc7-virtualbox-evidence.yml`. Do not merge
+the RC merely to expose its qualification workflow.
 
-- Direct VLESS link import.
-- HTTPS subscription link import.
-- Subscription refresh and removal.
-- Profile list with selected profile highlighting.
-- Profile switching.
-- Active profile health check through SOCKS/Xray.
-- Saved profile endpoint TCP reachability display.
-- Xray config generation and validation.
-- Xray global on/off.
-- Per-device VPN bypass using active DHCP leases.
-- Direct routing rules for domains and IP addresses.
-- Direct-domain empty-list guard for Xray 25+.
-- Notification deduplication so repeated actions do not stack banners.
-- Automatic server switching:
-  - failover after repeated failed checks;
-  - periodic optimization only when a materially faster server exists;
-  - user-selected eligible pool.
+Run the publisher on `main`, with the candidate commit supplied only as the
+`source_sha` data input. The publisher must not check out or execute candidate
+code. Its artifact is accepted by the candidate workflow only when GitHub
+metadata proves that it came from the exact manually dispatched publisher path
+on `main` at the operator-supplied publisher commit. The bundle is then checked
+again against the newly built and production-signed candidate.
 
-### Runtime Maintenance
+The Mac Pro host currently runs macOS 10.14 and therefore cannot run a current
+supported GitHub runner; GitHub currently supports self-hosted macOS runners on
+macOS 11 or later. Use a disposable Ubuntu 20.04-or-later x86_64 VM on the Mac
+Pro as a repository-scoped, one-job ephemeral publisher. A fresh dedicated VM
+is preferred over `u-vpn-exit`; the latter contains operational networking state
+and should be used only after an explicit risk decision.
 
-- Xray access/error log size caps under `/tmp`.
-- AdGuardHome querylog hardening for OpenWrt tmpfs:
-  - `querylog.interval: 24h`
-  - `querylog.file_enabled: false`
-  - accumulated tmpfs querylog cleanup.
+The publisher VM requires:
 
-### First-Boot Setup
+- the default `self-hosted`, `linux`, and `x64` labels plus the unique
+  `mac-pro-evidence-publisher` label;
+- `jq`, GNU `coreutils` (`sha256sum`), `findutils`, `gawk`, `grep`, `sed`,
+  `sort`, `cmp`, Python 3, and CA certificates;
+- outbound HTTPS to GitHub Actions endpoints;
+- no repository checkout, production signing key, router credentials,
+  VirtualBox control socket, or write access to the evidence source;
+- a root-owned, read-only staged tree at
+  `/srv/router-ui-evidence/rc7-final/<source-sha>` and the matching signed
+  release at
+  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.7`;
+- protected environment approval for
+  `router-ui-mac-pro-virtualbox-evidence`; and
+- external retention of the ephemeral runner diagnostic logs.
 
-- Account setup and root password setting.
-- Authorized SSH keys.
-- LAN defaults.
-- Wi-Fi setup screen and disabled/no-radio path.
-- VPN setup with direct VLESS or HTTPS subscription link.
-- AdGuard filter selection.
-- Tailscale/Headscale setup prompts.
-- Review/apply progress state.
-- Durable setup progress behavior.
-- Success screen links.
-- Reset note: router reset is available in System > Reset.
+Before approval, compute and retain the Mac Pro SHA-256 of
+`evidence-files-sha256sums`. Supply that 64-hex value as the publisher's
+`evidence_index_sha256` input. The publisher rejects writable, linked,
+unexpected, oversized, or secret-shaped evidence and compares the retained
+index before upload. The protected candidate separately binds the resulting
+artifact ID, ZIP SHA-256, publisher commit and signed candidate manifest.
 
-### Router Preparation / Dev Flow
+Register it with a repository runner token using `--ephemeral --unattended`
+and `--labels mac-pro-evidence-publisher`, start it only after the protected
+publisher job is queued and approved, and destroy its work directory or the
+entire disposable VM after the one job deregisters. Never reuse the runner for
+pull-request or candidate-controlled jobs.
 
-- Dev/prep policy controls for customer-facing feature availability.
-- Optional hiding/disabling of customer panels such as Tailscale.
-- Wi-Fi placeholder/prep controls.
-- Setup reset back to first-boot assistant.
+Storage profiles are derived from the official OpenWrt 24.10.5 RD23 DTS,
+kernel UBI configuration, and the exact candidate payload. The stock DTS has a
+78 MiB raw UBI partition and the ubootmod DTS has a 112 MiB raw UBI partition.
+After UBI reserves and the exact 0.7.11 rootfs/FIT payload, the current derived
+`rootfs_data` extents are 54,436 KiB (stock) and 80,352 KiB (ubootmod). The
+ubootmod derivation retains its two 1 MiB U-Boot environment volumes. Their
+expected UBIFS `df -Pk` totals are 51,352 KiB and 76,728 KiB respectively.
 
-### Package / Image / Update System
+The x86 VM filesystem differs from UBIFS, so the harness does not confuse an
+ext4 `df` total with NAND capacity. It patches the disposable ImageBuilder to
+make the rootfs-data backing extent exactly equal to the derived RD23
+`rootfs_data` bytes, asserts that backing-device size in the guest, and records
+`df -Pk /`, `/overlay`, and `/tmp`. `/tmp` must remain RAM-backed. A larger
+filesystem with only its free space filled down is not storage-constrained.
+The signed image provenance retains the source geometry, exact candidate
+payload size, derived UBI accounting, and expected target UBIFS total.
 
-- Package-first OpenWrt IPK build.
-- Local opkg feed generation.
-- Release staging manifest and checksum generation.
-- Legacy tar.gz migration compatibility path.
-- Update panel with check/install/status.
-- Automatic weekly update scheduling.
-- Backups and rollback instructions.
+## Clean Image Test
 
-## Mac Pro VM Test Environment
-
-Use the Mac Pro as the VirtualBox host for release testing.
-
-### Hard limit: three disposable project VMs
-
-- Keep no more than **three** PremierRouter/OpenWrt disposable validation VMs
-  registered on the Mac Pro at one time.
-- The intended allocation is one router under test, one isolated customer-LAN
-  client, and at most one clean-control or migration VM.
-- Before creating a fourth project VM, inventory the existing VMs, save the
-  name, UUID, disk paths, NIC modes, port forwards, and snapshots, then remove
-  the oldest VM that is clearly a completed disposable test.
-- Never count a service VM as disposable. Nextcloud, Vaultwarden, Headscale,
-  VPN exit nodes, builders, long-lived OpenWrt labs, and any ambiguous VM are
-  protected and must not be stopped, reconfigured, or deleted for this limit.
-- Delete one-off upgrade/migration VMs after their evidence is captured. Do not
-  leave dated validation VMs running merely as informal backups.
-
-Recommended VM layout:
-
-- Keep the long-running 0.8 development VM untouched unless testing that exact
-  branch.
-- Create one fresh VM per release candidate, named with the version, for
-  example `PremierRouter-0.8.0RC2-x86`.
-- Use the built x86 image archive as the VM disk.
-- Give the router an isolated internal LAN and attach a disposable client VM
-  to that same LAN. Direct access from that client to `http://10.77.0.1/` or
-  `http://10.77.0.1/setup/` is the customer-LAN proof.
-- A NAT adapter may also use explicit port forwards for host browser testing:
-  - host `127.0.0.1:8787` -> guest `80`
-  - host `127.0.0.1:2225` -> guest `22`
-  - host `127.0.0.1:3000` -> guest `3000` when AdGuardHome is included
-- Treat a host-forwarded URL as a manual VM trial only. A port forward or SSH
-  tunnel is not evidence that a customer connected to router LAN/Wi-Fi can
-  reach the setup assistant.
-- Do not change Mac Pro host IP addresses for VM testing.
-- Never bridge the router LAN to the production LAN merely to test setup;
-  guest DHCP must remain contained in the isolated VirtualBox LAN.
-
-Record for every VM run:
-
-- VM name.
-- Image filename and SHA-256.
-- Source commit.
-- Project IPK filenames and SHA-256 hashes.
-- OpenWrt version.
-- Router UI version.
-- Test start/end time.
-- Exact failure logs if any step fails.
-
-## Fresh Image Runtime Test
-
-For every x86 release candidate:
-
-1. Import or recreate the VirtualBox VM from the built x86 image.
-2. Boot and wait for HTTP/SSH availability.
-3. From an isolated disposable client VM, open `http://10.77.0.1/` and
-   `http://10.77.0.1/setup/`, and verify the setup status endpoint returns
-   valid JSON. No SSH tunnel may be used for this customer-LAN check.
-4. Optionally open the setup wizard through a forwarded host URL for a manual
-   browser trial, recording that as a separate result.
-5. Complete first-boot setup with:
+1. Create or reset a VirtualBox VM from the exact x86 image archive under test.
+2. Boot the VM.
+3. Verify the setup wizard is reachable at the expected URL.
+4. Complete setup end to end:
    - root password;
-   - at least one SSH public key when available;
-   - Wi-Fi disabled path if no radio exists;
-   - AdGuard filters selected;
-   - VPN enabled with direct VLESS link;
-   - VPN enabled with HTTPS subscription link in a separate run;
-   - Tailscale disabled path;
-   - Tailscale enabled path in a separate run.
-6. Verify setup completion:
-   - LuCI login works with the configured password;
-   - Status page loads without JS/XHR errors;
-   - Status Overview includes the `Router Scripts vX.Y.Z` metadata label;
-   - `vpn-ui footer-info` matches the displayed installation/support state;
-   - `opkg files luci-app-premier-router` contains no theme `footer.ut` path;
-   - AdGuardHome loads;
-   - VPN panel loads;
-   - Tailscale panel loads or is hidden according to policy;
-   - Update panel loads;
-   - Reset panel loads.
-7. Verify reset:
-   - confirm reset in System > Reset;
-   - browser moves to `/setup/?reset=1` before credentials are erased;
-   - reset phases and elapsed time remain visible through a page reload;
-   - temporary HTTP loss is identified as the expected reboot phase;
-   - browser is redirected or recoverable to `/setup/` when setup is ready;
-   - previous root password no longer authenticates;
-   - setup wizard is available again;
-   - no ugly/intermediate unstyled screen is left visible.
+   - Wi-Fi screen behavior when radios are absent;
+   - direct VLESS link import;
+   - HTTPS subscription link import;
+   - AdGuard filter choice;
+   - Tailscale/Headscale registration from the setup wizard.
+5. Verify LuCI login with the configured password.
+6. Verify LuCI pages:
+   - Status overview;
+   - `Network > VPN Panel`;
+   - `Network > Tailscale`;
+   - `System > Update`;
+   - `System > Reset`.
+7. Verify reset returns the router to setup state and removes customer setup
+   state while preserving only expected image defaults.
 
-## VPN Panel Functional Test
+## IPK Tests
 
-Run these checks after setup:
+On a compatible OpenWrt VM:
 
-1. Import a direct VLESS link.
-2. Import a subscription URL.
-3. Confirm subscription profile count.
-4. Refresh profile pings.
-5. Select at least three profiles from the subscription.
-6. For each selected profile:
-   - `vpn-ui check` is OK;
-   - Xray service is running;
-   - SOCKS egress changes to the expected server IP;
-   - HTTP connectivity through SOCKS works;
-   - LuCI selected row updates.
-7. Verify endpoint pings are not misrepresented as full VPN health.
-8. Add direct domain rules and apply them.
-9. Add direct IP rules and apply them.
-10. Toggle global Xray off/on.
-11. Test per-device bypass:
-    - list DHCP leases;
-    - disable VPN for one device/MAC;
-    - confirm rule is present;
-    - enable again;
-    - confirm rule is removed.
-12. Enable failover auto-switch with a small selected pool.
-13. Simulate unreachable current profile and confirm switch to a pool member.
-14. Enable periodic optimization and confirm it does not flap between similar
-    latency servers.
-15. Confirm yellow notifications never stack beyond one visible banner.
+- clean install IPKs using `opkg`;
+- verify `opkg status` and `opkg files`;
+- verify LuCI app availability and backend services;
+- repeat install to check idempotency;
+- upgrade from an older package-managed version;
+- migrate from a real legacy tar.gz-managed install;
+- verify conffiles and runtime state are preserved.
 
-## Tailscale / Headscale GUI Test
+## Failure Tests
 
-This must be tested through the GUI, not only through terminal commands.
-
-Run at least two separate VM tests:
-
-### Setup Wizard Registration
-
-1. Start from a fresh setup state.
-2. Enable Tailscale in the setup wizard.
-3. Enter the login server URL.
-4. Enter a short-lived reusable preauth key.
-5. Apply setup.
-6. Verify:
-   - `tailscale status` shows the VM/router online;
-   - the expected tailnet/headscale node appears server-side;
-   - LuCI Tailscale panel shows connected state;
-   - tailnet IP is displayed;
-   - SSH/LuCI access over tailnet works if routing permits it.
-
-### LuCI Tailscale Panel Registration
-
-1. Start from a setup where Tailscale was skipped.
-2. Open Network > Tailscale.
-3. Configure login server and preauth key through the panel.
-4. Start/login from the panel.
-5. Verify the same connected-state checks as above.
-6. Logout/disable through the panel if supported.
-7. Confirm customer policy can hide or disable this panel when needed.
-
-Use disposable auth keys. Do not commit keys or store them in logs.
-
-## IPK Runtime Tests
-
-IPK testing is required in a VM before release.
-
-### Clean IPK Install
-
-1. Boot a clean compatible OpenWrt 24.10.5 x86 VM without project files.
-2. Copy or serve the release IPKs.
-3. Install in dependency order:
-   - `premier-router-core`
-   - `luci-app-premier-router`
-   - `premier-router-setup`
-4. Verify:
-   - `opkg status` shows the expected versions;
-   - `opkg files` owns project files;
-   - LuCI pages are available;
-   - setup wizard is available;
-   - Status Overview and `vpn-ui footer-info` show the same metadata version;
-   - no project IPK owns a LuCI theme `footer.ut` file;
-   - services and cron jobs are configured;
-   - no generated secrets, logs, backups, VLESS URLs, or machine identity are
-     included in package contents.
-
-### Package-To-Package Upgrade
-
-1. Install an older package-managed version.
-2. Configure VPN, rules, Tailscale, AdGuard, and customer policy.
-3. Upgrade to the release candidate IPKs.
-4. Verify:
-   - conffiles are preserved;
-   - user VPN profiles survive;
-   - selected profile survives;
-   - Tailscale identity survives;
-   - AdGuard selections survive unless intentionally changed;
-   - service restarts are minimal and expected;
-   - repeated install is idempotent.
-
-### Legacy Tar.gz Migration
-
-1. Create a VM that represents a real legacy `luci-vpn-ui.tar.gz` install.
-2. Include representative user config:
-   - VLESS profiles;
-   - selected profile;
-   - direct rules;
-   - subscription metadata;
-   - device bypass list;
-   - update settings.
-3. Run the new installer/update path.
-4. Verify:
-   - legacy install is detected;
-   - backup is created;
-   - packages become opkg-owned;
-   - only allowlisted obsolete files are removed;
-   - unrelated files survive;
-   - UI/services work;
-   - second run is idempotent.
-
-## Update Panel Test
-
-Before publishing a release:
-
-1. Point a VM/router at the staged release assets or a test release.
-2. Open System > Update.
-3. Run Check again.
-4. Confirm latest version, changelog, release date, and availability are correct.
-5. Click Download and install.
-6. Watch progress states.
-7. Verify:
-   - backup path is shown;
-   - install succeeds;
-   - current version changes;
-   - no stale failure message remains;
-   - LuCI reloads cleanly;
-   - status include still loads;
-   - stable LuCI assets and legacy transition aliases behave as expected.
-
-Failure simulations:
+Simulate:
 
 - corrupt checksum;
 - missing asset;
 - missing package;
 - wrong architecture;
 - health-check failure;
-- network timeout.
+- network timeout during update.
 
 Expected behavior:
 
 - installation stops;
-- error is actionable;
 - no silent fallback;
 - backup path is printed;
-- recovery command is valid;
-- router remains reachable.
+- opkg/file state remains explainable;
+- recovery command is valid.
 
-## Image Build Validation
+For protocol v2, inject interruption before mutation, after each IPK, during
+target validation and commit, at rollback start, after each rollback IPK, and
+during final cleanup. Reboot after every mutating interruption and run
+`/etc/init.d/premier-router-update-recovery start`. Accept only a committed,
+target-validated state or an exact, source-validated rollback. Preserve the
+journal, validator JSON, package status, config hashes, service state, and boot
+ID as evidence.
 
-For each image archive:
+## 0.7.11 transition matrix
 
-1. Confirm image artifact name includes:
-   - project version;
-   - OpenWrt version;
-   - target/subtarget/profile.
-2. Confirm manifest includes:
-   - source commit;
-   - source dirty flag;
-   - package hashes;
-   - image input IPK hashes.
-3. Confirm the image used the exact release IPKs:
-   - compare recorded image input hashes to staged IPK hashes.
-4. For x86:
-   - boot in VirtualBox and run the full runtime checklist.
-5. For RD23/Xiaomi AX3000:
-   - perform static ImageBuilder validation;
-   - inspect included packages and metadata;
-   - confirm `image/openwrt-rd23-packages.txt` excludes AdGuardHome and the
-     setup/backend hardware policy hides and rejects its installation;
-   - do not claim hardware verification unless booted on actual hardware.
+Create disposable x86 baselines from the exact downloaded release artifacts
+for 0.7.1, 0.7.9, 0.7.10, and every other source marked supported in
+`router-ui-update-transition-matrix.md`. For 0.7.9 and 0.7.10, leave the exact
+old updater process in memory while it installs the staged bridge. Confirm its
+own final predicate returns success and no rollback executes. Run generic
+rescue for the other baselines. Then test 0.7.11 to a synthetic signed protocol
+v2 target, exact manual rollback, and boot recovery.
 
-## Evidence Template
+Serve the flat staged directory under both `releases/latest/download` and
+`releases/download/vpn-panel-v0.7.11`. Record the source and target versions,
+transaction ID, status-card count, LuCI route load, protected config hashes,
+package versions, installed manifest hash, recovery archive validation, and
+rollback bundle validation before and after reboot.
 
-Record results in the release notes or an incident/release validation file:
+Boot the x86 image with exactly 256 MiB RAM and a writable backing extent equal
+to the value derived from the exact RD23 stock candidate. Extract both RD23
+variants and prove their embedded canonical IPK hashes and storage provenance.
+Do not label RD23 hardware verified until an explicitly authorized physical
+device test has occurred.
 
-```text
-Version:
-Commit:
-OpenWrt version:
-Image artifacts:
-IPK artifacts:
-SHA256SUMS:
-VM name:
-VM host:
-Setup wizard:
-LuCI status:
-VPN panel:
-Subscription import:
-Profile switching:
-Direct rules:
-Device bypass:
-Tailscale setup wizard registration:
-Tailscale panel registration:
-Update panel:
-Reset:
-IPK clean install:
-IPK upgrade:
-Legacy migration:
-Failure simulations:
-RD23 static validation:
-Unresolved risks:
-Release decision:
-```
+## Tailscale / Headscale GUI Coverage
 
-Use these status labels:
+Test both GUI paths:
+
+- first-boot setup wizard registration;
+- LuCI Tailscale panel registration after setup skipped Tailscale.
+
+Do not count terminal-only enrollment as GUI verification.
+
+## Evidence Format
+
+Save concise command output or screenshots for each pass/fail. Mark evidence
+using only labels that were actually verified:
 
 - `source-verified`
 - `package-build-verified`
 - `OpenWrt-runtime-verified`
 - `VM-verified`
 - `hardware-verified`
-
-Do not use a stronger label unless the corresponding runtime evidence exists.

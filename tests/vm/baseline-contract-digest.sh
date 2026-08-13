@@ -18,6 +18,7 @@ emit() {
   emit tests/vm/router-ui-vm-gate.sh
   emit tests/vm/router-ui-vm-guest.sh
   emit tests/vm/fail-closed-runner.sh
+  emit tests/vm/recovery-readiness.sh
   emit image/openwrt-fin0-packages.txt
   emit release/rd23-storage-geometry.json
   emit scripts/patch-openwrt-x86-writable-extent.sh

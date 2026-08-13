@@ -4,6 +4,7 @@ umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT_DIR/tests/vm/fail-closed-runner.sh"
+source "$ROOT_DIR/tests/vm/recovery-readiness.sh"
 
 VM_MODE="${ROUTER_UI_VM_MODE:-candidate}"
 RELEASE_DIR="${RELEASE_DIR:-}"
@@ -13,15 +14,19 @@ EVIDENCE_DIR="${EVIDENCE_DIR:?EVIDENCE_DIR is required}"
 VM_CASE="${ROUTER_UI_VM_CASE:-${ROUTER_UI_VM_DIAGNOSTIC_CASE:-full}}"
 DIAGNOSTIC_CASE="$VM_CASE"
 DIAGNOSTIC_RUN="${ROUTER_UI_VM_DIAGNOSTIC:-0}"
+VM_ONLY="${ROUTER_UI_VM_ONLY:-0}"
+ALLOW_LEGACY_CONTRACT="${ROUTER_UI_VM_ALLOW_LEGACY_CONTRACT:-0}"
 HARNESS_SOURCE_SHA="${ROUTER_UI_VM_HARNESS_SHA:-}"
 VM_SOURCE_VERSION="${ROUTER_UI_VM_SOURCE_VERSION:-}"
 VM_ACTIVE_VERSION=""
 VM_PHASE_SELECTOR="${ROUTER_UI_VM_PHASE:-all}"
 VM_FAULT_BOUNDARY="${ROUTER_UI_VM_FAULT_BOUNDARY:-}"
+VM_RECOVERY_TIMEOUT_SECONDS="${ROUTER_UI_VM_RECOVERY_TIMEOUT_SECONDS:-600}"
 BASELINE_PACK_DIR="${ROUTER_UI_BASELINE_PACK_DIR:-}"
 BASELINE_OUTPUT_DIR="${ROUTER_UI_BASELINE_OUTPUT_DIR:-}"
 BASELINE_PACK_DIGEST="${ROUTER_UI_BASELINE_PACK_DIGEST:-}"
 BASELINE_SELECTOR="${ROUTER_UI_BASELINE_SELECTOR:-all}"
+BASELINE_ASSET_CACHE_DIR="${ROUTER_UI_BASELINE_ASSET_CACHE_DIR:-}"
 BASELINE_LOCK="$ROOT_DIR/tests/vm/legacy-baseline-lock.json"
 BASELINE_CONTRACT_DIGEST_SCRIPT="$ROOT_DIR/tests/vm/baseline-contract-digest.sh"
 BASELINE_CONTRACT_DIGEST=""
@@ -35,6 +40,18 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-vm-gate.XXXXXX")"
 ORIGIN="https://10.0.2.2:$SERVER_PORT"
 HOST_ORIGIN="https://127.0.0.1:$SERVER_PORT"
 BASELINE_VERSIONS=(0.5.1 0.5.2 0.6.0 0.7.0 0.7.1 0.7.2 0.7.3 0.7.4 0.7.5 0.7.6 0.7.8 0.7.9 0.7.10)
+FLEET_BASELINE_VERSIONS=(0.7.1 0.7.9 0.7.10)
+CANDIDATE_APP_VERSION=""
+CANDIDATE_PACKAGE_VERSION=""
+CANDIDATE_RELEASE_TAG=""
+CANDIDATE_KEY_ID=""
+CANDIDATE_KEY_FINGERPRINT=""
+SUCCESSOR_APP_VERSION=""
+SUCCESSOR_PACKAGE_VERSION=""
+SUCCESSOR_RELEASE_TAG=""
+CANDIDATE_CONTRACT_MODE=""
+DUAL_DAEMON_SAMPLES="${ROUTER_UI_VM_DUAL_DAEMON_SAMPLES:-15}"
+DUAL_DAEMON_INTERVAL_SECONDS="${ROUTER_UI_VM_DUAL_DAEMON_INTERVAL_SECONDS:-2}"
 FAULT_BOUNDARIES=(before-mutation snapshot_ready applying after-premier-router-core after-luci-app-premier-router after-premier-router-setup validating committing rollback_pending rolling_back rollback-after-premier-router-core rollback-after-luci-app-premier-router rollback-after-premier-router-setup compatibility-cleanup post-reboot-validation)
 CURRENT_PID=""
 SERVER_PID=""
@@ -80,16 +97,30 @@ trap 'exit 143' TERM
 
 fail() { printf 'VM-GATE-ERROR: %s\n' "$*" >&2; return 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing host dependency: $1"; }
+[[ "$VM_RECOVERY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+  fail "invalid recovery timeout: $VM_RECOVERY_TIMEOUT_SECONDS"
+(( VM_RECOVERY_TIMEOUT_SECONDS < VM_PHASE_TIMEOUT_SECONDS )) ||
+  fail "recovery timeout must be lower than the phase timeout"
 case "$VM_MODE" in
   candidate|baseline-pack) ;;
   *) fail "unsupported VM gate mode: $VM_MODE" ;;
 esac
 case "$VM_CASE" in
-  full|old-worker|rescue|protocol-v2|clean-image|concurrency|storage|fault) ;;
+  full|old-worker|rescue|protocol-v2|clean-image|dual-daemon|concurrency|storage|fault) ;;
   baseline-validation) [[ "$VM_MODE" = baseline-pack ]] || fail "baseline-validation is pack-build only" ;;
   *) fail "unsupported VM gate case selector: $VM_CASE" ;;
 esac
 case "$DIAGNOSTIC_RUN" in 0|1) ;; *) fail "ROUTER_UI_VM_DIAGNOSTIC must be 0 or 1" ;; esac
+case "$VM_ONLY" in 0|1) ;; *) fail "ROUTER_UI_VM_ONLY must be 0 or 1" ;; esac
+case "$ALLOW_LEGACY_CONTRACT" in 0|1) ;;
+  *) fail "ROUTER_UI_VM_ALLOW_LEGACY_CONTRACT must be 0 or 1" ;;
+esac
+if [[ "$ALLOW_LEGACY_CONTRACT" = 1 && "$DIAGNOSTIC_RUN" != 1 ]]; then
+  fail "the locked legacy candidate contract is diagnostic-only"
+fi
+if [[ "$VM_ONLY" = 1 && "$VM_MODE" != candidate ]]; then
+  fail "ROUTER_UI_VM_ONLY is valid only for candidate validation"
+fi
 if [[ "$VM_MODE" = candidate ]]; then
   [[ -d "$RELEASE_DIR" ]] || fail "RELEASE_DIR is required in candidate mode"
   [[ -f "$X86_IMAGE_ARCHIVE" ]] || fail "X86_IMAGE_ARCHIVE is required in candidate mode"
@@ -99,6 +130,10 @@ if [[ "$VM_MODE" = candidate ]]; then
     fail "candidate mode requires the verified baseline artifact digest"
 else
   [[ -n "$BASELINE_OUTPUT_DIR" ]] || fail "baseline-pack mode requires ROUTER_UI_BASELINE_OUTPUT_DIR"
+  if [[ -n "$BASELINE_ASSET_CACHE_DIR" ]]; then
+    [[ -d "$BASELINE_ASSET_CACHE_DIR" ]] ||
+      fail "baseline asset cache directory does not exist: $BASELINE_ASSET_CACHE_DIR"
+  fi
 fi
 if [[ "$DIAGNOSTIC_RUN" = 1 || "$VM_MODE" = baseline-pack ]]; then
   [[ "$HARNESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
@@ -107,6 +142,11 @@ else
   [[ "$VM_CASE" = full ]] || fail "targeted cases are diagnostic-only"
 fi
 for tool in awk curl gzip jq make node openssl python3 qemu-img qemu-system-x86_64 sed sha256sum ssh ssh-keygen stat tar tee timeout zstd; do need "$tool"; done
+[[ "$DUAL_DAEMON_SAMPLES" =~ ^[1-9][0-9]*$ ]] && (( DUAL_DAEMON_SAMPLES <= 60 )) ||
+  fail "dual-daemon sample count must be between 1 and 60"
+[[ "$DUAL_DAEMON_INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]] &&
+  (( DUAL_DAEMON_INTERVAL_SECONDS <= 10 )) ||
+  fail "dual-daemon sample interval must be between 1 and 10 seconds"
 [[ -s "$BASELINE_LOCK" ]] || fail "missing legacy baseline input lock"
 [[ "$(jq -r .openwrt.version "$BASELINE_LOCK")" = "$OPENWRT_VERSION" ]] ||
   fail "OpenWrt version differs from the baseline lock"
@@ -115,13 +155,14 @@ for tool in awk curl gzip jq make node openssl python3 qemu-img qemu-system-x86_
 BASELINE_CONTRACT_DIGEST="$(sh "$BASELINE_CONTRACT_DIGEST_SCRIPT")"
 [[ "$BASELINE_CONTRACT_DIGEST" =~ ^[0-9a-f]{64}$ ]] || fail "invalid baseline-contract content digest"
 mkdir -p "$EVIDENCE_DIR" "$WORK/server/releases/latest/download" \
-  "$WORK/server/releases/download/vpn-panel-v0.7.11" "$WORK/server/baselines" \
+  "$WORK/server/releases/download" "$WORK/server/baselines" \
   "$WORK/server/fixtures" "$WORK/server/vm"
 : > "$EVIDENCE_DIR/vm-measurements.jsonl"
 : > "$EVIDENCE_DIR/transition-results.jsonl"
 : > "$EVIDENCE_DIR/fault-results.jsonl"
 : > "$EVIDENCE_DIR/storage-results.jsonl"
 : > "$EVIDENCE_DIR/published-baselines.jsonl"
+: > "$EVIDENCE_DIR/reboot-recovery.jsonl"
 
 record_result() {
   file="$1" kind="$2" name="$3" status="$4"
@@ -130,9 +171,110 @@ record_result() {
     --argjson details "$details" '{kind:$kind,name:$name,status:$status,details:$details}' >> "$file"
 }
 
+load_release_contracts() {
+  local candidate_manifest="$RELEASE_DIR/router-release-manifest.json"
+  local successor_manifest="$SYNTHETIC_DIR/router-release-manifest.json"
+  local manifest_source selected_key selected_fingerprint selected_status candidate_channel_expected
+  [[ -s "$candidate_manifest" && -s "$RELEASE_DIR/router-release-manifest.json.sig" ]] ||
+    fail "candidate signed manifest is missing"
+  [[ -s "$successor_manifest" && -s "$SYNTHETIC_DIR/router-release-manifest.json.sig" ]] ||
+    fail "successor signed manifest is missing"
+
+  CANDIDATE_APP_VERSION="$(jq -er '.app_version | select(type == "string" and length > 0)' "$candidate_manifest")"
+  CANDIDATE_PACKAGE_VERSION="$(jq -er '.package_version | select(type == "string" and length > 0)' "$candidate_manifest")"
+  CANDIDATE_RELEASE_TAG="$(jq -er '.release_tag | select(type == "string" and length > 0)' "$candidate_manifest")"
+  CANDIDATE_KEY_ID="$(jq -er '.signing_key_id | select(type == "string" and length > 0)' "$candidate_manifest")"
+  CANDIDATE_KEY_FINGERPRINT="$(jq -er '.signing_key_fingerprint | select(type == "string" and length > 0)' "$candidate_manifest")"
+  SUCCESSOR_APP_VERSION="$(jq -er '.app_version | select(type == "string" and length > 0)' "$successor_manifest")"
+  SUCCESSOR_PACKAGE_VERSION="$(jq -er '.package_version | select(type == "string" and length > 0)' "$successor_manifest")"
+  SUCCESSOR_RELEASE_TAG="$(jq -er '.release_tag | select(type == "string" and length > 0)' "$successor_manifest")"
+
+  if [[ "$ALLOW_LEGACY_CONTRACT" = 1 ]]; then
+    CANDIDATE_CONTRACT_MODE=locked-legacy-diagnostic
+    [[ "$CANDIDATE_APP_VERSION" = 0.7.11 &&
+      "$CANDIDATE_PACKAGE_VERSION" = 0.7.11-1 ]] ||
+      fail "legacy candidate manifest is not the locked 0.7.11 contract"
+    [[ "$SUCCESSOR_APP_VERSION" = 0.7.12 &&
+      "$SUCCESSOR_PACKAGE_VERSION" = 0.7.12-1 ]] ||
+      fail "legacy successor manifest is not the locked 0.7.12 contract"
+    selected_key=router-ui-prod-5b001ed1f9e63c96
+    selected_status=previous
+    candidate_channel_expected=stable
+  else
+    CANDIDATE_CONTRACT_MODE=rc7-active-key
+    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.7 ]] ||
+      fail "candidate app version is not the RC7 contract: $CANDIDATE_APP_VERSION"
+    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc7-1' ]] ||
+      fail "candidate package version is not the opkg-safe RC7 contract: $CANDIDATE_PACKAGE_VERSION"
+    [[ "$SUCCESSOR_APP_VERSION" = 0.7.11 &&
+      "$SUCCESSOR_PACKAGE_VERSION" = 0.7.11-1 ]] ||
+      fail "synthetic successor is not stable 0.7.11"
+    selected_key="$(jq -er .active_key_id "$ROOT_DIR/release/keys/trusted-keys.json")"
+    selected_status=active
+    candidate_channel_expected=candidate
+  fi
+  [[ "$CANDIDATE_RELEASE_TAG" = "vpn-panel-v$CANDIDATE_APP_VERSION" ]] ||
+    fail "candidate manifest release tag does not match its app version"
+  [[ "$SUCCESSOR_RELEASE_TAG" = "vpn-panel-v$SUCCESSOR_APP_VERSION" ]] ||
+    fail "successor manifest release tag does not match its app version"
+  [[ "$CANDIDATE_RELEASE_TAG" =~ ^[A-Za-z0-9._-]+$ &&
+    "$SUCCESSOR_RELEASE_TAG" =~ ^[A-Za-z0-9._-]+$ ]] ||
+    fail "manifest release tag is not path-safe"
+
+  manifest_source="$(jq -er '.source_commit | select(test("^[0-9a-f]{40}$"))' "$candidate_manifest")"
+  [[ "$manifest_source" = "$(jq -er .source_commit "$successor_manifest")" ]] ||
+    fail "candidate and stable successor do not share one source commit"
+  if [[ -n "${CANDIDATE_SOURCE_SHA:-}" && "$CANDIDATE_SOURCE_SHA" != "$manifest_source" ]]; then
+    fail "candidate manifest source differs from the requested source SHA"
+  fi
+  CANDIDATE_SOURCE_SHA="$manifest_source"
+
+  selected_fingerprint="$(jq -er --arg key "$selected_key" --arg status "$selected_status" \
+    '.keys[] | select(.key_id == $key and .status == $status) | .fingerprint' \
+    "$ROOT_DIR/release/keys/trusted-keys.json")"
+  [[ "$CANDIDATE_KEY_ID" = "$selected_key" &&
+    "$CANDIDATE_KEY_FINGERPRINT" = "$selected_fingerprint" ]] ||
+    fail "candidate manifest is not bound to the selected committed release key"
+  jq -e --arg source "$manifest_source" --arg key "$selected_key" \
+    --arg fingerprint "$selected_fingerprint" \
+    --arg channel "$candidate_channel_expected" '
+      .source_commit == $source and .source_dirty == false and
+      .channel == $channel and .signing_key_id == $key and
+      .signing_key_fingerprint == $fingerprint
+    ' "$candidate_manifest" >/dev/null || fail "candidate manifest contract failed"
+  jq -e --arg source "$manifest_source" --arg key "$selected_key" \
+    --arg fingerprint "$selected_fingerprint" '
+      .source_commit == $source and .source_dirty == false and
+      .channel == "stable" and .signing_key_id == $key and
+      .signing_key_fingerprint == $fingerprint
+    ' "$successor_manifest" >/dev/null || fail "stable successor manifest contract failed"
+
+  jq -n --arg candidate_app_version "$CANDIDATE_APP_VERSION" \
+    --arg candidate_package_version "$CANDIDATE_PACKAGE_VERSION" \
+    --arg candidate_release_tag "$CANDIDATE_RELEASE_TAG" \
+    --arg successor_app_version "$SUCCESSOR_APP_VERSION" \
+    --arg successor_package_version "$SUCCESSOR_PACKAGE_VERSION" \
+    --arg successor_release_tag "$SUCCESSOR_RELEASE_TAG" \
+    --arg signing_key_id "$CANDIDATE_KEY_ID" \
+    --arg signing_key_fingerprint "$CANDIDATE_KEY_FINGERPRINT" \
+    --arg source_commit "$manifest_source" \
+    --arg contract_mode "$CANDIDATE_CONTRACT_MODE" \
+    --arg candidate_manifest_sha256 "$(sha256sum "$candidate_manifest" | awk '{print $1}')" \
+    --arg successor_manifest_sha256 "$(sha256sum "$successor_manifest" | awk '{print $1}')" \
+    '{schema_version:1,source_commit:$source_commit,contract_mode:$contract_mode,
+      candidate:{app_version:$candidate_app_version,package_version:$candidate_package_version,
+        release_tag:$candidate_release_tag,manifest_sha256:$candidate_manifest_sha256},
+      successor:{app_version:$successor_app_version,package_version:$successor_package_version,
+        release_tag:$successor_release_tag,manifest_sha256:$successor_manifest_sha256},
+      signing_key_id:$signing_key_id,signing_key_fingerprint:$signing_key_fingerprint,
+      manifest_signature_files_present:true,signatures_verified_by_harness:false,
+      hardware_verified:false}' \
+    > "$EVIDENCE_DIR/release-contract.json"
+}
+
 load_storage_profiles() {
   local profile pattern archive member provenance
-  if [[ "$VM_MODE" = baseline-pack ]]; then
+  if [[ "$VM_MODE" = baseline-pack || "$VM_ONLY" = 1 ]]; then
     STOCK_WRITABLE_KIB="$(jq -r '.storage_profiles["rd23-stock"].writable_backing_kib' "$BASELINE_LOCK")"
     STOCK_UBIFS_DF_KIB="$(jq -r '.storage_profiles["rd23-stock"].expected_ubifs_df_total_kib' "$BASELINE_LOCK")"
     UBOOTMOD_WRITABLE_KIB="$(jq -r '.storage_profiles["rd23-ubootmod"].writable_backing_kib' "$BASELINE_LOCK")"
@@ -191,6 +333,7 @@ extract_openwrt_gzip_image() {
 }
 
 setup_tls() {
+  ssh-keygen -q -t ed25519 -N '' -f "$WORK/ssh-key"
   openssl genrsa -out "$WORK/ca.key" 2048 >/dev/null 2>&1
   openssl req -x509 -new -key "$WORK/ca.key" -sha256 -days 2 \
     -subj '/CN=Router UI disposable VM test CA' -out "$WORK/ca.crt" >/dev/null 2>&1
@@ -204,16 +347,18 @@ setup_tls() {
 prepare_server() {
   local file version base versions release_sha actual_sha fixture_sha
   if [[ "$VM_MODE" = candidate ]]; then
+    mkdir -p "$WORK/server/releases/download/$CANDIDATE_RELEASE_TAG" \
+      "$WORK/server/releases/download/$SUCCESSOR_RELEASE_TAG"
     for file in "$RELEASE_DIR"/*; do
       [[ -f "$file" ]] || continue
       ln "$file" "$WORK/server/releases/latest/download/$(basename "$file")"
-      ln "$file" "$WORK/server/releases/download/vpn-panel-v0.7.11/$(basename "$file")"
+      ln "$file" "$WORK/server/releases/download/$CANDIDATE_RELEASE_TAG/$(basename "$file")"
     done
-    mkdir -p "$WORK/server/releases/download/vpn-panel-v0.7.12"
     for file in "$SYNTHETIC_DIR"/*; do
       [[ -f "$file" ]] || continue
-      ln "$file" "$WORK/server/releases/download/vpn-panel-v0.7.12/$(basename "$file")"
+      ln "$file" "$WORK/server/releases/download/$SUCCESSOR_RELEASE_TAG/$(basename "$file")"
     done
+    printf 'router-ui-dual-daemon-ok\n' > "$WORK/server/vm/dual-daemon-probe.txt"
   fi
   cp "$ROOT_DIR/tests/vm/router-ui-vm-guest.sh" "$WORK/server/vm/"
   cp -R "$FIXTURE_DIR" "$WORK/server/fixtures/legacy-nonsecret"
@@ -222,18 +367,24 @@ prepare_server() {
   [[ "$fixture_sha" = "$(jq -r .fixture.tree_sha256 "$BASELINE_LOCK")" ]] ||
     fail "deterministic fixture differs from its input lock"
   if [[ "$VM_MODE" = baseline-pack ]]; then
-    if [[ "$BASELINE_SELECTOR" = all ]]; then
-      versions=("${BASELINE_VERSIONS[@]}")
-    else
-      versions=("$BASELINE_SELECTOR")
-    fi
+    case "$BASELINE_SELECTOR" in
+      all) versions=("${BASELINE_VERSIONS[@]}") ;;
+      fleet) versions=("${FLEET_BASELINE_VERSIONS[@]}") ;;
+      *) versions=("$BASELINE_SELECTOR") ;;
+    esac
     for version in "${versions[@]}"; do
       base="$(jq -r --arg version "$version" '.baselines[] | select(.version == $version) | .release_url' "$BASELINE_LOCK")"
       release_sha="$(jq -r --arg version "$version" '.baselines[] | select(.version == $version) | .release_sha256' "$BASELINE_LOCK")"
       [[ -n "$base" && "$base" != null && "$release_sha" =~ ^[0-9a-f]{64}$ ]] ||
         fail "baseline selector is not present in the lock: $version"
       mkdir -p "$WORK/server/baselines/$version"
-      curl -fL --retry 3 "$base" -o "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz"
+      if [[ -n "$BASELINE_ASSET_CACHE_DIR" &&
+        -f "$BASELINE_ASSET_CACHE_DIR/$version/luci-vpn-ui.tar.gz" ]]; then
+        cp "$BASELINE_ASSET_CACHE_DIR/$version/luci-vpn-ui.tar.gz" \
+          "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz"
+      else
+        curl -fL --retry 3 "$base" -o "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz"
+      fi
       actual_sha="$(sha256sum "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz" | awk '{print $1}')"
       [[ "$actual_sha" = "$release_sha" ]] || fail "published baseline hash mismatch: $version"
       printf '%s  luci-vpn-ui.tar.gz\n' "$release_sha" > "$WORK/server/baselines/$version/luci-vpn-ui.tar.gz.sha256"
@@ -298,7 +449,6 @@ EOF
   sed -i 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y$/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' "$ib/.config"
   grep -q '^# CONFIG_TARGET_ROOTFS_EXT4FS is not set$' "$ib/.config" ||
     fail "could not disable the unused VM ext4 image variant"
-  ssh-keygen -q -t ed25519 -N '' -f "$WORK/ssh-key"
   mkdir -p "$overlay/etc/config" "$overlay/etc/dropbear" "$overlay/etc/ssl/certs"
   cp "$WORK/ssh-key.pub" "$overlay/etc/dropbear/authorized_keys"
   cp "$WORK/ca.crt" "$overlay/etc/ssl/certs/router-ui-vm-ca.pem"
@@ -448,35 +598,77 @@ start_vm() {
 
 ssh_base=(ssh -i "$WORK/ssh-key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 root@127.0.0.1)
 console_bootstrap_key() {
+  local serial_log="$1"
+  [[ -s "$WORK/ssh-key" && -s "$WORK/ssh-key.pub" && -s "$WORK/ca.crt" ]] ||
+    fail "runtime VM bootstrap credentials are missing"
   ROUTER_UI_VM_PUBLIC_KEY="$(cat "$WORK/ssh-key.pub")" \
   ROUTER_UI_VM_CA_B64="$(base64 < "$WORK/ca.crt" | tr -d '\n')" \
     python3 - "$SERIAL_PORT" <<'PY'
-import os, socket, sys, time
-try:
-    sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
-    sock.settimeout(0.2)
-    sock.sendall(b"\n")
-    time.sleep(1)
-    key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
-    ca = os.environ["ROUTER_UI_VM_CA_B64"]
-    command = (
-        "uci -q set network.lan.proto='dhcp'; "
-        "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
-        "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
-        "uci commit network; /etc/init.d/network restart; "
-        "mkdir -p /etc/dropbear /etc/ssl/certs; "
-        "printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys; "
-        "printf '%s' '" + ca + "' | base64 -d > /etc/ssl/certs/router-ui-vm-ca.pem; "
-        "chmod 600 /etc/dropbear/authorized_keys; /etc/init.d/dropbear restart\n"
-    )
-    for byte in command.encode():
-        sock.sendall(bytes((byte,)))
+import os, re, socket, sys, time
+sock = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2)
+sock.settimeout(0.2)
+prompt = re.compile(rb"(?:^|\r?\n)root@[^\r\n]*:~# ")
+
+def send(payload):
+    deadline = time.monotonic() + 20
+    for offset in range(0, len(payload), 32):
+        sock.sendall(payload[offset:offset + 32])
+        if time.monotonic() >= deadline:
+            raise TimeoutError("serial console bootstrap write timed out")
         time.sleep(0.003)
-    time.sleep(1)
-    sock.close()
-except OSError:
-    pass
+
+def read_until_prompt(label):
+    output = bytearray()
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        try:
+            chunk = sock.recv(65536)
+            if not chunk:
+                raise RuntimeError("serial console closed during " + label)
+            output.extend(chunk)
+            if prompt.search(output):
+                return bytes(output)
+        except socket.timeout:
+            pass
+    raise TimeoutError("serial console prompt timed out during " + label)
+
+def run_command(command, label):
+    send(command.encode() + b"\n")
+    return read_until_prompt(label)
+
+key = os.environ["ROUTER_UI_VM_PUBLIC_KEY"]
+ca = os.environ["ROUTER_UI_VM_CA_B64"]
+marker = "ROUTER_UI_CONSOLE_BOOTSTRAP_OK"
+send(b"\n")
+read_until_prompt("console activation")
+run_command("mkdir -p /etc/dropbear /etc/ssl/certs", "credential directories")
+run_command("printf '%s\\n' '" + key + "' > /etc/dropbear/authorized_keys",
+            "runtime public key")
+run_command(": > /tmp/router-ui-vm-ca.b64", "test CA staging")
+chunk_size = 128
+for offset in range(0, len(ca), chunk_size):
+    chunk = ca[offset:offset + chunk_size]
+    run_command("printf '%s' '" + chunk + "' >> /tmp/router-ui-vm-ca.b64",
+                "test CA chunk")
+run_command(
+    "base64 -d /tmp/router-ui-vm-ca.b64 > /etc/ssl/certs/router-ui-vm-ca.pem; "
+    "rm -f /tmp/router-ui-vm-ca.b64; chmod 600 /etc/dropbear/authorized_keys",
+    "credential installation")
+run_command(
+    "uci -q set network.lan.proto='dhcp'; "
+    "uci -q delete network.lan.ipaddr; uci -q delete network.lan.netmask; "
+    "uci -q delete network.lan.gateway; uci -q delete network.lan.dns; "
+    "uci commit network; /etc/init.d/network restart; /etc/init.d/dropbear restart",
+    "network and SSH restart")
+marker_output = run_command("echo " + marker, "completion marker")
+normalized_lines = marker_output.replace(b"\r\n", b"\n").replace(b"\r", b"\n").splitlines()
+if marker.encode() not in [line.strip() for line in normalized_lines]:
+    raise RuntimeError("serial credential bootstrap marker was not executed")
+sock.close()
 PY
+  kill -0 "$CURRENT_PID" 2>/dev/null || fail "VM exited during serial credential bootstrap"
+  grep -q 'ROUTER_UI_CONSOLE_BOOTSTRAP_OK' "$serial_log" ||
+    fail "serial credential bootstrap evidence marker is missing"
 }
 wait_serial_console() {
   local serial_log="$1"
@@ -494,12 +686,42 @@ wait_ssh() {
   done
   fail "VM SSH did not become ready"
 }
+wait_reboot_ssh() {
+  local previous_boot_id="$1" boot_id
+  for _ in {1..180}; do
+    boot_id="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)"
+    if [[ -n "$boot_id" && "$boot_id" != "$previous_boot_id" ]] &&
+      "${ssh_base[@]}" true >/dev/null 2>&1; then
+      printf '%s\n' "$boot_id"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 start_candidate_vm() {
   local disk="$1" name="$2"
+  local expected_key actual_key expected_key_sha actual_key_sha expected_ca actual_ca
   start_vm "$disk" "$name"
   wait_serial_console "$EVIDENCE_DIR/$name.serial.log"
-  console_bootstrap_key
+  console_bootstrap_key "$EVIDENCE_DIR/$name.serial.log"
   wait_ssh
+  expected_key="$(sed -n '1p' "$WORK/ssh-key.pub")"
+  actual_key="$("${ssh_base[@]}" sed -n '1p' /etc/dropbear/authorized_keys)"
+  [[ "$actual_key" = "$expected_key" ]] || fail "guest SSH bootstrap key does not match the runtime key"
+  expected_key_sha="$(sha256sum "$WORK/ssh-key.pub" | awk '{print $1}')"
+  actual_key_sha="$(printf '%s\n' "$actual_key" | sha256sum | awk '{print $1}')"
+  expected_ca="$(sha256sum "$WORK/ca.crt" | awk '{print $1}')"
+  actual_ca="$("${ssh_base[@]}" sha256sum /etc/ssl/certs/router-ui-vm-ca.pem | awk '{print $1}')"
+  [[ "$actual_ca" = "$expected_ca" ]] || fail "guest test CA does not match the runtime artifact server CA"
+  jq -n --arg ssh_public_key_sha256 "$expected_key_sha" \
+    --arg guest_ssh_public_key_sha256 "$actual_key_sha" \
+    --arg test_ca_sha256 "$expected_ca" --arg guest_test_ca_sha256 "$actual_ca" \
+    '{ssh_public_key_sha256:$ssh_public_key_sha256,
+      guest_ssh_public_key_sha256:$guest_ssh_public_key_sha256,
+      test_ca_sha256:$test_ca_sha256,guest_test_ca_sha256:$guest_test_ca_sha256,
+      exact_runtime_credentials_verified:true}' \
+    > "$EVIDENCE_DIR/$name.credential-bootstrap.json"
 }
 start_baseline_vm() {
   start_candidate_vm "$@"
@@ -541,7 +763,17 @@ capture_guest_state() {
     echo "== filesystems =="
     df -Pk / /overlay /tmp 2>/dev/null || true
     echo "== memory =="
-    sed -n "/^MemTotal:/p" /proc/meminfo
+    sed -n "/^MemTotal:/p;/^MemAvailable:/p;/^Shmem:/p" /proc/meminfo
+    echo "== Xray and Tailscale processes =="
+    for process in tailscaled xray xray-latest; do
+      for pid in $(pidof "$process" 2>/dev/null || true); do
+        printf "process=%s pid=%s\n" "$process" "$pid"
+        sed -n "/^Name:/p;/^State:/p;/^VmRSS:/p;/^VmSize:/p;/^Threads:/p" "/proc/$pid/status" 2>/dev/null || true
+      done
+    done
+    echo "== OOM scan =="
+    dmesg 2>/dev/null | grep -Ei "out of memory|oom-killer|killed process" || true
+    logread 2>/dev/null | grep -Ei "out of memory|oom-killer|killed process" || true
     echo "== protected filesystem hashes =="
     for path in /etc/config /etc/xray /etc/vpn-ui-update.conf /etc/crontabs/root; do
       if [ -f "$path" ]; then sha256sum "$path"; fi
@@ -601,12 +833,49 @@ hard_poweroff_vm() {
   rm -f "$EVIDENCE_DIR/current-qemu.pid"
 }
 normal_reboot() {
+  local before after transaction pre_state expected_state rc=0
+  transaction="$("${ssh_base[@]}" sed -n '1p' \
+    /root/premier-router-updates/active-transaction 2>/dev/null || true)"
+  if [[ -n "$transaction" ]]; then
+    pre_state="$("${ssh_base[@]}" \
+      "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" \
+      2>/dev/null || true)"
+    case "$pre_state" in
+      committed_pending_reboot_validation) expected_state=committed ;;
+      committed|rolled_back|failed_before_mutation) expected_state="$pre_state" ;;
+      *) fail "unexpected pre-reboot transaction state: ${pre_state:-missing}" ;;
+    esac
+  else
+    pre_state=none
+    expected_state=none
+  fi
   before="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
   "${ssh_base[@]}" 'sync; reboot' >/dev/null 2>&1 || true
-  sleep 2
-  wait_ssh
-  after="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
-  [[ "$before" != "$after" ]] || fail "VM reboot did not change boot ID"
+  after="$(wait_reboot_ssh "$before")" ||
+    fail "VM SSH did not become ready on a new boot ID"
+
+  vm_wait_for_recovery "$EVIDENCE_DIR/reboot-recovery.jsonl" \
+    "$VM_RECOVERY_TIMEOUT_SECONDS" "$transaction" "$expected_state" "$before" "$after" || rc=$?
+  case "$rc" in
+    0) ;;
+    86) fail "post-reboot recovery reached unsafe state" ;;
+    87) fail "post-reboot recovery reached an unexpected terminal state" ;;
+    124) return 124 ;;
+    *) fail "post-reboot recovery observation failed with exit $rc" ;;
+  esac
+}
+
+vm_recovery_observe() {
+  local transaction="$1" state=none lock_present=false
+  if [[ -n "$transaction" ]]; then
+    state="$("${ssh_base[@]}" \
+      "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" \
+      2>/dev/null || true)"
+  fi
+  if "${ssh_base[@]}" test -d /root/premier-router-updates/update.lock 2>/dev/null; then
+    lock_present=true
+  fi
+  printf '%s\t%s\n' "${state:-missing}" "$lock_present"
 }
 
 initialize_baseline_pack() {
@@ -659,11 +928,11 @@ prepare_baseline_version() {
 
 assemble_baseline_pack() {
   local versions version overlay_dir lock_sha manifest_tmp overlay overlay_sha
-  if [[ "$BASELINE_SELECTOR" = all ]]; then
-    versions=("${BASELINE_VERSIONS[@]}")
-  else
-    versions=("$BASELINE_SELECTOR")
-  fi
+  case "$BASELINE_SELECTOR" in
+    all) versions=("${BASELINE_VERSIONS[@]}") ;;
+    fleet) versions=("${FLEET_BASELINE_VERSIONS[@]}") ;;
+    *) versions=("$BASELINE_SELECTOR") ;;
+  esac
   mv "$WORK/vm-base-rd23-stock.img" "$BASELINE_OUTPUT_DIR/bases/rd23-stock.img"
   rm -f "$WORK/vm-base.img"
   for version in "${versions[@]}"; do
@@ -726,11 +995,11 @@ assemble_baseline_pack() {
 prepare_baseline_pack() {
   local versions version
   run_vm_phase initialize-baseline-pack initialize_baseline_pack
-  if [[ "$BASELINE_SELECTOR" = all ]]; then
-    versions=("${BASELINE_VERSIONS[@]}")
-  else
-    versions=("$BASELINE_SELECTOR")
-  fi
+  case "$BASELINE_SELECTOR" in
+    all) versions=("${BASELINE_VERSIONS[@]}") ;;
+    fleet) versions=("${FLEET_BASELINE_VERSIONS[@]}") ;;
+    *) versions=("$BASELINE_SELECTOR") ;;
+  esac
   for version in "${versions[@]}"; do
     run_vm_phase "baseline-validation-$version" \
       prepare_baseline_version "$version" rd23-stock
@@ -750,13 +1019,14 @@ run_old_worker_version() {
     clone_disk "$WORK/baseline-$version.qcow2" "$disk" qcow2
     start_baseline_vm "$disk" "old-worker-$version"; record_measurement "old-worker-$version"
     before="$(guest protected-hash)"; usage_before="$(measure_stock)"
-    transaction="$(guest old-worker "$ORIGIN" "$version" | tail -n 1)"
+    transaction="$(guest old-worker "$ORIGIN" "$version" "$CANDIDATE_APP_VERSION" | tail -n 1)"
     usage_candidate="$(measure_stock)"
-    guest verify-target 0.7.11 "$version" pending
+    guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" "$version" pending
     node "$ROOT_DIR/tests/vm/check-status-card.cjs" \
       "http://127.0.0.1:$HTTP_PORT/cgi-bin/luci/admin/status/overview" \
       > "$EVIDENCE_DIR/old-worker-$version-visible-card.json"
-    normal_reboot; guest verify-target 0.7.11 "$version" post-reboot
+    normal_reboot
+    guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" "$version" post-reboot
     usage_committed="$(measure_stock)"
     [[ "$(guest protected-hash)" = "$before" ]] || fail "protected hash drift after old-worker reboot"
     guest rollback "$transaction" "$version"; usage_rolled_back="$(measure_stock)"; normal_reboot
@@ -767,7 +1037,8 @@ run_old_worker_version() {
       --argjson rolled_back "$usage_rolled_back" --argjson after "$usage_after" \
       '{transaction:$transaction,disk_before:$before,disk_candidate:$candidate,
         disk_committed:$committed,disk_rolled_back:$rolled_back,disk_after_reboot:$after}')"
-    record_result "$EVIDENCE_DIR/transition-results.jsonl" old-worker "$version->0.7.11->rollback" pass "$details"
+    record_result "$EVIDENCE_DIR/transition-results.jsonl" old-worker \
+      "$version->$CANDIDATE_APP_VERSION->rollback" pass "$details"
     shutdown_vm; rm -f "$disk"
 }
 run_old_worker_matrix() {
@@ -786,13 +1057,14 @@ run_rescue_version() {
     start_baseline_vm "$disk" "rescue-$version"; record_measurement "rescue-$version"
     before="$(guest protected-hash)"; usage_before="$(measure_stock)"
     rescue_log="$EVIDENCE_DIR/rescue-$version.guest-validator.log"
-    guest rescue "$ORIGIN" "$version" 2>&1 | tee "$rescue_log"
+    guest rescue "$ORIGIN" "$version" "$CANDIDATE_APP_VERSION" \
+      "$CANDIDATE_RELEASE_TAG" 2>&1 | tee "$rescue_log"
     transaction="$(tail -n 1 "$rescue_log")"
     usage_candidate="$(measure_stock)"
-    guest verify-target 0.7.11 "$version" pending
+    guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" "$version" pending
     capture_guest_state "rescue-$version-pending-reboot"
     normal_reboot
-    guest verify-target 0.7.11 "$version" post-reboot
+    guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" "$version" post-reboot
     usage_committed="$(measure_stock)"
     capture_guest_state "rescue-$version-committed"
     guest rollback "$transaction" "$version"
@@ -807,7 +1079,8 @@ run_rescue_version() {
       --argjson rolled_back "$usage_rolled_back" --argjson final "$usage_final" \
       '{transaction:$transaction,disk_before:$before,disk_candidate:$candidate,
         disk_committed:$committed,disk_rolled_back:$rolled_back,disk_after_rollback_reboot:$final}')"
-    record_result "$EVIDENCE_DIR/transition-results.jsonl" rescue "$version->0.7.11->rollback" pass "$details"
+    record_result "$EVIDENCE_DIR/transition-results.jsonl" rescue \
+      "$version->$CANDIDATE_APP_VERSION->rollback" pass "$details"
     shutdown_vm; rm -f "$disk"
 }
 run_rescue_matrix() {
@@ -821,57 +1094,192 @@ run_rescue_matrix() {
 run_refusals() {
   VM_ACTIVE_VERSION=0.7.10
   local values=(0.7.7 unknown 0.7 development 0.7.11RC1 0.8.0)
+  local candidate_base="$ORIGIN/releases/download/$CANDIDATE_RELEASE_TAG"
   for value in "${values[@]}"; do
     disk="$WORK/refuse-${value//[^A-Za-z0-9]/_}.qcow2"
     clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
     start_baseline_vm "$disk" "refuse-${value//[^A-Za-z0-9]/_}"; record_measurement "refuse-$value"
-    "${ssh_base[@]}" "printf '%s\\n' '$value' > /usr/share/vpn-ui/version; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh' -o /tmp/rescue; chmod 700 /tmp/rescue; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh /tmp/rescue" >/dev/null
+    "${ssh_base[@]}" "printf '%s\\n' '$value' > /usr/share/vpn-ui/version; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$candidate_base/rescue-router-ui.sh' -o /tmp/rescue; chmod 700 /tmp/rescue; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$candidate_base' sh /tmp/rescue" >/dev/null
     record_result "$EVIDENCE_DIR/transition-results.jsonl" refusal "$value" pass '{}'
     shutdown_vm; rm -f "$disk"
   done
   disk="$WORK/refuse-target.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
   start_baseline_vm "$disk" refuse-other-target; record_measurement refuse-other-target
-  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh' -o /tmp/rescue; chmod 700 /tmp/rescue; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_TARGET_VERSION=0.7.12 ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh /tmp/rescue" >/dev/null
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$candidate_base/rescue-router-ui.sh' -o /tmp/rescue; chmod 700 /tmp/rescue; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_TARGET_VERSION='$SUCCESSOR_APP_VERSION' ROUTER_UI_RELEASE_BASE='$candidate_base' sh /tmp/rescue" >/dev/null
   record_result "$EVIDENCE_DIR/transition-results.jsonl" refusal direct-other-target pass '{}'
   shutdown_vm; rm -f "$disk"
 }
 
 run_clean_image() {
-  VM_ACTIVE_VERSION=0.7.11
+  VM_ACTIVE_VERSION="$CANDIDATE_APP_VERSION"
   disk="$WORK/clean-image.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_candidate_vm "$disk" clean-image; record_measurement clean-image
-  fingerprint="$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")"
-  guest verify-clean-image "$fingerprint"; normal_reboot; guest verify-clean-image "$fingerprint"
+  fingerprint="$(jq -er .signing_key_fingerprint "$RELEASE_DIR/router-release-manifest.json")"
+  guest verify-clean-image "$fingerprint" "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION"
+  normal_reboot
+  guest verify-clean-image "$fingerprint" "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" image clean-x86-boot pass '{}'
   shutdown_vm; rm -f "$disk"
 }
 
+run_dual_daemon() {
+  local disk sample pre_boot_id post_boot_id evidence details probe_url min_mem_available_kib
+  local tailscale_backend_states
+  VM_ACTIVE_VERSION="$CANDIDATE_APP_VERSION"
+  evidence="$EVIDENCE_DIR/dual-daemon-evidence.jsonl"
+  probe_url="$ORIGIN/vm/dual-daemon-probe.txt"
+  : > "$evidence"
+  disk="$WORK/dual-daemon.qcow2"
+  clone_disk "$WORK/candidate.img" "$disk" raw
+  start_candidate_vm "$disk" dual-daemon
+  record_measurement dual-daemon-before-reboot
+  guest dual-daemon-setup "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION"
+  pre_boot_id="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
+  for ((sample = 1; sample <= DUAL_DAEMON_SAMPLES; sample++)); do
+    guest dual-daemon-sample before-reboot "$CANDIDATE_APP_VERSION" \
+      "$CANDIDATE_PACKAGE_VERSION" "$probe_url" >> "$evidence"
+    (( sample == DUAL_DAEMON_SAMPLES )) || sleep "$DUAL_DAEMON_INTERVAL_SECONDS"
+  done
+
+  normal_reboot
+  post_boot_id="$("${ssh_base[@]}" cat /proc/sys/kernel/random/boot_id)"
+  [[ "$post_boot_id" != "$pre_boot_id" ]] || fail "dual-daemon reboot did not change boot ID"
+  record_measurement dual-daemon-after-reboot
+  for ((sample = 1; sample <= DUAL_DAEMON_SAMPLES; sample++)); do
+    guest dual-daemon-sample after-reboot "$CANDIDATE_APP_VERSION" \
+      "$CANDIDATE_PACKAGE_VERSION" "$probe_url" >> "$evidence"
+    (( sample == DUAL_DAEMON_SAMPLES )) || sleep "$DUAL_DAEMON_INTERVAL_SECONDS"
+  done
+  capture_guest_state dual-daemon-final
+
+  jq -s -e --arg app "$CANDIDATE_APP_VERSION" \
+    --arg package "$CANDIDATE_PACKAGE_VERSION" \
+    --arg before "$pre_boot_id" --arg after "$post_boot_id" \
+    --argjson samples "$DUAL_DAEMON_SAMPLES" '
+      length == ($samples * 2) and
+      ([.[] | select(.phase == "before-reboot")] | length) == $samples and
+      ([.[] | select(.phase == "after-reboot")] | length) == $samples and
+      ([.[] | select(.phase == "before-reboot") | .tailscaled |
+        [.pid,.starttime_ticks]] | unique | length) == 1 and
+      ([.[] | select(.phase == "before-reboot") | .xray |
+        [.pid,.starttime_ticks]] | unique | length) == 1 and
+      ([.[] | select(.phase == "after-reboot") | .tailscaled |
+        [.pid,.starttime_ticks]] | unique | length) == 1 and
+      ([.[] | select(.phase == "after-reboot") | .xray |
+        [.pid,.starttime_ticks]] | unique | length) == 1 and
+      all(.[];
+        .app_version == $app and .package_version == $package and
+        .mem_total_kib >= 220000 and .mem_total_kib <= 262144 and
+        .mem_available_kib >= 16384 and .tmp_free_kib > 0 and .overlay_free_kib > 0 and
+        .tailscaled.running == true and .tailscaled.pid > 0 and
+        .tailscaled.starttime_ticks > 0 and .tailscaled.rss_kib > 0 and
+        .xray.running == true and .xray.pid > 0 and
+        .xray.starttime_ticks > 0 and .xray.rss_kib > 0 and
+        .xray.loopback_only == true and .xray.traffic_probe_ok == true and
+        .router_ui_status_ok == true and .tailscale_local_api_ok == true and
+        .tailscale_backend_state == "NeedsLogin" and
+        .tailscale_ips_present == false and
+        .tailscale_enrollment_observed == "not-enrolled" and
+        .oom_detected == false and
+        .hardware_verified == false) and
+      all(.[] | select(.phase == "before-reboot"); .boot_id == $before) and
+      all(.[] | select(.phase == "after-reboot"); .boot_id == $after) and
+      $before != $after
+    ' "$evidence" >/dev/null || fail "dual-daemon evidence contract failed"
+  min_mem_available_kib="$(jq -s '[.[].mem_available_kib] | min' "$evidence")"
+  tailscale_backend_states="$(jq -c -s '[.[].tailscale_backend_state] | unique' "$evidence")"
+  details="$(jq -cn --arg app_version "$CANDIDATE_APP_VERSION" \
+    --arg package_version "$CANDIDATE_PACKAGE_VERSION" \
+    --arg before_boot_id "$pre_boot_id" --arg after_boot_id "$post_boot_id" \
+    --argjson samples_per_boot "$DUAL_DAEMON_SAMPLES" \
+    --argjson minimum_mem_available_kib "$min_mem_available_kib" \
+    --argjson tailscale_backend_states "$tailscale_backend_states" \
+    '{app_version:$app_version,package_version:$package_version,
+      configured_ram_mib:256,samples_per_boot:$samples_per_boot,
+      minimum_mem_available_kib:$minimum_mem_available_kib,
+      before_boot_id:$before_boot_id,after_boot_id:$after_boot_id,
+      boot_id_changed:($before_boot_id != $after_boot_id),
+      release_package_set_persisted:true,tailscaled_real_process:true,
+      tailscale_enrollment:"not-enrolled",tailscale_enrollment_observed:true,
+      tailscale_backend_states:$tailscale_backend_states,tailscale_ips_present:false,
+      xray_real_process:true,
+      xray_scope:"non-secret-local-loopback-only",oom_detected:false,
+      process_restart_detected:false,
+      vm_verified:true,rd23_hardware_verified:false}')"
+  record_result "$EVIDENCE_DIR/transition-results.jsonl" runtime \
+    dual-daemon-256m pass "$details"
+  shutdown_vm
+  rm -f "$disk"
+}
+
 run_protocol_v2() {
-  VM_ACTIVE_VERSION=0.7.11
+  local poll state
+  VM_ACTIVE_VERSION="$CANDIDATE_APP_VERSION"
   disk="$WORK/protocol-v2.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_candidate_vm "$disk" protocol-v2; record_measurement protocol-v2
-  discovery="$ORIGIN/releases/download/vpn-panel-v0.7.12"
+  discovery="$ORIGIN/releases/download/$SUCCESSOR_RELEASE_TAG"
   protected_before="$(guest protected-hash)"; usage_before="$(measure_stock)"
-  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/tmp/protocol-v2.log
-  transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
-  guest verify-target 0.7.12 0.7.11 pending; usage_candidate_one="$(measure_stock)"
-  normal_reboot; guest verify-target 0.7.12 0.7.11 post-reboot
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' /usr/sbin/vpn-ui-update check-start" \
+    > "$EVIDENCE_DIR/protocol-v2-check-start.json"
+  jq -e '.ok and .started and .job == "check"' \
+    "$EVIDENCE_DIR/protocol-v2-check-start.json" >/dev/null || fail "detached update check did not start"
+  state=waiting
+  for poll in {1..120}; do
+    if guest verify-update-available "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" \
+      "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" >/dev/null 2>&1; then
+      state=available
+      break
+    fi
+    sleep 1
+  done
+  [[ "$state" = available ]] || fail "detached update check did not publish verified availability"
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' /usr/sbin/vpn-ui-update apply-start" \
+    > "$EVIDENCE_DIR/protocol-v2-apply-start.json"
+  jq -e '.ok and .started and .job == "apply"' \
+    "$EVIDENCE_DIR/protocol-v2-apply-start.json" >/dev/null || fail "detached update apply did not start"
+  transaction=""
+  state=waiting
+  for poll in {1..180}; do
+    transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction 2>/dev/null || true)"
+    if [[ "$transaction" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]]; then
+      state="$("${ssh_base[@]}" "jsonfilter -i '/root/premier-router-updates/$transaction/state.json' -e '@.state'" 2>/dev/null || true)"
+      if [[ "$state" = committed_pending_reboot_validation ]] &&
+        ! "${ssh_base[@]}" test -d /root/premier-router-updates/update.lock 2>/dev/null; then
+        break
+      fi
+      case "$state" in rollback_failed|recovery_required) fail "detached updater reached unsafe state: $state" ;; esac
+    fi
+    sleep 1
+  done
+  [[ "$state" = committed_pending_reboot_validation ]] ||
+    fail "detached update apply did not reach a pending committed state"
+  guest verify-target "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" \
+    "$CANDIDATE_APP_VERSION" pending
+  usage_candidate_one="$(measure_stock)"
+  normal_reboot
+  guest verify-target "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" \
+    "$CANDIDATE_APP_VERSION" post-reboot
   usage_committed_one="$(measure_stock)"
-  guest rollback "$transaction" 0.7.11; usage_rollback_one="$(measure_stock)"; normal_reboot
+  guest rollback "$transaction" "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION"
+  usage_rollback_one="$(measure_stock)"; normal_reboot
   [[ "$(guest protected-hash)" = "$protected_before" ]] || fail "package rollback changed protected configuration"
   "${ssh_base[@]}" "mkdir -p /root/premier-router-updates/recovery-required-must-survive; printf '%s\\n' '{\"state\":\"recovery_required\"}' > /root/premier-router-updates/recovery-required-must-survive/state.json; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/dev/null
   second_transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
-  normal_reboot; guest verify-target 0.7.12 0.7.11 post-reboot
+  normal_reboot
+  guest verify-target "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" \
+    "$CANDIDATE_APP_VERSION" post-reboot
   usage_committed_two="$(measure_stock)"
   "${ssh_base[@]}" test -f /root/premier-router-updates/recovery-required-must-survive/state.json || fail "cleanup pruned recovery-required evidence"
   tx_count="$("${ssh_base[@]}" "find /root/premier-router-updates -mindepth 1 -maxdepth 1 -type d | wc -l")"
   [[ "$tx_count" -le 6 ]] || fail "successful transactions accumulated without bound"
-  guest rollback "$second_transaction" 0.7.11; normal_reboot
-  [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.11 ]] || fail "retained exact rollback failed after cleanup"
+  guest rollback "$second_transaction" "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION"
+  normal_reboot
+  [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = "$CANDIDATE_APP_VERSION" ]] ||
+    fail "retained exact rollback failed after cleanup"
   usage_final="$(measure_stock)"
   [[ "$(guest protected-hash)" = "$protected_before" ]] || fail "repeated package cycle changed protected configuration"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" protocol-v2 \
-    '0.7.11->0.7.12->0.7.11->0.7.12->0.7.11' pass \
+    "$CANDIDATE_APP_VERSION->$SUCCESSOR_APP_VERSION->$CANDIDATE_APP_VERSION->$SUCCESSOR_APP_VERSION->$CANDIDATE_APP_VERSION" pass \
     "$(jq -cn --argjson retained "$tx_count" --argjson before "$usage_before" \
       --argjson candidate_one "$usage_candidate_one" --argjson committed_one "$usage_committed_one" \
       --argjson rollback_one "$usage_rollback_one" --argjson committed_two "$usage_committed_two" \
@@ -884,14 +1292,18 @@ run_protocol_v2() {
 
 run_storage_pressure() {
   local selector="${1:-$VM_PHASE_SELECTOR}"
-  local disk transaction required before after target state
+  local disk transaction required before after target state candidate_base
   VM_ACTIVE_VERSION=0.7.10
 
   if [[ "$selector" = all || "$selector" = normal ]]; then
   disk="$WORK/storage-normal.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
   start_baseline_vm "$disk" storage-normal; record_measurement storage-normal
-  before="$(measure_stock)"; transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
-  candidate="$(measure_stock)"; normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
+  before="$(measure_stock)"
+  transaction="$(guest rescue "$ORIGIN" 0.7.10 "$CANDIDATE_APP_VERSION" \
+    "$CANDIDATE_RELEASE_TAG" | tail -n 1)"
+  candidate="$(measure_stock)"; normal_reboot
+  guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" \
+    0.7.10 post-reboot
   after="$(measure_stock)"
   record_result "$EVIDENCE_DIR/storage-results.jsonl" pressure normal-success pass \
     "$(jq -cn --argjson before "$before" --argjson candidate "$candidate" --argjson after "$after" \
@@ -902,12 +1314,14 @@ run_storage_pressure() {
   if [[ "$selector" = all || "$selector" = near-reservation ]]; then
   disk="$WORK/storage-near.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
   start_baseline_vm "$disk" storage-near; record_measurement storage-near
-  "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' before-mutation > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh' -o /tmp/r; chmod 700 /tmp/r; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_TEST_FAIL_MODE=return ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh /tmp/r" >/dev/null 2>&1 || true
+  candidate_base="$ORIGIN/releases/download/$CANDIDATE_RELEASE_TAG"
+  "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' before-mutation > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$candidate_base/rescue-router-ui.sh' -o /tmp/r; chmod 700 /tmp/r; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_TEST_FAIL_MODE=return ROUTER_UI_RELEASE_BASE='$candidate_base' sh /tmp/r" >/dev/null 2>&1 || true
   transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
   required="$("${ssh_base[@]}" "jsonfilter -i /root/premier-router-updates/$transaction/reservation.json -e '@.persistent_required_kib'")"
   "${ssh_base[@]}" /usr/sbin/vpn-ui-update recover >/dev/null
   target=$((required + 1024)); guest fill-to-free "$target"
-  transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
+  transaction="$(guest rescue "$ORIGIN" 0.7.10 "$CANDIDATE_APP_VERSION" \
+    "$CANDIDATE_RELEASE_TAG" | tail -n 1)"
   record_result "$EVIDENCE_DIR/storage-results.jsonl" pressure slightly-above-reservation pass \
     "$(jq -cn --argjson required "$required" --argjson target "$target" '{reservation_kib:$required,target_free_kib:$target}')"
   shutdown_vm; rm -f "$disk"
@@ -917,13 +1331,14 @@ run_storage_pressure() {
   disk="$WORK/storage-below.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
   start_baseline_vm "$disk" storage-below; record_measurement storage-below
   before="$(guest protected-hash)"
-  "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' before-mutation > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh' -o /tmp/r; chmod 700 /tmp/r; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_TEST_FAIL_MODE=return ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh /tmp/r" >/dev/null 2>&1 || true
+  candidate_base="$ORIGIN/releases/download/$CANDIDATE_RELEASE_TAG"
+  "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' before-mutation > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$candidate_base/rescue-router-ui.sh' -o /tmp/r; chmod 700 /tmp/r; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_TEST_FAIL_MODE=return ROUTER_UI_RELEASE_BASE='$candidate_base' sh /tmp/r" >/dev/null 2>&1 || true
   transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
   required="$("${ssh_base[@]}" "jsonfilter -i /root/premier-router-updates/$transaction/reservation.json -e '@.persistent_required_kib'")"
   "${ssh_base[@]}" /usr/sbin/vpn-ui-update recover >/dev/null
   target=$((required - 1024)); (( target > 0 )) || fail "invalid below-reservation target"
   guest fill-to-free "$target"
-  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh' -o /tmp/r2; chmod 700 /tmp/r2; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh /tmp/r2" >/dev/null
+  "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem curl -fsSL --proto '=https' '$candidate_base/rescue-router-ui.sh' -o /tmp/r2; chmod 700 /tmp/r2; ! SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$candidate_base' sh /tmp/r2" >/dev/null
   [[ "$(guest protected-hash)" = "$before" ]] || fail "below-reservation refusal changed protected source"
   [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = 0.7.10 ]] || fail "below-reservation refusal mutated source version"
   state="$("${ssh_base[@]}" '/usr/sbin/vpn-ui-update status | jsonfilter -e "@.job.stage"')"
@@ -935,16 +1350,18 @@ run_storage_pressure() {
 }
 
 run_concurrency() {
-  VM_ACTIVE_VERSION=0.7.11
+  VM_ACTIVE_VERSION="$CANDIDATE_APP_VERSION"
   disk="$WORK/concurrency.qcow2"; clone_disk "$WORK/candidate.img" "$disk" raw
   start_candidate_vm "$disk" concurrency; record_measurement concurrency
-  details="$(guest concurrency-race "$ORIGIN" "$ORIGIN/releases/download/vpn-panel-v0.7.12")"
+  details="$(guest concurrency-race "$ORIGIN" \
+    "$ORIGIN/releases/download/$SUCCESSOR_RELEASE_TAG")"
   record_result "$EVIDENCE_DIR/transition-results.jsonl" concurrency cli-rpc-cron pass "$details"
   shutdown_vm; rm -f "$disk"
 }
 
 run_fault_boundary_case() {
-  local boundaries boundary valid_boundary
+  local boundaries boundary valid_boundary candidate_base source_package_version actual_package_version
+  candidate_base="$ORIGIN/releases/download/$CANDIDATE_RELEASE_TAG"
   if [[ -n "$VM_FAULT_BOUNDARY" ]]; then
     valid_boundary=false
     for boundary in "${FAULT_BOUNDARIES[@]}"; do
@@ -957,29 +1374,35 @@ run_fault_boundary_case() {
   fi
   for boundary in "${boundaries[@]}"; do
     source_version=0.7.10
+    source_package_version=""
     VM_ACTIVE_VERSION="$source_version"
-    target_version=0.7.11
+    target_version="$CANDIDATE_APP_VERSION"
+    target_package_version="$CANDIDATE_PACKAGE_VERSION"
     disk="$WORK/fault-${boundary}.qcow2"; clone_disk "$WORK/baseline-0.7.10.qcow2" "$disk" qcow2
     start_baseline_vm "$disk" "fault-$boundary"; record_measurement "fault-$boundary"
     before="$(guest protected-hash)"
     case "$boundary" in
       rolling_back)
-        transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
+        transaction="$(guest rescue "$ORIGIN" 0.7.10 "$CANDIDATE_APP_VERSION" \
+          "$CANDIDATE_RELEASE_TAG" | tail -n 1)"
         "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; sh /root/premier-router-updates/$transaction/rollback.sh" >/dev/null 2>&1 || true
         ;;
       rollback-after-*)
         shutdown_vm
         rm -f "$disk"; clone_disk "$WORK/candidate.img" "$disk" raw
         start_candidate_vm "$disk" "fault-$boundary"; record_measurement "fault-$boundary-ipk"
-        source_version=0.7.11
+        source_version="$CANDIDATE_APP_VERSION"
+        source_package_version="$CANDIDATE_PACKAGE_VERSION"
         VM_ACTIVE_VERSION="$source_version"
-        target_version=0.7.12
+        target_version="$SUCCESSOR_APP_VERSION"
+        target_package_version="$SUCCESSOR_PACKAGE_VERSION"
         before="$(guest protected-hash)"
-        discovery="$ORIGIN/releases/download/vpn-panel-v0.7.12"
+        discovery="$ORIGIN/releases/download/$SUCCESSOR_RELEASE_TAG"
         "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update check-start; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_SYNC_WORKER=1 /usr/sbin/vpn-ui-update apply-start" >/dev/null
         transaction="$("${ssh_base[@]}" sed -n '1p' /root/premier-router-updates/active-transaction)"
         normal_reboot
-        guest verify-target 0.7.12 0.7.11 post-reboot
+        guest verify-target "$SUCCESSOR_APP_VERSION" "$SUCCESSOR_PACKAGE_VERSION" \
+          "$CANDIDATE_APP_VERSION" post-reboot
         "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; sh /root/premier-router-updates/$transaction/rollback.sh" >/dev/null 2>&1 || true
         ;;
       compatibility-cleanup|post-reboot-validation)
@@ -989,15 +1412,16 @@ run_fault_boundary_case() {
         source_version=0.7.9
         VM_ACTIVE_VERSION="$source_version"
         before="$(guest protected-hash)"
-        guest rescue "$ORIGIN" 0.7.9 >/dev/null
+        guest rescue "$ORIGIN" 0.7.9 "$CANDIDATE_APP_VERSION" \
+          "$CANDIDATE_RELEASE_TAG" >/dev/null
         "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; reboot" >/dev/null 2>&1 || true
         sleep 5
         ;;
       rollback_pending)
-        "${ssh_base[@]}" "touch /etc/premier-router/test-mode /etc/premier-router/test-mode.force-candidate-failure; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh -c 'curl -fsSL --proto \"=https\" \"$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh\" -o /tmp/r; sh /tmp/r'" >/dev/null 2>&1 || true
+        "${ssh_base[@]}" "touch /etc/premier-router/test-mode /etc/premier-router/test-mode.force-candidate-failure; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$candidate_base' sh -c 'curl -fsSL --proto \"=https\" \"$candidate_base/rescue-router-ui.sh\" -o /tmp/r; sh /tmp/r'" >/dev/null 2>&1 || true
         ;;
       *)
-        "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$ORIGIN/releases/download/vpn-panel-v0.7.11' sh -c 'curl -fsSL --proto \"=https\" \"$ORIGIN/releases/download/vpn-panel-v0.7.11/rescue-router-ui.sh\" -o /tmp/r; sh /tmp/r'" >/dev/null 2>&1 || true
+        "${ssh_base[@]}" "touch /etc/premier-router/test-mode; printf '%s\\n' '$boundary' > /etc/premier-router/test-mode.fail-after; SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem ROUTER_UI_RELEASE_BASE='$candidate_base' sh -c 'curl -fsSL --proto \"=https\" \"$candidate_base/rescue-router-ui.sh\" -o /tmp/r; sh /tmp/r'" >/dev/null 2>&1 || true
         ;;
     esac
     "${ssh_base[@]}" test ! -e /etc/premier-router/test-mode.fail-after ||
@@ -1015,11 +1439,20 @@ run_fault_boundary_case() {
     [[ "$(guest protected-hash)" = "$before" ]] || fail "fault $boundary changed protected configuration"
     case "$state" in
       committed)
-        guest verify-target "$target_version" "$source_version" post-reboot
+        guest verify-target "$target_version" "$target_package_version" \
+          "$source_version" post-reboot
         ;;
       rolled_back|failed_before_mutation)
         [[ "$("${ssh_base[@]}" sed -n '1p' /usr/share/vpn-ui/version)" = "$source_version" ]] ||
           fail "fault $boundary did not restore exact source version"
+        if [[ -n "$source_package_version" ]]; then
+          for package in premier-router-core luci-app-premier-router premier-router-setup; do
+            actual_package_version="$("${ssh_base[@]}" \
+              "opkg status '$package' | sed -n 's/^Version: //p' | sed -n '1p'")"
+            [[ "$actual_package_version" = "$source_package_version" ]] ||
+              fail "fault $boundary did not restore exact source package version: $package"
+          done
+        fi
         ;;
     esac
     versions="$("${ssh_base[@]}" 'for p in premier-router-core luci-app-premier-router premier-router-setup; do opkg status "$p" | sed -n "s/^Version: //p" | sed -n 1p; done' | sed '/^$/d' | sort -u | wc -l)"
@@ -1061,8 +1494,11 @@ run_storage_profiles() {
   start_baseline_vm "$disk" "storage-$profile"
   record_measurement "storage-$profile" "$profile"
   before="$(measure_ubootmod)"
-  transaction="$(guest rescue "$ORIGIN" 0.7.10 | tail -n 1)"
-  normal_reboot; guest verify-target 0.7.11 0.7.10 post-reboot
+  transaction="$(guest rescue "$ORIGIN" 0.7.10 "$CANDIDATE_APP_VERSION" \
+    "$CANDIDATE_RELEASE_TAG" | tail -n 1)"
+  normal_reboot
+  guest verify-target "$CANDIDATE_APP_VERSION" "$CANDIDATE_PACKAGE_VERSION" \
+    0.7.10 post-reboot
   committed="$(measure_ubootmod)"
   guest rollback "$transaction" 0.7.10; normal_reboot
   restored="$(measure_ubootmod)"
@@ -1073,7 +1509,7 @@ run_storage_profiles() {
 }
 
 finalize_evidence() {
-  local candidate_source harness_source
+  local candidate_source harness_source dual_daemon_passed=false
   candidate_source="$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.json")"
   harness_source="$HARNESS_SOURCE_SHA"
   [[ -n "$harness_source" ]] || harness_source="$candidate_source"
@@ -1082,6 +1518,12 @@ finalize_evidence() {
   jq -s '.' "$EVIDENCE_DIR/fault-results.jsonl" > "$EVIDENCE_DIR/fault-results.json"
   jq -s '.' "$EVIDENCE_DIR/storage-results.jsonl" > "$EVIDENCE_DIR/storage-results.json"
   jq -s '.' "$EVIDENCE_DIR/published-baselines.jsonl" > "$EVIDENCE_DIR/published-baselines.json"
+  if jq -s -e 'any(.[]; .kind == "runtime" and .name == "dual-daemon-256m" and
+    .status == "pass" and .details.vm_verified == true and
+    .details.rd23_hardware_verified == false)' \
+    "$EVIDENCE_DIR/transition-results.jsonl" >/dev/null; then
+    dual_daemon_passed=true
+  fi
   jq -n --argjson configured 256 \
     --argjson stock_backing "$STOCK_WRITABLE_KIB" \
     --argjson stock_ubifs_df "$STOCK_UBIFS_DF_KIB" \
@@ -1091,19 +1533,41 @@ finalize_evidence() {
     --arg harness_source_sha "$harness_source" \
     --arg diagnostic_case "$DIAGNOSTIC_CASE" \
     --arg diagnostic_run "$DIAGNOSTIC_RUN" \
+    --arg vm_only "$VM_ONLY" \
     --arg baseline_pack_digest "$BASELINE_PACK_DIGEST" \
-    --arg key_fingerprint "$(sed -n '1p' "$ROOT_DIR/release/keys/router-ui-production.fingerprint")" \
+    --arg candidate_app_version "$CANDIDATE_APP_VERSION" \
+    --arg candidate_package_version "$CANDIDATE_PACKAGE_VERSION" \
+    --arg candidate_release_tag "$CANDIDATE_RELEASE_TAG" \
+    --arg successor_app_version "$SUCCESSOR_APP_VERSION" \
+    --arg successor_package_version "$SUCCESSOR_PACKAGE_VERSION" \
+    --arg successor_release_tag "$SUCCESSOR_RELEASE_TAG" \
+    --arg candidate_contract_mode "$CANDIDATE_CONTRACT_MODE" \
+    --argjson dual_daemon_vm_verified "$dual_daemon_passed" \
+    --argjson recovery_timeout_seconds "$VM_RECOVERY_TIMEOUT_SECONDS" \
+    --arg key_fingerprint "$(jq -er .signing_key_fingerprint "$RELEASE_DIR/router-release-manifest.json")" \
     '{schema_version:1,candidate_source_sha:$source_commit,production_public_key_fingerprint:$key_fingerprint,
       harness_source_sha:$harness_source_sha,diagnostic_case:$diagnostic_case,
       baseline_pack_digest:$baseline_pack_digest,
-      diagnostic:($diagnostic_run == "1"),release_evidence:($diagnostic_run != "1"),
+      diagnostic:($diagnostic_run == "1" or $vm_only == "1"),
+      release_evidence:($diagnostic_run != "1" and $vm_only != "1"),
+      vm_only:($vm_only == "1"),
+      candidate:{app_version:$candidate_app_version,package_version:$candidate_package_version,
+        release_tag:$candidate_release_tag},
+      successor:{app_version:$successor_app_version,package_version:$successor_package_version,
+        release_tag:$successor_release_tag},
+      candidate_contract_mode:$candidate_contract_mode,
       configured_ram_mib:$configured,vm_execution_mode:"strictly-serial-exact-child-pid",
+      dual_daemon_vm_verified:$dual_daemon_vm_verified,
+      dual_daemon_scope:"real-unenrolled-tailscaled-plus-local-only-xray",
+      recovery_timeout_seconds:$recovery_timeout_seconds,
       storage_profiles:{"rd23-stock":{writable_backing_kib:$stock_backing,
         expected_ubifs_df_total_kib:$stock_ubifs_df},
         "rd23-ubootmod":{writable_backing_kib:$ubootmod_backing,
         expected_ubifs_df_total_kib:$ubootmod_ubifs_df}},
-      storage_basis:"OpenWrt-v24.10.5-DTS-plus-exact-candidate-payload",
-      physical_rd23_test:"pending-not-authorized"}' \
+      storage_basis:(if $vm_only == "1" then
+        "locked-RD23-storage-profile-applied-to-x86-QEMU-only"
+        else "OpenWrt-v24.10.5-DTS-plus-exact-candidate-payload" end),
+      physical_rd23_test:"pending-not-authorized",hardware_verified:false}' \
     > "$EVIDENCE_DIR/summary.json"
   (cd "$EVIDENCE_DIR" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print | sort | sed 's#^./##' |
     while read -r file; do sha256sum "$file"; done > SHA256SUMS)
@@ -1157,6 +1621,7 @@ run_candidate_cases() {
       ;;
     protocol-v2) run_vm_phase protocol-v2 run_protocol_v2 ;;
     clean-image) run_vm_phase clean-image run_clean_image ;;
+    dual-daemon) run_vm_phase dual-daemon run_dual_daemon ;;
     concurrency) run_vm_phase concurrency run_concurrency ;;
     storage) run_storage_case ;;
     fault) run_fault_matrix ;;
@@ -1165,6 +1630,7 @@ run_candidate_cases() {
       run_rescue_matrix
       run_vm_phase rescue-refusals run_refusals
       run_vm_phase clean-image run_clean_image
+      run_vm_phase dual-daemon run_dual_daemon
       run_vm_phase protocol-v2 run_protocol_v2
       run_vm_phase concurrency run_concurrency
       run_fault_matrix
@@ -1174,6 +1640,9 @@ run_candidate_cases() {
   esac
 }
 
+if [[ "$VM_MODE" = candidate ]]; then
+  run_vm_phase load-release-contracts load_release_contracts
+fi
 run_vm_phase setup-tls setup_tls
 run_vm_phase prepare-server prepare_server
 run_vm_phase load-storage-contract load_storage_profiles
@@ -1184,7 +1653,11 @@ if [[ "$VM_MODE" = baseline-pack ]]; then
   printf 'Verified legacy baseline pack built (%s): %s\n' "$BASELINE_SELECTOR" "$BASELINE_OUTPUT_DIR"
 else
   run_vm_phase verify-baseline-pack verify_baseline_pack
-  case "$VM_CASE" in full|protocol-v2|clean-image|concurrency|fault) run_vm_phase extract-candidate-image extract_candidate_image ;; esac
+  case "$VM_CASE" in
+    full|protocol-v2|clean-image|dual-daemon|concurrency|fault)
+      run_vm_phase extract-candidate-image extract_candidate_image
+      ;;
+  esac
   run_candidate_cases
   run_vm_phase finalize-candidate-evidence finalize_evidence
   printf 'Constrained Router UI VM gate passed (%s); evidence: %s\n' "$VM_CASE" "$EVIDENCE_DIR"

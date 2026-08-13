@@ -3,22 +3,35 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
-PKG_RELEASE="${PKG_RELEASE:-1}"
-PKG_VERSION="$APP_VERSION-$PKG_RELEASE"
+PKG_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION" | tr -d '\r\n')"
+case "$APP_VERSION" in
+  *-rc.*) BUILD_CHANNEL=candidate ;;
+  *) BUILD_CHANNEL=stable ;;
+esac
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/.package-build}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/dist/ipk}"
 FEED_DIR="${FEED_DIR:-$ROOT_DIR/dist/opkg-feed}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)}"
 SOURCE_DIRTY="${SOURCE_DIRTY:-}"
-SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT" 2>/dev/null || printf 0)}"
+UPDATER_PROTOCOL=2
+USIGN_BIN="${USIGN_BIN:-usign}"
+STRICT_RELEASE="${STRICT_RELEASE:-0}"
+ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
+export ROUTER_UI_RELEASE_ROOT
+. "$ROOT_DIR/scripts/release-key-lib.sh"
 
-if [ -z "$SOURCE_DIRTY" ]; then
-  if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
-    SOURCE_DIRTY=1
-  else
-    SOURCE_DIRTY=0
-  fi
+if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null)" ]; then
+  ACTUAL_SOURCE_DIRTY=true
+else
+  ACTUAL_SOURCE_DIRTY=false
 fi
+if [ "$STRICT_RELEASE" = 1 ] && [ -n "$SOURCE_DIRTY" ] &&
+  [ "$SOURCE_DIRTY" != "$ACTUAL_SOURCE_DIRTY" ]; then
+  printf 'SOURCE_DIRTY disagrees with the checkout state\n' >&2
+  exit 1
+fi
+SOURCE_DIRTY="${SOURCE_DIRTY:-$ACTUAL_SOURCE_DIRTY}"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -27,14 +40,47 @@ need() {
   }
 }
 
-for tool in awk env find gzip sed sha256sum sort tar; do
+for tool in awk env find gzip jq sed sha256sum sort tar "$USIGN_BIN"; do
   need "$tool"
 done
+
+pr_select_active_public_key || exit 1
 
 [ -n "$APP_VERSION" ] || {
   printf 'luci-vpn-ui/VERSION is empty\n' >&2
   exit 1
 }
+[ "${APP_VERSION%%-rc.*}" = "0.7.11" ] || {
+  printf '0.7.11 bridge package build refuses app version %s\n' "$APP_VERSION" >&2
+  exit 1
+}
+printf '%s' "$APP_VERSION" | grep -Eq '^0\.7\.11(-rc\.[0-9]+)?$' || {
+  printf '0.7.11 bridge package build refuses malformed app version %s\n' "$APP_VERSION" >&2
+  exit 1
+}
+printf '%s' "$PKG_VERSION" | grep -Eq '^0\.7\.11(~rc[0-9]+)?-[0-9]+$' || {
+  printf '0.7.11 bridge package build refuses malformed package version %s\n' "$PKG_VERSION" >&2
+  exit 1
+}
+case "$SOURCE_DIRTY" in true|false) ;; *)
+  printf 'SOURCE_DIRTY must be true or false\n' >&2
+  exit 1
+esac
+[ -s "$RELEASE_PUBLIC_KEY" ] || {
+  printf 'Release verification public key is missing: %s\n' "$RELEASE_PUBLIC_KEY" >&2
+  exit 1
+}
+printf '%s' "$RELEASE_KEY_ID" | grep -Eq '^[A-Za-z0-9._-]+$' || {
+  printf 'RELEASE_KEY_ID is malformed\n' >&2
+  exit 1
+}
+if [ "$STRICT_RELEASE" = 1 ]; then
+  [ "$SOURCE_DIRTY" = false ] || {
+    printf 'Strict package build refuses a dirty source tree\n' >&2
+    exit 1
+  }
+  pr_require_committed_registry || exit 1
+fi
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$OUT_DIR" "$FEED_DIR"
@@ -50,6 +96,30 @@ copy_file() {
   mkdir -p "$(dirname "$dst")"
   cp "$src" "$dst"
   chmod "$mode" "$dst"
+}
+
+render_trust_script() {
+  src="$1"
+  dst="$2"
+  key_comment="$(sed -n '1p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  key_data="$(sed -n '2p' "$RELEASE_PUBLIC_KEY" | tr -d '\r\n')"
+  printf '%s' "$key_comment" | grep -Eq '^untrusted comment: [A-Za-z0-9 ._:/+-]+$' || {
+    printf 'Release public key comment is not safe to embed\n' >&2
+    exit 1
+  }
+  printf '%s' "$key_data" | grep -Eq '^RW[A-Za-z0-9+/=]+$' || {
+    printf 'Release public key data is malformed\n' >&2
+    exit 1
+  }
+  awk -v key_id="$RELEASE_KEY_ID" -v fingerprint="$RELEASE_KEY_FINGERPRINT" \
+    -v key_comment="$key_comment" -v key_data="$key_data" '
+    /^TRUSTED_KEY_ID=/ { print "TRUSTED_KEY_ID=\047" key_id "\047"; next }
+    /^TRUSTED_KEY_FINGERPRINT=/ { print "TRUSTED_KEY_FINGERPRINT=\047" fingerprint "\047"; next }
+    /^TRUSTED_KEY_COMMENT=/ { print "TRUSTED_KEY_COMMENT=\047" key_comment "\047"; next }
+    /^TRUSTED_KEY_DATA=/ { print "TRUSTED_KEY_DATA=\047" key_data "\047"; next }
+    { print }
+  ' "$src" > "$dst"
+  chmod 755 "$dst"
 }
 
 copy_tree_file_modes() {
@@ -77,6 +147,8 @@ Version: $PKG_VERSION
 Depends: $depends
 Source: $SOURCE_COMMIT
 Architecture: all
+X-Premier-App-Version: $APP_VERSION
+X-Premier-Release-Channel: $BUILD_CHANNEL
 Maintainer: Premier Router Maintainers <support@example.invalid>
 Section: net
 Priority: optional
@@ -92,28 +164,43 @@ set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
-chmod 755 /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update 2>/dev/null || true
+root_prefix=""
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
+fi
+case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
 
-if [ -x /usr/sbin/vpn-ui ]; then
-  # Probe semantics may change between versions; never reuse a transient
-  # success result produced by an older health-check implementation.
-  rm -rf /tmp/vpn-ui-pings
-  /usr/sbin/vpn-ui metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
-  /usr/sbin/vpn-ui metadata-installed package-first-local-ipk >/tmp/premier-router-installed-metadata.log 2>&1 || true
-  /usr/sbin/vpn-ui init >/tmp/premier-router-core-init.log 2>&1 || true
+if [ "${PREMIER_ROUTER_PRESERVE_CRON:-0}" = 1 ]; then
+  "$root_prefix/etc/init.d/premier-router-update-recovery" enable
+  exit 0
 fi
 
-mkdir -p /etc/crontabs
-touch /etc/crontabs/root
-sed -i '\|/usr/sbin/vpn-ui auto-tick|d' /etc/crontabs/root 2>/dev/null || true
-printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> /etc/crontabs/root
-
-if [ -x /usr/sbin/vpn-ui-update ]; then
-  /usr/sbin/vpn-ui-update configure-cron >/tmp/premier-router-update-cron.log 2>&1 || true
+cron="$root_prefix/etc/crontabs/root"
+cron_dir="$(dirname "$cron")"
+if [ -e "$cron_dir" ] || [ -L "$cron_dir" ]; then
+  [ -d "$cron_dir" ] && [ ! -L "$cron_dir" ] || exit 1
+else
+  mkdir -p "$cron_dir"
 fi
-
-/etc/init.d/cron enable >/dev/null 2>&1 || true
-/etc/init.d/cron restart >/dev/null 2>&1 || true
+if [ -e "$cron" ] || [ -L "$cron" ]; then
+  [ -f "$cron" ] && [ ! -L "$cron" ] || exit 1
+fi
+touch "$cron"
+tmp="$cron.new.$$"
+[ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+cleanup_cron_tmp() {
+  [ -z "${tmp:-}" ] || rm -f "$tmp"
+}
+trap cleanup_cron_tmp EXIT
+trap 'exit 1' HUP INT TERM
+awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 { print }' "$cron" > "$tmp"
+printf '%s\n' '*/1 * * * * /usr/sbin/vpn-ui auto-tick >/tmp/vpn-ui-auto.log 2>&1' >> "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$cron"
+tmp=""
+VPN_UI_ROOT_PREFIX="$root_prefix" \
+  "$root_prefix/usr/sbin/vpn-ui-update" configure-cron
+"$root_prefix/etc/init.d/premier-router-update-recovery" enable
 exit 0
 EOF
   cat > "$control_dir/postrm" <<'EOF'
@@ -121,16 +208,33 @@ EOF
 set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
+[ "${1:-}" != upgrade ] || exit 0
 
-if [ -f /etc/crontabs/root ]; then
-  sed -i '\|/usr/sbin/vpn-ui auto-tick|d;\|/usr/sbin/vpn-ui-update auto|d' /etc/crontabs/root 2>/dev/null || true
-  /etc/init.d/cron restart >/dev/null 2>&1 || true
+root_prefix=""
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
+fi
+case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+cron="$root_prefix/etc/crontabs/root"
+if [ -f "$cron" ] && [ ! -L "$cron" ]; then
+  tmp="$cron.new.$$"
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+  cleanup_cron_tmp() {
+    [ -z "${tmp:-}" ] || rm -f "$tmp"
+  }
+  trap cleanup_cron_tmp EXIT
+  trap 'exit 1' HUP INT TERM
+  awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
+    index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' "$cron" > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$cron"
+  tmp=""
 fi
 exit 0
 EOF
   chmod 755 "$control_dir/postinst" "$control_dir/postrm"
 cat > "$control_dir/conffiles" <<'EOF'
-/etc/config/premier_router
 /etc/vpn-ui-update.conf
 EOF
 }
@@ -140,27 +244,11 @@ write_luci_scripts() {
   cat > "$control_dir/postinst" <<'EOF'
 #!/bin/sh
 set -eu
-
-[ -n "${IPKG_INSTROOT:-}" ] && exit 0
-
-rm -f \
-  /www/luci-static/resources/view/status/include/_35_vpn.js \
-  /www/luci-static/resources/view/status/include/_35_vpn-0-7-0.js \
-  /www/luci-static/resources/view/status/include/35_vpn-0-7-0.js
-rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
-/etc/init.d/rpcd restart >/dev/null 2>&1 || true
-/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 exit 0
 EOF
   cat > "$control_dir/postrm" <<'EOF'
 #!/bin/sh
 set -eu
-
-[ -n "${IPKG_INSTROOT:-}" ] && exit 0
-
-rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
-/etc/init.d/rpcd restart >/dev/null 2>&1 || true
-/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 exit 0
 EOF
   chmod 755 "$control_dir/postinst" "$control_dir/postrm"
@@ -168,37 +256,61 @@ EOF
 
 write_setup_scripts() {
   control_dir="$1"
-  cat > "$control_dir/postinst" <<'EOF'
+  cat > "$control_dir/preinst" <<'EOF'
 #!/bin/sh
 set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
-chmod 755 /www/cgi-bin/firstboot-setup /www/cgi-bin/router-prep /usr/sbin/router-prep 2>/dev/null || true
+STATE_DIR=/etc/firstboot-wizard
+COMPLETE_FILE="$STATE_DIR/complete"
+
+[ ! -L "$STATE_DIR" ] || {
+  printf '%s\n' 'refusing symlinked first-boot state directory' >&2
+  exit 1
+}
+if [ -e "$STATE_DIR" ] && [ ! -d "$STATE_DIR" ]; then
+  printf '%s\n' 'refusing non-directory first-boot state path' >&2
+  exit 1
+fi
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+[ ! -L "$COMPLETE_FILE" ] || {
+  printf '%s\n' 'refusing symlinked first-boot completion marker' >&2
+  exit 1
+}
+if [ -e "$COMPLETE_FILE" ] && [ ! -f "$COMPLETE_FILE" ]; then
+  printf '%s\n' 'refusing non-file first-boot completion marker' >&2
+  exit 1
+fi
+if [ ! -f "$COMPLETE_FILE" ]; then
+  temporary="$STATE_DIR/.complete.$$"
+  rm -f "$temporary"
+  umask 077
+  : > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$COMPLETE_FILE"
+fi
+chmod 600 "$COMPLETE_FILE"
+exit 0
+EOF
+  cat > "$control_dir/postinst" <<'EOF'
+#!/bin/sh
+set -eu
+
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
 chmod 755 /etc/uci-defaults/99-openwrt-fin0-firstboot 2>/dev/null || true
 if [ "${PREMIER_ROUTER_KEEP_UCI_DEFAULTS:-0}" != "1" ]; then
   rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot
 fi
-if [ -f /www/premier-router-index.html ] && [ -z "$(uci -q get uhttpd.main.index_page 2>/dev/null || true)" ]; then
-  uci add_list uhttpd.main.index_page='premier-router-index.html'
-  uci add_list uhttpd.main.index_page='index.html'
-  uci commit uhttpd
-fi
-rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
-/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 exit 0
 EOF
   cat > "$control_dir/postrm" <<'EOF'
 #!/bin/sh
-if [ ! -f /www/premier-router-index.html ] &&
-   [ "$(uci -q get uhttpd.main.index_page 2>/dev/null || true)" = "premier-router-index.html index.html" ]; then
-  uci -q delete uhttpd.main.index_page
-  uci commit uhttpd
-  /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
-fi
 exit 0
 EOF
-  chmod 755 "$control_dir/postinst" "$control_dir/postrm"
+  chmod 755 "$control_dir/preinst" "$control_dir/postinst" "$control_dir/postrm"
 }
 
 write_legacy_manifest() {
@@ -262,51 +374,79 @@ create_tar_gz() {
 CORE_ROOT="$BUILD_DIR/premier-router-core/root"
 CORE_CONTROL="$BUILD_DIR/premier-router-core/control"
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui" "$CORE_ROOT/usr/sbin/vpn-ui" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-readonly" "$CORE_ROOT/usr/sbin/vpn-ui-readonly" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update" "$CORE_ROOT/usr/sbin/vpn-ui-update" 755
-copy_file "$ROOT_DIR/install-router-ui-release.sh" "$CORE_ROOT/usr/sbin/install-router-ui-release" 755
+mkdir -p "$CORE_ROOT/usr/sbin"
+render_trust_script "$ROOT_DIR/install-router-ui-release.sh" \
+  "$CORE_ROOT/usr/sbin/install-router-ui-release"
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh" \
+  "$CORE_ROOT/usr/libexec/premier-router/update-lib.sh" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator" \
+  "$CORE_ROOT/usr/libexec/premier-router/candidate-validator" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc" \
+  "$CORE_ROOT/usr/libexec/premier-router/xray-overlay.uc" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery" \
+  "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
-mkdir -p "$CORE_ROOT/usr/share/vpn-ui"
-cat > "$CORE_ROOT/usr/share/vpn-ui/build-info" <<EOF
-VERSION=$APP_VERSION
+copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/release.pub" 644
+mkdir -p "$CORE_ROOT/usr/share/premier-router/keys"
+printf '%s\n' "$RELEASE_KEY_ID" > "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
+chmod 644 "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"
+mkdir -p "$CORE_ROOT/usr/share/premier-router/keys/release"
+jq '.keys |= map(.public_key_path = (.public_key_path | split("/") | last))' \
+  "$ROUTER_UI_TRUSTED_KEYS_FILE" > \
+  "$CORE_ROOT/usr/share/premier-router/keys/trusted-keys.json"
+chmod 644 "$CORE_ROOT/usr/share/premier-router/keys/trusted-keys.json"
+jq -r '.keys[].public_key_path' "$ROUTER_UI_TRUSTED_KEYS_FILE" |
+  while IFS= read -r repository_public_key; do
+    runtime_name="$(basename "$repository_public_key")"
+    copy_file "$ROUTER_UI_TRUST_ROOT/$repository_public_key" \
+      "$CORE_ROOT/usr/share/premier-router/keys/release/$runtime_name" 644
+  done
+cat > "$CORE_ROOT/usr/share/premier-router/build-info" <<EOF
+APP_VERSION=$APP_VERSION
 PACKAGE_VERSION=$PKG_VERSION
+RELEASE_CHANNEL=$BUILD_CHANNEL
 SOURCE_COMMIT=$SOURCE_COMMIT
 SOURCE_DIRTY=$SOURCE_DIRTY
-BUILD_DATE=
+SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
+UPDATER_PROTOCOL=$UPDATER_PROTOCOL
+RELEASE_KEY_ID=$RELEASE_KEY_ID
+RELEASE_KEY_FINGERPRINT=$RELEASE_KEY_FINGERPRINT
 EOF
-chmod 644 "$CORE_ROOT/usr/share/vpn-ui/build-info"
+chmod 644 "$CORE_ROOT/usr/share/premier-router/build-info"
+if [ -n "${ROUTER_UI_DISPOSABLE_TEST_MARKER:-}" ]; then
+  printf '%s' "$ROUTER_UI_DISPOSABLE_TEST_MARKER" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' || {
+    printf 'Disposable test marker is malformed\n' >&2
+    exit 1
+  }
+  printf '%s\n' "$ROUTER_UI_DISPOSABLE_TEST_MARKER" > \
+    "$CORE_ROOT/usr/share/premier-router/disposable-test-marker"
+  chmod 644 "$CORE_ROOT/usr/share/premier-router/disposable-test-marker"
+fi
 mkdir -p "$CORE_ROOT/etc"
 cat > "$CORE_ROOT/etc/vpn-ui-update.conf" <<'EOF'
 AUTO_UPDATE='0'
 AUTO_SCHEDULE='Sunday 04:17'
 EOF
 chmod 600 "$CORE_ROOT/etc/vpn-ui-update.conf"
-write_legacy_manifest "$CORE_ROOT/usr/share/vpn-ui/legacy-files.list"
+write_legacy_manifest "$CORE_ROOT/usr/share/premier-router/legacy-files.list"
 write_control \
   "premier-router-core" \
-  "curl, jsonfilter, nftables-json, coreutils-base64, socat, tailscale, xray-core" \
-  "Premier Router backend scripts, VPN generation, update checks, health checks, and reset control." \
+  "curl, jsonfilter, usign, nftables-json, coreutils-base64, coreutils-nohup, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
+  "Premier Router $APP_VERSION backend, signed updater, validator, rollback, and boot recovery." \
   "$CORE_CONTROL"
 write_core_scripts "$CORE_CONTROL"
 
 LUCI_ROOT="$BUILD_DIR/luci-app-premier-router/root"
 LUCI_CONTROL="$BUILD_DIR/luci-app-premier-router/control"
 copy_tree_file_modes "$ROOT_DIR/luci-vpn-ui/files/www" "$LUCI_ROOT/www"
-# Transitional aliases are generated into the package from the stable source
-# assets. Older installed updaters validate these names during the handoff to
-# package-first v0.8, while source development continues to use stable names.
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js" "$LUCI_ROOT/www/luci-static/resources/view/network/vpn-0-7-0.js" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js" "$LUCI_ROOT/www/luci-static/resources/view/network/tailscale-0-7-5.js" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/update.js" "$LUCI_ROOT/www/luci-static/resources/view/system/update-0-7-3.js" 644
-copy_file "$ROOT_DIR/luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js" "$LUCI_ROOT/www/luci-static/resources/view/system/reset-0-8-0.js" 644
-# LuCI theme footer templates remain theme-owned. A package-owned shared JS
-# helper decorates the existing footer at runtime without replacing footer.ut.
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" 644
 write_control \
   "luci-app-premier-router" \
   "luci-base, rpcd, rpcd-mod-file, premier-router-core (= $PKG_VERSION)" \
-  "Premier Router LuCI pages, RPC ACLs, menu entries, and UI assets." \
+  "Router UI $APP_VERSION LuCI pages, RPC ACLs, menu entries, and canonical status include." \
   "$LUCI_CONTROL"
 write_luci_scripts "$LUCI_CONTROL"
 
@@ -322,16 +462,14 @@ copy_file "$ROOT_DIR/firstboot-wizard/www/styles.css" "$SETUP_ROOT/www/setup/sty
 copy_file "$ROOT_DIR/firstboot-wizard/www/app.js" "$SETUP_ROOT/www/setup/app.js" 644
 for executable in \
   "$SETUP_ROOT/etc/uci-defaults/99-openwrt-fin0-firstboot" \
-  "$SETUP_ROOT/www/cgi-bin/firstboot-setup" \
-  "$SETUP_ROOT/www/cgi-bin/router-prep" \
-  "$SETUP_ROOT/usr/sbin/router-prep"
+  "$SETUP_ROOT/www/cgi-bin/firstboot-setup"
 do
   [ -f "$executable" ] && chmod 755 "$executable"
 done
 write_control \
   "premier-router-setup" \
-  "cgi-io, iwinfo, uhttpd, premier-router-core (= $PKG_VERSION)" \
-  "Premier Router first-boot setup assistant, preparation UI, reset target, and image defaults." \
+  "cgi-io, uhttpd, premier-router-core (= $PKG_VERSION)" \
+  "Router UI $APP_VERSION first-boot setup files for generated images." \
   "$SETUP_CONTROL"
 write_setup_scripts "$SETUP_CONTROL"
 
@@ -355,7 +493,7 @@ SETUP_IPK="$(create_package premier-router-setup)"
     printf 'Size: %s\n' "$size"
     printf 'SHA256sum: %s\n\n' "$sha"
   done > Packages
-  gzip -kf Packages
+  gzip -n -c Packages > Packages.gz
   sha256sum *.ipk Packages Packages.gz > SHA256SUMS
 )
 

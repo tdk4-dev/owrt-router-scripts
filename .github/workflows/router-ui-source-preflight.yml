@@ -1,0 +1,50 @@
+name: Router UI exact-SHA source preflight
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source commit to check without building artifacts
+        required: true
+        type: string
+    outputs:
+      verified_sha:
+        description: Exact source SHA that passed the preflight
+        value: ${{ jobs.preflight.outputs.verified_sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      verified_sha: ${{ steps.identity.outputs.verified_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Reject any source other than the requested SHA
+        id: identity
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          printf 'verified_sha=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+      - name: Install focused backend-test runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq cmake libjson-c-dev
+          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
+          UCODE_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-ucode.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Run build-free functional preflight
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          TEST_UCODE_BIN: ${{ runner.temp }}/bin/ucode
+          UCODE_BIN: ${{ runner.temp }}/bin/ucode
+        run: tests/run-router-ui-source-preflight.sh
