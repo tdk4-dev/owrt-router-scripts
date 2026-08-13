@@ -24,8 +24,8 @@ const luciSource = await fs.readFile(
 	path.join(rootDir, 'luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js'),
 	'utf8'
 );
-const ucode = process.env.TEST_UCODE_BIN || process.env.UCODE_BIN || 'ucode';
 const fakeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'router-ui-luci-adopted-'));
+const overlayMock = path.join(rootDir, 'tests/support/xray-overlay-mock.mjs');
 const configPath = path.join(fakeRoot, 'etc/xray/config.json');
 const ownershipPath = path.join(fakeRoot, 'etc/premier-router/xray-ownership.json');
 const domainsPath = path.join(fakeRoot, 'etc/xray/direct-domains.txt');
@@ -94,6 +94,10 @@ try {
 	);
 
 	const fakeXray = path.join(fakeRoot, 'xray');
+	const fakeUcode = path.join(fakeRoot, 'ucode');
+	await writeExecutable(fakeUcode, `#!/bin/sh
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(overlayMock)} "$@"
+`);
 	await writeExecutable(fakeXray, `#!/bin/sh
 [ "$1" = run ] && [ "$2" = -test ] && [ "$3" = -config ] && jq -e . "$4" >/dev/null 2>&1
 `);
@@ -125,7 +129,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 				VPN_UI_TEST_ACTIVE_XRAY_CONFIG: '/etc/xray/config.json',
 				VPN_UI_XRAY_BIN: fakeXray,
 				VPN_UI_XRAY_OVERLAY_HELPER: overlay,
-				VPN_UI_UCODE_BIN: ucode,
+				VPN_UI_UCODE_BIN: fakeUcode,
 				VPN_UI_UPDATE_PERSIST_ROOT: transactionRoot,
 				VPN_UI_TEST_TAILSCALE_SNAPSHOT:
 					'pid=606;enabled=true;backend=Running;ip4=100.64.0.6;routes=unchanged',
@@ -154,7 +158,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	assert.equal(adopted.ok, true);
 
 	const textareas = {
-		'#vpn-direct-domains': { value: 'full:one.rc7.invalid\ndomain:two.rc7.invalid' },
+		'#vpn-direct-domains': { value: 'full:one.rc8.invalid\ndomain:two.rc8.invalid' },
 		'#vpn-direct-ips': { value: '198.51.100.0/25' }
 	};
 	const helperCalls = [];
@@ -309,12 +313,12 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 	await page.handleApplyRules();
 	assert.deepEqual(helperCalls.at(-1), {
 		command: '/usr/sbin/vpn-ui',
-		args: ['apply-rules', 'full:one.rc7.invalid\ndomain:two.rc7.invalid', '198.51.100.0/25']
+		args: ['apply-rules', 'full:one.rc8.invalid\ndomain:two.rc8.invalid', '198.51.100.0/25']
 	});
 	let config = JSON.parse(await fs.readFile(configPath, 'utf8'));
 	assert.deepEqual(config.routing.rules[2].domain, [
-		'full:one.rc7.invalid',
-		'domain:two.rc7.invalid'
+		'full:one.rc8.invalid',
+		'domain:two.rc8.invalid'
 	]);
 	assert.deepEqual(config.routing.rules[1].ip, ['198.51.100.0/25']);
 	assert.equal(config.routing.domainStrategy, 'AsIs');
@@ -336,7 +340,7 @@ case "\${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
 		ips: await sha256(ipsPath),
 		ownership: await sha256(ownershipPath)
 	};
-	textareas['#vpn-direct-domains'].value = 'full:must-rollback.rc7.invalid';
+	textareas['#vpn-direct-domains'].value = 'full:must-rollback.rc8.invalid';
 	textareas['#vpn-direct-ips'].value = '203.0.113.0/25';
 	faultBoundary = 'after-config';
 	await page.handleApplyRules();

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'publisher:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 ROOT_DIR="${RELEASE_ROOT_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"

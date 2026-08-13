@@ -1,17 +1,16 @@
-# OpenWrt 24.10.5 mediatek/filogic package additions for Xiaomi AX3000T/RD23.
-# Target/profile defaults supply the board-specific kernel and firmware set.
--dnsmasq
+# Lean OpenWrt 24.10.5 package set for Xiaomi AX3000T / RD23 images.
+# ImageBuilder supplies the device-profile packages and appends project IPKs.
+# AdGuardHome and the LuCI package manager are intentionally deferred: the RD23
+# flash budget is reserved for routing, LuCI, Xray, and the signed updater.
 cgi-io
 coreutils-base64
 coreutils-nohup
 curl
-dnsmasq-full
 jsonfilter
 kmod-nft-tproxy
 kmod-tun
 luci
 luci-app-firewall
-luci-app-package-manager
 luci-ssl
 nftables-json
 rpcd-mod-file

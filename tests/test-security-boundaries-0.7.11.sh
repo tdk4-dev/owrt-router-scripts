@@ -65,7 +65,15 @@ sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'require_adopted_ownershi
 sed -n '/^cmd_auto_tick()/,/^}/p' "$HELPER" | grep -Fq 'apply_adopted_rules'
 sed -n '/^case "${1:-status}" in/,/^[[:space:]]*status)/p' "$HELPER" |
   grep -Fq 'require_native_ownership'
-grep -Fq "'disabled': isReadonlyView || mutationDisabled" "$VPN_VIEW"
+grep -Fq "'disabled': (isReadonlyView || mutationDisabled) ? true : null" "$VPN_VIEW"
+grep -Fq "'disabled': (isReadonlyView || !tailscale.running) ? true : null" "$TAILSCALE_VIEW"
+grep -Fq "'disabled': (isReadonlyView || !tailscale.connected) ? true : null" "$TAILSCALE_VIEW"
+if grep -Eh "'disabled':.*(\|\||rulesDisabled|deviceMutationDisabled|profileMutationDisabled)" \
+  "$VPN_VIEW" "$TAILSCALE_VIEW" "$UPDATE_VIEW" |
+  grep -Ev '\? true : null|\|\| null'; then
+  printf 'reachable HTML boolean attribute can serialize a false disabled value\n' >&2
+  exit 1
+fi
 ! grep -Fq '"protocol": ["bittorrent"]' "$HELPER"
 ! grep -Fq '"port": "8080"' "$HELPER"
 

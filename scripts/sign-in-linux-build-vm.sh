@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'signing:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 # Run this script inside the Linux build VM. Private usign bytes arrive only on

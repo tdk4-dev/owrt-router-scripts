@@ -2,16 +2,14 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-      - "hotfix/**"
-      - "docs/**"
-      - "test/**"
-      - "chore/**"
-      - "codex/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

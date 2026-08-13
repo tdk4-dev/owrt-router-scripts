@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'image-build:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"

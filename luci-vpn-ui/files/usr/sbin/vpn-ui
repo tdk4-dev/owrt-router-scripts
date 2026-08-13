@@ -16,7 +16,9 @@ AUTO_CONFIG="${VPN_UI_AUTO_CONFIG:-${ROOT_PREFIX}/etc/xray/vpn-ui-auto.conf}"
 AUTO_POOL_FILE="${VPN_UI_AUTO_POOL_FILE:-${ROOT_PREFIX}/etc/xray/vpn-ui-auto-pool.txt}"
 AUTO_STATE="${VPN_UI_AUTO_STATE:-${ROOT_PREFIX}/tmp/vpn-ui-auto-state}"
 PING_DIR="${VPN_UI_PING_DIR:-${ROOT_PREFIX}/tmp/vpn-ui-pings}"
-VERSION_FILE="/usr/share/vpn-ui/version"
+VERSION_FILE="${VPN_UI_VERSION_FILE:-${ROOT_PREFIX}/usr/share/vpn-ui/version}"
+METADATA_CONFIG="${VPN_UI_METADATA_CONFIG:-premier_router}"
+UCI_BIN="${VPN_UI_UCI_BIN:-uci}"
 DHCP_LEASES_FILE="/tmp/dhcp.leases"
 NFT_FAMILY="inet"
 NFT_TABLE="xray_transparent"
@@ -69,6 +71,230 @@ json_escape() {
 
 json_string() {
   printf '"%s"' "$(json_escape "$1")"
+}
+
+metadata_uci_available() {
+  command -v "$UCI_BIN" >/dev/null 2>&1
+}
+
+metadata_get() {
+  "$UCI_BIN" -q get "$METADATA_CONFIG.router.$1" 2>/dev/null || true
+}
+
+metadata_set_option() {
+  "$UCI_BIN" set "$METADATA_CONFIG.router.$1=$2" >/dev/null
+  METADATA_DIRTY=1
+}
+
+metadata_valid_install_method() {
+  case "$1" in
+    owner-prepared-managed|owner-prepared-standard|self-managed-image|manual-ipk-install|legacy-migrated|dev-vm|unknown) return 0 ;;
+  esac
+  return 1
+}
+
+metadata_valid_support_level() {
+  case "$1" in
+    none|self-managed|standard|managed|priority|developer) return 0 ;;
+  esac
+  return 1
+}
+
+metadata_valid_registration_state() {
+  case "$1" in
+    unregistered|local-only|support-registered|support-enabled|support-disabled|unknown) return 0 ;;
+  esac
+  return 1
+}
+
+metadata_valid_bool() {
+  case "$1" in 0|1) return 0 ;; esac
+  return 1
+}
+
+metadata_valid_footer_mode() {
+  case "$1" in compact|full) return 0 ;; esac
+  return 1
+}
+
+metadata_valid_direct_rules_channel() {
+  case "$1" in stable|beta|custom|unknown) return 0 ;; esac
+  return 1
+}
+
+metadata_valid_install_source() {
+  case "$1" in package-first-local-ipk|package-first-staged|custom-image|legacy-migrated|unknown) return 0 ;; esac
+  return 1
+}
+
+metadata_random_id() {
+  local value uuid_file
+  value=""
+  uuid_file="${ROOT_PREFIX}/proc/sys/kernel/random/uuid"
+  if [ -r "$uuid_file" ]; then
+    value="$(sed -n '1p' "$uuid_file" 2>/dev/null | tr -d '-\r\n')"
+  fi
+  if [ -z "$value" ]; then
+    value="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null || true)"
+  fi
+  if [ -z "$value" ]; then
+    value="$(printf '%s:%s' "$(date +%s)" "$$" | sha256sum | awk '{ print $1 }')"
+  fi
+  printf 'pr-%s' "$(printf '%s' "$value" | cut -c 1-32)"
+}
+
+metadata_ensure_value() {
+  local key="$1" default="$2" validator="$3" value
+  value="$(metadata_get "$key")"
+  if ! "$validator" "$value"; then
+    metadata_set_option "$key" "$default"
+  fi
+}
+
+ensure_router_metadata() {
+  local router_id
+  metadata_uci_available || return 1
+  METADATA_DIRTY=0
+
+  if ! "$UCI_BIN" -q get "$METADATA_CONFIG.router" >/dev/null 2>&1; then
+    "$UCI_BIN" set "$METADATA_CONFIG.router=metadata" >/dev/null
+    METADATA_DIRTY=1
+  fi
+
+  router_id="$(metadata_get router_id)"
+  if [ -z "$router_id" ]; then
+    metadata_set_option router_id "$(metadata_random_id)"
+  fi
+  metadata_ensure_value install_method manual-ipk-install metadata_valid_install_method
+  metadata_ensure_value support_level self-managed metadata_valid_support_level
+  metadata_ensure_value registration_state local-only metadata_valid_registration_state
+  metadata_ensure_value direct_rules_channel stable metadata_valid_direct_rules_channel
+  metadata_ensure_value install_source package-first-local-ipk metadata_valid_install_source
+  metadata_ensure_value support_visible 1 metadata_valid_bool
+  metadata_ensure_value support_tailnet_enabled 0 metadata_valid_bool
+  metadata_ensure_value footer_enabled 1 metadata_valid_bool
+  metadata_ensure_value footer_mode compact metadata_valid_footer_mode
+  metadata_ensure_value prepared_by_owner 0 metadata_valid_bool
+  metadata_ensure_value sealed 0 metadata_valid_bool
+
+  if [ "$METADATA_DIRTY" = "1" ]; then
+    "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
+  fi
+}
+
+router_metadata_json_members() {
+  local version install install_source installed_at support registration direct_rules router_id router_id_short footer_label support_access_state
+  local support_visible support_tailnet footer_enabled footer_mode prepared sealed
+
+  version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
+  [ -n "$version" ] || version="unknown"
+  if ensure_router_metadata; then
+    install="$(metadata_get install_method)"
+    install_source="$(metadata_get install_source)"
+    installed_at="$(metadata_get installed_at)"
+    support="$(metadata_get support_level)"
+    registration="$(metadata_get registration_state)"
+    direct_rules="$(metadata_get direct_rules_channel)"
+    router_id="$(metadata_get router_id)"
+    support_visible="$(metadata_get support_visible)"
+    support_tailnet="$(metadata_get support_tailnet_enabled)"
+    footer_enabled="$(metadata_get footer_enabled)"
+    footer_mode="$(metadata_get footer_mode)"
+    prepared="$(metadata_get prepared_by_owner)"
+    sealed="$(metadata_get sealed)"
+  else
+    install="unknown"
+    install_source="unknown"
+    installed_at=""
+    support="none"
+    registration="unknown"
+    direct_rules="unknown"
+    router_id=""
+    support_visible="1"
+    support_tailnet="0"
+    footer_enabled="1"
+    footer_mode="compact"
+    prepared="0"
+    sealed="0"
+  fi
+  router_id_short="$(printf '%s' "$router_id" | cut -c 1-11)"
+  [ "$support_tailnet" = "1" ] && support_access_state=enabled || support_access_state=disabled
+  footer_label="Router Scripts v$version ($install, support: $support, registration: $registration, support access: $support_access_state)"
+
+  printf '"version":'
+  json_string "$version"
+  printf ',"install_method":'
+  json_string "$install"
+  printf ',"install_source":'
+  json_string "$install_source"
+  printf ',"installed_at":'
+  json_string "$installed_at"
+  printf ',"support_level":'
+  json_string "$support"
+  printf ',"registration_state":'
+  json_string "$registration"
+  printf ',"direct_rules_channel":'
+  json_string "$direct_rules"
+  printf ',"router_id_short":'
+  json_string "$router_id_short"
+  printf ',"footer_label":'
+  json_string "$footer_label"
+  printf ',"support_visible":%s' "$([ "$support_visible" = "1" ] && printf true || printf false)"
+  printf ',"support_tailnet_enabled":%s' "$([ "$support_tailnet" = "1" ] && printf true || printf false)"
+  printf ',"support_access_state":'
+  json_string "$support_access_state"
+  printf ',"footer_enabled":%s' "$([ "$footer_enabled" = "1" ] && printf true || printf false)"
+  printf ',"footer_mode":'
+  json_string "$footer_mode"
+  printf ',"prepared_by_owner":%s' "$([ "$prepared" = "1" ] && printf true || printf false)"
+  printf ',"sealed":%s' "$([ "$sealed" = "1" ] && printf true || printf false)"
+}
+
+cmd_router_metadata() {
+  printf '{"ok":true,'
+  router_metadata_json_members
+  printf '}\n'
+}
+
+cmd_metadata_set() {
+  local install="${1:-}" support="${2:-}" registration="${3:-}"
+  local prepared="${4:-}" support_tailnet="${5:-}"
+  metadata_valid_install_method "$install" || die_json "invalid install method"
+  metadata_valid_support_level "$support" || die_json "invalid support level"
+  metadata_valid_registration_state "$registration" || die_json "invalid registration state"
+  [ -z "$prepared" ] || metadata_valid_bool "$prepared" || die_json "prepared_by_owner must be 0 or 1"
+  [ -z "$support_tailnet" ] || metadata_valid_bool "$support_tailnet" || die_json "support_tailnet_enabled must be 0 or 1"
+  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
+  METADATA_DIRTY=0
+  metadata_set_option install_method "$install"
+  metadata_set_option support_level "$support"
+  metadata_set_option registration_state "$registration"
+  [ -z "$prepared" ] || metadata_set_option prepared_by_owner "$prepared"
+  [ -z "$support_tailnet" ] || metadata_set_option support_tailnet_enabled "$support_tailnet"
+  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
+  cmd_router_metadata
+}
+
+cmd_metadata_installed() {
+  local source="${1:-package-first-local-ipk}" installed_at
+  metadata_valid_install_source "$source" || die_json "invalid install source"
+  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
+  installed_at="$(metadata_get installed_at)"
+  METADATA_DIRTY=0
+  [ -n "$installed_at" ] || metadata_set_option installed_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  metadata_set_option install_source "$source"
+  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
+  cmd_router_metadata
+}
+
+cmd_metadata_sealed() {
+  local sealed="${1:-}"
+  metadata_valid_bool "$sealed" || die_json "sealed must be 0 or 1"
+  ensure_router_metadata || die_json "UCI metadata storage is unavailable"
+  METADATA_DIRTY=0
+  metadata_set_option sealed "$sealed"
+  "$UCI_BIN" commit "$METADATA_CONFIG" >/dev/null
+  cmd_router_metadata
 }
 
 one_line() {
@@ -3165,6 +3391,9 @@ status_json() {
   json_array_from_file "$IPS_FILE"
   printf ',"devices":'
   dhcp_devices_json
+  printf ',"router_metadata":{'
+  router_metadata_json_members
+  printf '}'
   printf ','
   service_state
   printf '}\n'
@@ -3586,6 +3815,7 @@ cmd_tailscale_up() {
   local auth_key="$3"
   local advertise_routes="$4"
   local advertise_exit="$5"
+  local log="/tmp/vpn-ui-tailscale-up.$$"
 
   case "$login_server" in https://*) ;; *) die_json "Tailscale login server must use https://" ;; esac
   [ -n "$hostname" ] || hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || printf openwrt)"
@@ -3602,10 +3832,32 @@ cmd_tailscale_up() {
   [ -n "$auth_key" ] && set -- "$@" "--auth-key=$auth_key"
   [ -n "$advertise_routes" ] && set -- "$@" "--advertise-routes=$advertise_routes"
   [ "$advertise_exit" = "1" ] && set -- "$@" "--advertise-exit-node"
-  tailscale up "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
-    tailscale up --reset "$@" >/tmp/vpn-ui-tailscale-up.log 2>&1 ||
-    die_json "tailscale up failed: $(one_line "$(cat /tmp/vpn-ui-tailscale-up.log 2>/dev/null)")"
+  if ! tailscale up "$@" >"$log" 2>&1; then
+    tailscale up --reset "$@" >"$log" 2>&1 || {
+      rm -f "$log"
+      die_json "tailscale up failed; verify the login server, TLS, and preauth key"
+    }
+  fi
+  rm -f "$log"
+  tailscale_registration_ready ||
+    die_json "tailscale did not reach a registered Running state; verify the login server, TLS, and preauth key"
   tailscale_status_json
+}
+
+tailscale_registration_ready() {
+  local attempt=0 backend ip status_file="/tmp/vpn-ui-tailscale-registration.$$"
+  while [ "$attempt" -lt 20 ]; do
+    backend=""
+    if tailscale status --json > "$status_file" 2>/dev/null; then
+      backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
+    fi
+    rm -f "$status_file"
+    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 1
 }
 
 cmd_tailscale_logout() {
@@ -3683,7 +3935,28 @@ trap 'overlay_process_cleanup' EXIT
 trap 'overlay_process_cleanup; exit 130' INT TERM
 
 case "${1:-status}" in
+  version)
+    sed -n '1p' "$VERSION_FILE" 2>/dev/null || printf 'unknown\n'
+    ;;
+  metadata-init)
+    ensure_router_metadata || die_json "UCI metadata storage is unavailable"
+    cmd_router_metadata
+    ;;
+  metadata|router-metadata|footer-info)
+    cmd_router_metadata
+    ;;
+  metadata-set)
+    shift
+    cmd_metadata_set "$@"
+    ;;
+  metadata-installed)
+    cmd_metadata_installed "${2:-package-first-local-ipk}"
+    ;;
+  metadata-sealed)
+    cmd_metadata_sealed "${2:-}"
+    ;;
   init)
+    ensure_router_metadata || true
     require_native_ownership
     init_state
     runtime_memory_maintenance

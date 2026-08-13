@@ -99,6 +99,20 @@ pr_package_version_matches_app() {
   [ "$package" = "$expected" ]
 }
 
+pr_offer_identity_decision() {
+  local current="$1" target="$2" installed_hash="${3:-}" offered_hash="${4:-}"
+  pr_version_valid "$current" && pr_version_valid "$target" || return 2
+  if [ "$target" = "$current" ]; then
+    printf '%s' "$installed_hash" | grep -Eq '^[0-9a-f]{64}$' || return 3
+    printf '%s' "$offered_hash" | grep -Eq '^[0-9a-f]{64}$' || return 3
+    [ "$installed_hash" = "$offered_hash" ] || return 4
+    printf 'repeat-identical\n'
+    return 0
+  fi
+  pr_version_newer "$target" "$current" || return 5
+  printf 'upgrade\n'
+}
+
 pr_download() {
   local url="$1" dst="$2" attempt=1
   case "$url" in https://*) ;; *) return 1 ;; esac
@@ -211,6 +225,7 @@ pr_manifest_validate() {
   local expected_fingerprint="${5:-}" key_fingerprint
   local schema protocol channel app package_version tag commit dirty key_id minimum
   local openwrt_min openwrt_max openwrt_version target
+  local installed_manifest installed_hash offered_hash
   local index=0 count=0 name filename version architecture size sha install_order
   local names="" filenames="" orders="" validator_file validator_size validator_sha validator_protocol
   local object object_file object_size object_sha object_protocol
@@ -248,8 +263,20 @@ pr_manifest_validate() {
     pr_fail "invalid minimum updater protocol" || return 1
   [ "$minimum" -le "$PR_UPDATE_PROTOCOL" ] ||
     pr_fail "updater protocol $PR_UPDATE_PROTOCOL is too old" || return 1
-  pr_transition_supported "$manifest" "$source_version" "$source_protocol" ||
-    pr_fail "unsupported source transition: $source_version protocol $source_protocol" || return 1
+  if [ "$source_version" = "$app" ]; then
+    installed_manifest="${PR_INSTALLED_MANIFEST_FILE:-}"
+    [ -s "$installed_manifest" ] ||
+      pr_fail "same-version offer has no installed manifest identity" || return 1
+    installed_hash="$(pr_sha256 "$installed_manifest")"
+    offered_hash="$(pr_sha256 "$manifest")"
+    pr_offer_identity_decision "$source_version" "$app" "$installed_hash" "$offered_hash" >/dev/null ||
+      pr_fail "same-version release identity collision" || return 1
+  else
+    pr_version_newer "$app" "$source_version" ||
+      pr_fail "release target is not newer than the installed version" || return 1
+    pr_transition_supported "$manifest" "$source_version" "$source_protocol" ||
+      pr_fail "unsupported source transition: $source_version protocol $source_protocol" || return 1
+  fi
 
   openwrt_min="$(pr_json_get "$manifest" '@.supported_openwrt.min' '.supported_openwrt.min // empty')"
   openwrt_max="$(pr_json_get "$manifest" '@.supported_openwrt.max' '.supported_openwrt.max // empty')"

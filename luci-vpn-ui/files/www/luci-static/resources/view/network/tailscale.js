@@ -300,13 +300,13 @@ return view.extend({
 				E('button', {
 					'data-control-id': 'tailscale-stop',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.running,
+					'disabled': (isReadonlyView || !tailscale.running) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleStop')
 				}, _('Stop service')),
 				E('button', {
 					'data-control-id': 'tailscale-logout',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.connected,
+					'disabled': (isReadonlyView || !tailscale.connected) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleLogout')
 				}, _('Log out')),
 				E('button', {

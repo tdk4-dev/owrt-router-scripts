@@ -1,17 +1,22 @@
-Router UI 0.7.11 RC7
+Router UI 0.7.11 RC8
 
-Router UI `0.7.11-rc.7` is the next immutable candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc7-1`, its
+Router UI `0.7.11-rc.8` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc8-1`, its
 channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.7`, and its stable successor is `0.7.11` /
+`vpn-panel-v0.7.11-rc.8`, and its stable successor is `0.7.11` /
 `0.7.11-1`. It contains no Router UI 0.8 feature work.
 
-RC7 preserves protocol-2 signed-manifest verification, transactional package
+RC8 is not immutable release evidence merely because this identity is present
+in source. It becomes consumed when its sole provisional package-build
+invocation begins; Phase 1 can only nominate the exact source for a separately
+authorized Phase 2 freeze decision.
+
+RC8 preserves protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
 sets are supported source states, but their retained evidence does not qualify
-RC7. The missing signed-manifest digest for the first RC6 byte set remains
+RC8. The missing signed-manifest digest for the first RC6 byte set remains
 unknown and is never replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated

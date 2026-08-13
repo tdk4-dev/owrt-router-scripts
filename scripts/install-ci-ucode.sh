@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'tool-install:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 umask 077
 
 UCODE_COMMIT=3f64c8089bf3ea4847c96b91df09fbfcaec19e1d

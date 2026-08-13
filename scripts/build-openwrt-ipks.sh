@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ -z "${ROUTER_UI_TIER0_GUARD_LOG:-}" ] || { printf 'product-build:%s\n' "${0##*/}" >> "$ROUTER_UI_TIER0_GUARD_LOG"; exit 97; }
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
@@ -170,6 +171,12 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
 fi
 case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
 
+VPN_UI_ROOT_PREFIX="$root_prefix" \
+  "$root_prefix/usr/sbin/vpn-ui" metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
+VPN_UI_ROOT_PREFIX="$root_prefix" \
+  "$root_prefix/usr/sbin/vpn-ui" metadata-installed package-first-local-ipk \
+    >/tmp/premier-router-installed-metadata.log 2>&1 || true
+
 if [ "${PREMIER_ROUTER_PRESERVE_CRON:-0}" = 1 ]; then
   "$root_prefix/etc/init.d/premier-router-update-recovery" enable
   exit 0
@@ -235,6 +242,7 @@ exit 0
 EOF
   chmod 755 "$control_dir/postinst" "$control_dir/postrm"
 cat > "$control_dir/conffiles" <<'EOF'
+/etc/config/premier_router
 /etc/vpn-ui-update.conf
 EOF
 }
@@ -388,6 +396,7 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.u
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery" \
   "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
 copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/release.pub" 644
 mkdir -p "$CORE_ROOT/usr/share/premier-router/keys"
 printf '%s\n' "$RELEASE_KEY_ID" > "$CORE_ROOT/usr/share/premier-router/keys/release-key-id"

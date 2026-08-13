@@ -28,11 +28,23 @@ const unexpectedConsoleErrors = [];
 const originalConsoleError = console.error;
 console.error = (...args) => unexpectedConsoleErrors.push(args.map(String).join(' '));
 
-const element = (tag, attrs, children) => ({
-	tag,
-	attrs: attrs || {},
-	children: Array.isArray(children) ? children : [children]
-});
+const element = (tag, attrs, children) => {
+	const normalizedAttrs = Object.fromEntries(Object.entries(attrs || {})
+		.filter(([, value]) => value !== null && value !== undefined));
+	return {
+		tag,
+		attrs: normalizedAttrs,
+		children: Array.isArray(children) ? children : [children],
+		getAttribute(name) {
+			if (!Object.hasOwn(this.attrs, name))
+				return null;
+			return this.attrs[name] === true ? '' : String(this.attrs[name]);
+		},
+		get disabled() {
+			return Object.hasOwn(this.attrs, 'disabled');
+		}
+	};
+};
 const walk = function*(node) {
 	if (!node || typeof node !== 'object')
 		return;
@@ -52,8 +64,15 @@ const controls = tree => {
 	}
 	return result;
 };
-const blocked = node => node.attrs.disabled === true || node.attrs.disabled === 'disabled' ||
+const blocked = node => node.getAttribute('disabled') !== null ||
 	node.attrs['aria-disabled'] === 'true';
+const interactable = node => !blocked(node) && typeof node.attrs.click === 'function';
+const dispatchControl = async node => {
+	if (blocked(node))
+		return false;
+	await node.attrs.click({ preventDefault() {} });
+	return true;
+};
 
 function makePage(viewName, permission, execImpl = async () => ({ stdout: '{"ok":true}' })) {
 	const modals = [];
@@ -132,7 +151,11 @@ for (const [state, ownership] of Object.entries(ownershipStates)) {
 		if (!rendered.has(id))
 			continue;
 		const shouldBlock = ['manual-unadopted', 'adopted-drift-recovery', 'reboot-pending'].includes(state);
-		assert.equal(blocked(rendered.get(id)), shouldBlock, `${state}/${id} blocked state mismatch`);
+		const control = rendered.get(id);
+		assert.equal(blocked(control), shouldBlock, `${state}/${id} blocked state mismatch`);
+		assert.equal(control.disabled, shouldBlock, `${state}/${id} native disabled property mismatch`);
+		assert.equal(control.getAttribute('disabled') !== null, shouldBlock,
+			`${state}/${id} disabled attribute presence mismatch`);
 	}
 	assert.equal(rendered.has('vpn-adoption-preview'),
 		['manual-unadopted', 'adopted-drift-recovery'].includes(state),
@@ -163,7 +186,13 @@ for (const [state, ownership] of Object.entries(ownershipStates)) {
 		ownership: { adoption_required: true, adopted: false, healthy: false, mutations_allowed: true }
 	}));
 	for (const id of vpnMutationIds)
-		if (rendered.has(id)) assert.equal(blocked(rendered.get(id)), true, `read-only/${id} must block`);
+		if (rendered.has(id)) {
+			const control = rendered.get(id);
+			assert.equal(blocked(control), true, `read-only/${id} must block`);
+			assert.equal(control.disabled, true, `read-only/${id} native disabled property must be true`);
+			assert.notEqual(control.getAttribute('disabled'), null,
+				`read-only/${id} disabled attribute must be present`);
+		}
 	assert.equal(blocked(rendered.get('vpn-adoption-preview')), false, 'read-only preview remains read-only-safe');
 	assert.equal(blocked(rendered.get('vpn-adoption-confirm')), true, 'read-only adoption confirmation must block');
 	assert.equal(blocked(rendered.get('vpn-domain-test')), false, 'read-only domain test remains available');
@@ -175,6 +204,24 @@ const tailscaleData = {
 		hostname: 'fixture', peers: [{ hostname: 'peer', ip: '100.64.0.2', online: true }]
 	}
 };
+
+for (const action of ['tailscale-stop', 'tailscale-logout']) {
+	const calls = [];
+	const { page } = makePage('tailscale', true, async (command, args) => {
+		calls.push({ command, args });
+		return { stdout: JSON.stringify({ ok: true, tailscale: { running: true, connected: true } }) };
+	});
+	assert.equal(tailscaleData.tailscale.running, true, `${action} fixture must start running`);
+	assert.equal(tailscaleData.tailscale.connected, true, `${action} fixture must start connected`);
+	const rendered = controls(page.renderBody(tailscaleData));
+	const control = rendered.get(action);
+	assert.equal(control.getAttribute('disabled'), null, `${action} must omit disabled attribute`);
+	assert.equal(control.disabled, false, `${action} native disabled property must be false`);
+	assert.equal(interactable(control), true, `${action} must be interactable`);
+	assert.equal(await dispatchControl(control), true, `${action} must dispatch`);
+	assert.deepEqual(calls.at(-1), { command: '/usr/sbin/vpn-ui', args: [action] });
+}
+
 for (const permission of [true, false]) {
 	const { page } = makePage('tailscale', permission);
 	const rendered = controls(page.renderBody(tailscaleData));
@@ -182,9 +229,31 @@ for (const permission of [true, false]) {
 		'tailscale-login-server', 'tailscale-hostname', 'tailscale-auth-key',
 		'tailscale-routes', 'tailscale-exit-node', 'tailscale-restart',
 		'tailscale-stop', 'tailscale-logout', 'tailscale-apply'
-	])
+	]) {
 		assert.equal(blocked(rendered.get(id)), !permission, `${id} permission boundary mismatch`);
+		assert.equal(rendered.get(id).disabled, !permission, `${id} native disabled property mismatch`);
+		assert.equal(rendered.get(id).getAttribute('disabled') !== null, !permission,
+			`${id} disabled attribute presence mismatch`);
+	}
 	assert.equal(blocked(rendered.get('tailscale-peer-ping')), false, 'peer ping is read-only-safe');
+}
+
+for (const [name, data] of [
+	['stopped', { tailscale: { running: false, connected: true, peers: [] } }],
+	['disconnected', { tailscale: { running: true, connected: false, peers: [] } }]
+]) {
+	const calls = [];
+	const { page } = makePage('tailscale', true, async (command, args) => {
+		calls.push({ command, args });
+		return { stdout: '{"ok":true}' };
+	});
+	const rendered = controls(page.renderBody(data));
+	const id = name === 'stopped' ? 'tailscale-stop' : 'tailscale-logout';
+	const control = rendered.get(id);
+	assert.notEqual(control.getAttribute('disabled'), null, `${name}/${id} must carry disabled attribute`);
+	assert.equal(control.disabled, true, `${name}/${id} native disabled property must be true`);
+	assert.equal(await dispatchControl(control), false, `${name}/${id} blocked control must not dispatch`);
+	assert.deepEqual(calls, [], `${name}/${id} blocked control must not reach backend`);
 }
 
 for (const permission of [true, false]) {
@@ -192,10 +261,10 @@ for (const permission of [true, false]) {
 	const { page } = makePage('update', permission, async (command, args) => {
 		calls.push({ command, args });
 		assert.deepEqual(acl[permission ? 'write' : 'read'].file[command], ['exec']);
-		return { stdout: JSON.stringify({ ok: true, current: '0.7.11-rc.7' }) };
+		return { stdout: JSON.stringify({ ok: true, current: '0.7.11-rc.8' }) };
 	});
 	const data = {
-		current: '0.7.11-rc.7', current_channel: 'candidate', latest: '0.7.11',
+		current: '0.7.11-rc.8', current_channel: 'candidate', latest: '0.7.11',
 		available: true, auto_update: false, job: {}, checked_at: '2026-08-13T09:00:00Z'
 	};
 	const rendered = controls(page.renderBody(data));
@@ -203,7 +272,7 @@ for (const permission of [true, false]) {
 		assert.equal(blocked(rendered.get(id)), !permission, `${id} permission boundary mismatch`);
 	if (permission) {
 		const status = await page.callHelper(['update-status']);
-		assert.equal(status.current, '0.7.11-rc.7');
+		assert.equal(status.current, '0.7.11-rc.8');
 		assert.deepEqual(calls.at(-1), { command: '/usr/sbin/vpn-ui-readonly', args: ['update-status'] });
 	}
 }

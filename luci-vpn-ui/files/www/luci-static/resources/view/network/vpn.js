@@ -558,7 +558,7 @@ return view.extend({
 				E('button', {
 					'data-control-id': 'vpn-global-toggle',
 					'class': 'cbi-button ' + (enabled ? 'cbi-button-negative' : 'cbi-button-positive'),
-					'disabled': isReadonlyView || mutationDisabled,
+					'disabled': (isReadonlyView || mutationDisabled) ? true : null,
 					'click': L.bind(this.handleToggleXray, this, enabled)
 				}, enabled ? _('Disable') : _('Enable'))
 			])
@@ -683,14 +683,14 @@ return view.extend({
 						'type': 'checkbox',
 						'data-auto-profile': profile.id,
 						'checked': profile.auto_pool ? '' : null,
-						'disabled': isReadonlyView || profileMutationDisabled
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 					})
 				]),
 				E('td', { 'class': 'td left' }, [
 					E('button', {
 						'data-control-id': 'vpn-profile-use',
 						'class': 'cbi-button ' + (selected ? 'cbi-button-positive' : 'cbi-button-action'),
-						'disabled': selected || isReadonlyView || profileMutationDisabled,
+						'disabled': (selected || isReadonlyView || profileMutationDisabled) ? true : null,
 						'click': L.bind(this.handleSelect, this, profile.id)
 					}, selected ? _('Selected') : _('Use'))
 				]),
@@ -713,7 +713,7 @@ return view.extend({
 					E('button', {
 						'data-control-id': 'vpn-profile-delete',
 						'class': 'cbi-button cbi-button-remove',
-						'disabled': selected || isReadonlyView || profileMutationDisabled,
+						'disabled': (selected || isReadonlyView || profileMutationDisabled) ? true : null,
 						'click': L.bind(this.handleDelete, this, profile.id)
 					}, _('Delete'))
 				])
@@ -752,18 +752,18 @@ return view.extend({
 					'id': 'vpn-vless-url',
 					'type': 'text',
 					'placeholder': 'vless://...',
-					'disabled': isReadonlyView || profileMutationDisabled
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 				}),
 				E('button', {
 					'data-control-id': 'vpn-profile-add',
 					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView || profileMutationDisabled,
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleAdd')
 				}, _('Add')),
 				E('button', {
 					'data-control-id': 'vpn-ping-refresh',
 					'class': 'cbi-button cbi-button-neutral',
-					'disabled': isReadonlyView || profileMutationDisabled,
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleRefresh')
 				}, _('Refresh pings'))
 			]),
@@ -784,14 +784,14 @@ return view.extend({
 					E('button', {
 						'data-control-id': 'vpn-subscription-sync',
 						'class': 'cbi-button cbi-button-action',
-						'disabled': isReadonlyView || profileMutationDisabled,
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 						'click': L.bind(this.handleSyncSubscription, this, subscription.id)
 					}, _('Refresh')),
 					' ',
 					E('button', {
 						'data-control-id': 'vpn-subscription-delete',
 						'class': 'cbi-button cbi-button-remove',
-						'disabled': isReadonlyView || profileMutationDisabled,
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 						'click': L.bind(this.handleDeleteSubscription, this, subscription.id)
 					}, _('Remove'))
 				])
@@ -808,12 +808,12 @@ return view.extend({
 					'type': 'password',
 					'autocomplete': 'off',
 					'placeholder': 'https://provider.example/sub/...',
-					'disabled': isReadonlyView || profileMutationDisabled
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 				}),
 				E('button', {
 					'data-control-id': 'vpn-subscription-import',
 					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView || profileMutationDisabled,
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleAddSubscription')
 				}, _('Import'))
 			]),
@@ -846,7 +846,7 @@ return view.extend({
 						'id': 'vpn-auto-failover',
 						'type': 'checkbox',
 						'checked': auto.failover ? '' : null,
-						'disabled': isReadonlyView || profileMutationDisabled
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 					}),
 					_('Fail over when the current server is unreachable')
 				]),
@@ -856,7 +856,7 @@ return view.extend({
 						'id': 'vpn-auto-periodic',
 						'type': 'checkbox',
 						'checked': auto.periodic ? '' : null,
-						'disabled': isReadonlyView || profileMutationDisabled
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 					}),
 					_('Periodically prefer a materially faster server')
 				]),
@@ -869,7 +869,7 @@ return view.extend({
 						'min': '6',
 						'max': '168',
 						'value': auto.periodic_hours || 12,
-						'disabled': isReadonlyView || profileMutationDisabled
+						'disabled': (isReadonlyView || profileMutationDisabled) ? true : null
 					})
 				])
 			]),
@@ -877,7 +877,7 @@ return view.extend({
 				E('button', {
 					'data-control-id': 'vpn-auto-apply',
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': isReadonlyView || profileMutationDisabled,
+					'disabled': (isReadonlyView || profileMutationDisabled) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleApplyAuto')
 				}, _('Apply switching settings'))
 			])
@@ -915,7 +915,7 @@ return view.extend({
 						'id': 'vpn-direct-domains',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': rulesDisabled,
+						'disabled': rulesDisabled ? true : null,
 						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.domains))
 				]),
@@ -926,7 +926,7 @@ return view.extend({
 						'id': 'vpn-direct-ips',
 						'spellcheck': 'false',
 						'wrap': 'off',
-						'disabled': rulesDisabled,
+						'disabled': rulesDisabled ? true : null,
 						'input': L.bind(this.handleRuleSearch, this)
 					}, lines(data.ips))
 				])
@@ -935,7 +935,7 @@ return view.extend({
 				E('button', {
 					'data-control-id': 'vpn-direct-apply',
 					'class': 'cbi-button cbi-button-positive',
-					'disabled': rulesDisabled,
+					'disabled': rulesDisabled ? true : null,
 					'click': ui.createHandlerFn(this, 'handleApplyRules')
 				}, _('Apply rules'))
 			])
@@ -962,7 +962,7 @@ return view.extend({
 					E('button', {
 						'data-control-id': 'vpn-device-toggle',
 						'class': 'cbi-button ' + (disabled ? 'cbi-button-positive' : 'cbi-button-negative'),
-						'disabled': isReadonlyView || deviceMutationDisabled,
+						'disabled': (isReadonlyView || deviceMutationDisabled) ? true : null,
 						'click': L.bind(this.handleToggleDevice, this, device)
 					}, disabled ? _('Enable') : _('Disable'))
 				])

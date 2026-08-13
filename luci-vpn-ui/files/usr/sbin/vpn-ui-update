@@ -37,6 +37,8 @@ WORKER_HANDSHAKE_DIR="${VPN_UI_WORKER_HANDSHAKE_DIR:-$PERSIST_ROOT/worker-handsh
 WORKER_HANDSHAKE_TIMEOUT="${VPN_UI_WORKER_HANDSHAKE_TIMEOUT:-10}"
 INSTALLED_MANIFEST="${VPN_UI_INSTALLED_MANIFEST:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json}"
 INSTALLED_SIGNATURE="${VPN_UI_INSTALLED_SIGNATURE:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json.sig}"
+PR_INSTALLED_MANIFEST_FILE="$INSTALLED_MANIFEST"
+export PR_INSTALLED_MANIFEST_FILE
 KNOWN_GOOD="${VPN_UI_KNOWN_GOOD:-$PERSIST_ROOT/known-good}"
 QUARANTINE_DIR="${VPN_UI_QUARANTINE:-$PERSIST_ROOT/quarantine}"
 TEST_MARKER="${VPN_UI_TEST_MARKER:-${ROOT_PREFIX}/etc/premier-router/test-mode}"
@@ -1691,9 +1693,19 @@ fail_before_mutation() {
 
 apply_verified_assets() {
   local assets="$1" manifest="$2" signature="$3" invocation="$4" delegate="${5:-no}"
-  local key_id rc=""
+  local key_id rc="" source_version source_protocol target_version
   key_id="$(pr_read_first "$KEY_ID_FILE")"
   pr_verify_signature "$manifest" "$signature" "$PUBLIC_KEY" || return 21
+  source_version="$(current_version)"
+  source_protocol="$(source_protocol)"
+  [ -n "$source_protocol" ] || source_protocol=1
+  target_version="$(pr_json_get "$manifest" '@.app_version' '.app_version // empty')"
+  if [ "$target_version" = "$source_version" ]; then
+    pr_manifest_validate "$manifest" "$key_id" "$source_version" "$source_protocol" || return 23
+    validate_asset_set "$assets" "$manifest" || return 28
+    printf 'Router UI %s is already installed with the identical signed manifest.\n' "$source_version"
+    return 0
+  fi
   transaction_init "$manifest" "$invocation" || return 22
   pr_manifest_validate "$manifest" "$key_id" "$J_SOURCE_APP_VERSION" "$J_SOURCE_UPDATER_PROTOCOL" ||
     fail_before_mutation 23 "signed manifest is incompatible with this source" || return $?

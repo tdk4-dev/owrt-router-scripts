@@ -34,8 +34,8 @@ grep -Fq 'case "$TARGET_CHANNEL" in stable|candidate)' "$ROOT_DIR/rescue-router-
 grep -Fq 'ROUTER_UI_RELEASE_CHANNEL="$TARGET_CHANNEL"' "$ROOT_DIR/rescue-router-ui.sh"
 
 PREMIER_ROUTER_HOST_TEST=1 ROUTER_UI_TEST_VALIDATE_REQUESTED_VERSION_ONLY=1 \
-  ROUTER_UI_VERSION=0.7.11-rc.7 sh "$ROOT_DIR/install-router-ui-release.sh" |
-  grep -Fqx 'Recognized requested version: 0.7.11-rc.7'
+  ROUTER_UI_VERSION=0.7.11-rc.8 sh "$ROOT_DIR/install-router-ui-release.sh" |
+  grep -Fqx 'Recognized requested version: 0.7.11-rc.8'
 if PREMIER_ROUTER_HOST_TEST=1 ROUTER_UI_TEST_VALIDATE_REQUESTED_VERSION_ONLY=1 \
   ROUTER_UI_VERSION=0.7.11-rc sh "$ROOT_DIR/install-router-ui-release.sh" \
   > "$TMP_ROOT/installer-rejected.out" 2> "$TMP_ROOT/installer-rejected.err"; then
