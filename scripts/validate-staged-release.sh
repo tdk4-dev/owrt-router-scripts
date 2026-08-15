@@ -184,12 +184,21 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
   jq -e '
     .app_version == "0.7.11" and .package_version == "0.7.11-1" and
     any(.transitions[];
+      .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
+      .mode == "package-v2-rc") and
+    any(.transitions[];
+      .source_version == "0.7.11-rc.6" and .source_protocol == 2 and
+      .mode == "package-v2-rc") and
+    any(.transitions[];
+      .source_version == "0.7.11-rc.7" and .source_protocol == 2 and
+      .mode == "package-v2-rc") and
+    any(.transitions[];
       .source_version == "0.7.11-rc.14" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
     any(.transitions[];
       .source_version == "0.7.11-rc.15" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC14 and RC15 protocol-2 transitions"
+  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC5, RC6, RC7, RC14, and RC15 protocol-2 transitions"
 else
   jq -e '
     .app_version == "0.7.11-rc.15" and .package_version == "0.7.11~rc15-1" and
