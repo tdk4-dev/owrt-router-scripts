@@ -44,3 +44,6 @@ Installer manifests and update-cache paths have separate, explicit lifecycle
 owners; an IPK-only run requires them to be absent as a pair or present as a
 complete pair, and the canonical installer/update qualification verifies their
 later creation.
+Baseline UCI files created at runtime retain explicit subsystem ownership
+(`base-files:runtime`, `netifd:runtime`, and `dnsmasq-full:runtime`) even when
+they are intentionally absent from every package file list.

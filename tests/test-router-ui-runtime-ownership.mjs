@@ -87,7 +87,7 @@ for (const object of projectPaths) {
 
 for (const token of [
   '/etc/init.d/xray', '/etc/init.d/xray-transparent', 'xray.enabled.enabled',
-  'tailscale.settings', 'nft ', 'ip -4 ', 'conntrack ', '/etc/xray/direct-domains.txt',
+  'tailscale.@settings[0]', 'nft ', 'ip -4 ', 'conntrack ', '/etc/xray/direct-domains.txt',
   '/etc/xray/direct-ips.txt', '/etc/xray/vpn-ui-device-bypass-macs.txt'
 ])
   assert.ok(sources.includes(token), `census token ${token} must remain connected to backend source`);

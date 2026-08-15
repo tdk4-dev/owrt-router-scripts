@@ -14,10 +14,13 @@ row() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >> "$RESULTS"; }
 fail_row() { FAILED=$((FAILED + 1)); row FAIL "$@"; }
 
 owners_for_path() {
-  local target="$1"
-  opkg search "$target" 2>/dev/null |
-    awk -F ' - ' -v target="$target" '$2 == target { print $1 }' |
-    LC_ALL=C sort -u
+  local target="$1" list package
+  for list in /usr/lib/opkg/info/*.list; do
+    [ -f "$list" ] || continue
+    grep -qxF "$target" "$list" || continue
+    package="${list##*/}"
+    printf '%s\n' "${package%.list}"
+  done | LC_ALL=C sort -u
 }
 
 check_path() {
@@ -38,20 +41,21 @@ check_path() {
 }
 
 check_command() {
-  local name="$1" expected="$2" resolved owners count
+  local name="$1" expected="$2" resolved canonical owners count
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [ -z "$resolved" ] || [ ! -x "$resolved" ]; then
     fail_row executable "$name" missing "$expected" none 'required executable is absent'
     return
   fi
-  owners="$(owners_for_path "$resolved")"
+  canonical="$(readlink -f "$resolved" 2>/dev/null || printf '%s' "$resolved")"
+  owners="$(owners_for_path "$canonical")"
   count="$(printf '%s\n' "$owners" | awk 'NF { count++ } END { print count+0 }')"
   if [ "$count" -ne 1 ]; then
     fail_row executable "$name" "$resolved" "$expected" "${owners:-none}" 'resolved executable ownership is missing or ambiguous'
   elif [ "$owners" != "$expected" ]; then
     fail_row executable "$name" "$resolved" "$expected" "$owners" 'resolved executable owner differs from the census contract'
   else
-    row PASS executable "$name" "$resolved" "$expected" "$owners" installed
+    row PASS executable "$name" "$resolved -> $canonical" "$expected" "$owners" installed
   fi
 }
 
@@ -65,13 +69,26 @@ check_package() {
 }
 
 check_uci() {
-  local object="$1" target="$2" expected="$3" owners count
+  local object="$1" target="$2" expected="$3" owners count runtime_package
   if ! uci -q get "$object" >/dev/null 2>&1 && ! uci -q show "$object" >/dev/null 2>&1; then
     fail_row uci-object "$object" missing "$expected" none "required UCI object is absent from $target"
     return
   fi
   owners="$(owners_for_path "$target")"
   count="$(printf '%s\n' "$owners" | awk 'NF { count++ } END { print count+0 }')"
+  case "$expected" in
+    *:runtime)
+      runtime_package="${expected%:runtime}"
+      if [ "$count" -ne 0 ]; then
+        fail_row uci-object "$object" "$target" "$expected" "$owners" 'runtime-generated UCI path also has a package file owner'
+      elif ! opkg status "$runtime_package" 2>/dev/null | grep -Eq '^Status: install (user|ok) installed$'; then
+        fail_row uci-object "$object" "$target" "$expected" none 'runtime owner package is not installed'
+      else
+        row PASS uci-object "$object" "$target" "$expected" "$expected" present
+      fi
+      return
+      ;;
+  esac
   if [ "$count" -ne 1 ]; then
     fail_row uci-object "$object" "$target" "$expected" "${owners:-none}" 'UCI configuration ownership is missing or ambiguous'
   elif [ "$owners" != "$expected" ]; then
@@ -132,7 +149,7 @@ init-service|/etc/init.d/cron|busybox
 init-service|/etc/init.d/rpcd|rpcd
 init-service|/etc/init.d/uhttpd|uhttpd
 init-service|/etc/init.d/dropbear|dropbear
-init-service|/etc/init.d/dnsmasq|dnsmasq
+init-service|/etc/init.d/dnsmasq|dnsmasq-full
 init-service|/etc/init.d/firewall|firewall4
 EOF
 
@@ -169,10 +186,10 @@ fi
 
 check_uci xray /etc/config/xray xray-core
 check_uci premier_router.router /etc/config/premier_router premier-router-core
-check_uci tailscale.settings /etc/config/tailscale tailscale
-check_uci 'system.@system[0]' /etc/config/system base-files
-check_uci network.lan /etc/config/network netifd
-check_uci dhcp.lan /etc/config/dhcp dnsmasq
+check_uci 'tailscale.@settings[0]' /etc/config/tailscale tailscale
+check_uci 'system.@system[0]' /etc/config/system base-files:runtime
+check_uci network.lan /etc/config/network netifd:runtime
+check_uci dhcp.lan /etc/config/dhcp dnsmasq-full
 check_uci 'firewall.@defaults[0]' /etc/config/firewall firewall4
 
 if ubus -S list file 2>/dev/null | grep -Fxq file; then
@@ -184,7 +201,7 @@ fi
 check_runtime_path configuration /etc/crontabs/root premier-router-core:runtime post-install
 check_runtime_path runtime-state /etc/firstboot-wizard premier-router-setup:runtime post-install
 check_runtime_path configuration /etc/firstboot-wizard/complete premier-router-setup:runtime post-install
-check_runtime_path runtime-state /tmp/dhcp.leases dnsmasq:runtime post-service-start
+check_runtime_path runtime-state /tmp/dhcp.leases dnsmasq-full:runtime post-service-start
 check_runtime_path runtime-state /etc/xray xray-core dependency-install
 
 if [ -e /etc/premier-router/installed-manifest.json ] ||

@@ -339,12 +339,12 @@ configure_tailscale() {
   case "$login_server" in https://*) ;; *) fail "Tailscale or Headscale URL must use HTTPS." ;; esac
   [ -n "$auth_key" ] || fail "Tailscale preauth key is required."
 
-  uci set tailscale.settings="settings"
-  uci set tailscale.settings.log_stderr="1"
-  uci set tailscale.settings.log_stdout="1"
-  uci set tailscale.settings.port="41641"
-  uci set tailscale.settings.state_file="/etc/tailscale/tailscaled.state"
-  uci set tailscale.settings.fw_mode="nftables"
+  uci -q get 'tailscale.@settings[0]' >/dev/null 2>&1 || uci add tailscale settings >/dev/null
+  uci set 'tailscale.@settings[0].log_stderr=1'
+  uci set 'tailscale.@settings[0].log_stdout=1'
+  uci set 'tailscale.@settings[0].port=41641'
+  uci set 'tailscale.@settings[0].state_file=/etc/tailscale/tailscaled.state'
+  uci set 'tailscale.@settings[0].fw_mode=nftables'
   uci commit tailscale
   /etc/init.d/tailscale enable >/dev/null 2>&1 || true
   /etc/init.d/tailscale restart >/dev/null 2>&1 || /etc/init.d/tailscale start >/dev/null 2>&1 || true
