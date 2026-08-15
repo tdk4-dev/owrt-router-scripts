@@ -546,7 +546,8 @@ EOF
     cat > "$transaction_dir/state.json" <<EOF
 {
   "state":"$state",
-  "mutation_started":true
+  "mutation_started":true,
+  "fixture":true
 }
 EOF
   }
@@ -557,7 +558,8 @@ EOF
     cat > "$journal" <<EOF
 {
   "state":"$state",
-  "mutation_started":true
+  "mutation_started":true,
+  "fixture":true
 }
 EOF
   }
