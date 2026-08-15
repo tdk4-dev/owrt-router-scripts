@@ -330,6 +330,7 @@ EOF
   chmod 755 "$control_dir/preinst" "$control_dir/postinst" "$control_dir/postrm"
 cat > "$control_dir/conffiles" <<'EOF'
 /etc/config/premier_router
+/etc/init.d/xray-transparent
 /etc/vpn-ui-update.conf
 EOF
 }
@@ -482,6 +483,8 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.u
   "$CORE_ROOT/usr/libexec/premier-router/xray-overlay.uc" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery" \
   "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" \
+  "$CORE_ROOT/etc/init.d/xray-transparent" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
 copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/release.pub" 644
@@ -529,7 +532,7 @@ chmod 600 "$CORE_ROOT/etc/vpn-ui-update.conf"
 write_legacy_manifest "$CORE_ROOT/usr/share/premier-router/legacy-files.list"
 write_control \
   "premier-router-core" \
-  "curl, jsonfilter, usign, nftables-json, coreutils-base64, coreutils-nohup, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
+  "ca-bundle, curl, jsonfilter, usign, nftables-json, kmod-nft-tproxy, ip-full, conntrack, coreutils-base64, coreutils-nohup, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
   "Premier Router $APP_VERSION backend, signed updater, validator, rollback, and boot recovery." \
   "$CORE_CONTROL"
 write_core_scripts "$CORE_CONTROL"

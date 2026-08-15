@@ -210,7 +210,7 @@ return view.extend({
 			ev.preventDefault();
 
 		ui.showModal(_('Switch VLESS profile'), [
-			E('p', {}, _('Apply this profile and restart Xray?')),
+			E('p', {}, _('Apply this profile? If global VPN is enabled, Xray and transparent proxying restart; otherwise they remain disabled.')),
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'vpn-profile-use-cancel', 'click': ui.hideModal }, _('Cancel')),
 				' ',

@@ -127,6 +127,8 @@ install_baseline() {
     uci commit xray
     /etc/init.d/xray restart >/tmp/router-ui-baseline-xray-restart.log 2>&1 ||
       die "baseline Xray service did not accept the rendered profile"
+    /etc/init.d/xray running >/dev/null 2>&1 ||
+      die "baseline Xray restart returned without a running daemon"
   fi
   /usr/sbin/vpn-ui check >/tmp/router-ui-baseline-rendered-check.json
   grep -q '"ok":true' /tmp/router-ui-baseline-rendered-check.json ||
@@ -380,6 +382,7 @@ EOF
   uci commit xray
   /etc/init.d/xray enable
   /etc/init.d/xray restart
+  /etc/init.d/xray running || die "installed Xray restart returned without a running daemon"
   [ -x /etc/init.d/tailscale ] || die "installed Tailscale init service is missing"
   /etc/init.d/tailscale enable
   /etc/init.d/tailscale restart

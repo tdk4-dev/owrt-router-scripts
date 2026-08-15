@@ -34,7 +34,19 @@ chmod 0755 /www/cgi-bin/firstboot-setup /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
 /etc/init.d/uhttpd enable >/dev/null 2>&1 || true
 /etc/init.d/cron enable >/dev/null 2>&1 || true
 /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
-/etc/init.d/xray disable >/dev/null 2>&1 || true
+[ -x /etc/init.d/xray ] && [ -x /etc/init.d/xray-transparent ]
+/etc/init.d/xray-transparent stop >/dev/null 2>&1
+! /etc/init.d/xray-transparent running >/dev/null 2>&1
+/etc/init.d/xray stop >/dev/null 2>&1 || true
+! /etc/init.d/xray running >/dev/null 2>&1
+/etc/init.d/xray-transparent disable >/dev/null 2>&1
+! /etc/init.d/xray-transparent enabled >/dev/null 2>&1
+/etc/init.d/xray disable >/dev/null 2>&1
+! /etc/init.d/xray enabled >/dev/null 2>&1
+uci set xray.enabled=xray
+uci set xray.enabled.enabled='0'
+uci commit xray
+[ "$(uci -q get xray.enabled.enabled)" = 0 ]
 /etc/init.d/tailscale disable >/dev/null 2>&1 || true
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 

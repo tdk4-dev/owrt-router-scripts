@@ -410,7 +410,7 @@ done | LC_ALL=C sort | uniq -d > "$TMP_ROOT/duplicate-owned-paths"
 }
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control.tar.gz |
   tar -xzOf - ./conffiles > "$TMP_ROOT/conffiles"
-printf '%s\n' /etc/config/premier_router /etc/vpn-ui-update.conf > \
+printf '%s\n' /etc/config/premier_router /etc/init.d/xray-transparent /etc/vpn-ui-update.conf > \
   "$TMP_ROOT/conffiles.expected"
 cmp -s "$TMP_ROOT/conffiles.expected" "$TMP_ROOT/conffiles"
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control.tar.gz |
@@ -423,10 +423,16 @@ grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx "X-Premier-App-Version: $APP_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx 'X-Premier-Release-Channel: candidate' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*coreutils-nohup' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*kmod-nft-tproxy' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*ip-full' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*conntrack' "$TMP_ROOT/core-control"
+grep -Eq '^Depends: .*ca-bundle' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*ucode-mod-fs' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*ucode' "$TMP_ROOT/core-control"
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -tzf - | grep -Fq './usr/libexec/premier-router/xray-overlay.uc'
+tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
+  tar -tzf - | grep -Fq './etc/init.d/xray-transparent'
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-setup_${PKG_VERSION}_all.ipk" ./control.tar.gz |
   tar -xzOf - ./preinst > "$TMP_ROOT/setup-preinst"
 grep -Fq '[ -n "${IPKG_INSTROOT:-}" ] && exit 0' "$TMP_ROOT/setup-preinst"

@@ -267,68 +267,19 @@ EOF
 }
 
 write_xray_transparent_init() {
-  cat > /etc/init.d/xray-transparent <<'EOF'
-#!/bin/sh /etc/rc.common
-
-START=99
-STOP=05
-
-TABLE="xray_transparent"
-XRAY_PORT="12345"
-ROUTER_DNS_PORT="53"
-MARK="0x1"
-ROUTE_TABLE="100"
-FIN0_IP="0.0.0.0"
-
-start() {
-  local bypass
-  nft delete table inet $TABLE 2>/dev/null || true
-  ip rule del fwmark $MARK lookup $ROUTE_TABLE 2>/dev/null || true
-  ip route flush table $ROUTE_TABLE 2>/dev/null || true
-  ip route add local 0.0.0.0/0 dev lo table $ROUTE_TABLE
-  ip rule add fwmark $MARK lookup $ROUTE_TABLE pref 100
-
-  nft add table inet $TABLE
-  nft 'add chain inet xray_transparent dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }'
-  nft 'add chain inet xray_transparent tproxy_prerouting { type filter hook prerouting priority mangle; policy accept; }'
-  nft 'add set inet xray_transparent bypass4 { type ipv4_addr; flags interval; }'
-  nft 'add set inet xray_transparent vpn_ui_device_bypass4 { type ipv4_addr; flags interval; }'
-
-  bypass="{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4"
-  [ "$FIN0_IP" != "0.0.0.0" ] && bypass="$bypass, $FIN0_IP/32"
-  bypass="$bypass }"
-  nft add element inet xray_transparent bypass4 "$bypass"
-
-  nft add rule inet $TABLE dns_prerouting iifname { "br-lan", "tailscale0" } udp dport 53 counter redirect to :$ROUTER_DNS_PORT
-  nft add rule inet $TABLE dns_prerouting iifname { "br-lan", "tailscale0" } tcp dport 53 counter redirect to :$ROUTER_DNS_PORT
-  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } udp dport 53 counter return
-  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } tcp dport 53 counter return
-  nft add rule inet $TABLE tproxy_prerouting iifname "br-lan" ct status dnat counter return
-  nft add rule inet $TABLE tproxy_prerouting ip saddr @vpn_ui_device_bypass4 counter accept
-  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip daddr @bypass4 counter return
-  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol tcp counter tproxy ip to :$XRAY_PORT meta mark set $MARK accept
-  nft add rule inet $TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol udp counter tproxy ip to :$XRAY_PORT meta mark set $MARK accept
-}
-
-stop() {
-  nft delete table inet $TABLE 2>/dev/null || true
-  ip rule del fwmark $MARK lookup $ROUTE_TABLE 2>/dev/null || true
-  ip route flush table $ROUTE_TABLE 2>/dev/null || true
-}
-
-restart() {
-  stop
-  start
-}
-EOF
-  chmod 755 /etc/init.d/xray-transparent
+  [ -f /etc/init.d/xray-transparent ] && [ ! -L /etc/init.d/xray-transparent ] ||
+    fail "The packaged transparent-proxy service is missing or unsafe."
+  chmod 755 /etc/init.d/xray-transparent ||
+    fail "Could not make the packaged transparent-proxy service executable."
+  sh -n /etc/init.d/xray-transparent ||
+    fail "The packaged transparent-proxy service failed syntax validation."
 }
 
 configure_xray_service() {
   write_xray_routes
   write_xray_transparent_init
   uci set xray.enabled="xray"
-  uci set xray.enabled.enabled="1"
+  uci set xray.enabled.enabled="0"
   uci set xray.config="xray"
   uci set xray.config.conffiles="/etc/xray/exit-st-cf.json"
   uci set xray.config.datadir="/usr/share/xray"
@@ -361,16 +312,15 @@ configure_vpn() {
         ;;
     esac
     [ -n "$id" ] || fail "VPN profile import did not return an ID."
-    /etc/init.d/xray enable >/dev/null 2>&1 || true
-    /etc/init.d/xray-transparent enable >/dev/null 2>&1 || true
     select_result="/tmp/firstboot-vpn-select.json"
     /usr/sbin/vpn-ui select "$id" >"$select_result" 2>&1
-    grep -q '"ok":true' "$select_result" || fail "Could not enable the selected VLESS profile: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
+    grep -q '"ok":true' "$select_result" || fail "Could not select the VLESS profile: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
+    /usr/sbin/vpn-ui xray on >"$select_result" 2>&1
+    grep -q '"ok":true' "$select_result" || fail "Could not enable Xray and transparent proxying: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
   else
-    /etc/init.d/xray disable >/dev/null 2>&1 || true
-    /etc/init.d/xray-transparent disable >/dev/null 2>&1 || true
-    /etc/init.d/xray stop >/dev/null 2>&1 || true
-    /etc/init.d/xray-transparent stop >/dev/null 2>&1 || true
+    select_result="/tmp/firstboot-vpn-disable.json"
+    /usr/sbin/vpn-ui xray off >"$select_result" 2>&1
+    grep -q '"ok":true' "$select_result" || fail "Could not keep Xray and transparent proxying disabled: $(jsonfilter -i "$select_result" -e '@.error' 2>/dev/null)"
   fi
 }
 

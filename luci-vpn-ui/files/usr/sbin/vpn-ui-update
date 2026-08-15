@@ -1203,7 +1203,7 @@ restore_protected_state() {
 record_services() {
   local out="$1" service enabled running
   : > "$out"
-  for service in cron rpcd uhttpd xray-transparent; do
+  for service in cron rpcd uhttpd xray xray-exit-st xray-transparent; do
     enabled=false
     running=false
     [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
@@ -1761,6 +1761,12 @@ rollback_transaction() {
   restore_services || {
     J_ROLLBACK_STATUS=failed
     set_error rollback service_restore_failed "source services could not be restored"
+    set_state rollback_failed
+    return 1
+  }
+  services_match || {
+    J_ROLLBACK_STATUS=failed
+    set_error rollback service_postcondition_failed "source service runtime or reboot state did not match the exact pre-state"
     set_state rollback_failed
     return 1
   }

@@ -16,7 +16,8 @@ for source in \
   luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator \
   luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc \
   luci-vpn-ui/files/etc/config/premier_router \
-  luci-vpn-ui/files/etc/init.d/premier-router-update-recovery
+  luci-vpn-ui/files/etc/init.d/premier-router-update-recovery \
+  luci-vpn-ui/files/etc/init.d/xray-transparent
 do
   test -f "$ROOT_DIR/$source" || {
     printf 'package source is missing: %s\n' "$source" >&2
@@ -36,6 +37,10 @@ grep -Fq 'RELEASE_CHANNEL=$BUILD_CHANNEL' "$BUILDER"
 grep -Fq 'coreutils-nohup' "$BUILDER"
 grep -Fq 'ucode-mod-fs' "$BUILDER"
 grep -Fq 'usign' "$BUILDER"
+test -f "$ROOT_DIR/release/router-ui-runtime-ownership.json"
+test -f "$ROOT_DIR/release/router-ui-runtime-ownership.md"
+jq empty "$ROOT_DIR/release/router-ui-runtime-ownership.json"
+sh -n "$ROOT_DIR/tests/vm/router-ui-runtime-census-guest.sh"
 
 for package in premier-router-core luci-app-premier-router premier-router-setup; do
   grep -Fq "\"$package\"" "$BUILDER"
