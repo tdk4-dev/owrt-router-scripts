@@ -48,7 +48,8 @@ if VPN_UI_NOHUP_BIN=router-ui-missing-nohup run_worker check-start > "$TMP_ROOT/
   exit 1
 fi
 VPN_UI_NOHUP_BIN=nohup
-jq -e '.ok == false and .error_code == "missing_nohup" and (.error | contains("coreutils-nohup"))' \
+jq -e '.ok == false and .error_code == "missing_nohup" and (.error | contains("coreutils-nohup")) and
+  .job.kind == "check" and .job.status == "failed"' \
   "$TMP_ROOT/missing.json" >/dev/null
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 
@@ -57,7 +58,8 @@ if VPN_UI_TEST_WORKER_SPAWN_FAIL=1 run_worker check-start > "$TMP_ROOT/spawn.jso
   exit 1
 fi
 VPN_UI_TEST_WORKER_SPAWN_FAIL=0
-jq -e '.ok == false and .error_code == "worker_spawn_failed"' "$TMP_ROOT/spawn.json" >/dev/null
+jq -e '.ok == false and .error_code == "worker_spawn_failed" and .job.status == "failed" and
+  (.job.id | test("^[0-9a-f]{64}$"))' "$TMP_ROOT/spawn.json" >/dev/null
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 
 VPN_UI_WORKER_HANDSHAKE_TIMEOUT=1
@@ -69,16 +71,19 @@ fi
 VPN_UI_TEST_WORKER_SKIP_HANDSHAKE=0
 VPN_UI_TEST_WORKER_HOLD_SECONDS=
 VPN_UI_WORKER_HANDSHAKE_TIMEOUT=3
-jq -e '.ok == false and .error_code == "worker_handshake_timeout"' "$TMP_ROOT/timeout.json" >/dev/null
+jq -e '.ok == false and .error_code == "worker_handshake_timeout" and .job.status == "failed" and
+  (.job.id | test("^[0-9a-f]{64}$"))' "$TMP_ROOT/timeout.json" >/dev/null
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 
 run_worker check-start > "$TMP_ROOT/check.json"
-jq -e '.ok and .started and .job == "check" and (.ownership_token | test("^[0-9a-f]{64}$"))' \
+jq -e '.ok and .started and .job.kind == "check" and
+  (.job.id | test("^[0-9a-f]{64}$")) and (.job.status == "running" or .job.status == "failed" or .job.status == "succeeded")' \
   "$TMP_ROOT/check.json" >/dev/null
 wait_for_unlock
 
 run_worker apply-start > "$TMP_ROOT/apply.json"
-jq -e '.ok and .started and .job == "apply" and (.ownership_token | test("^[0-9a-f]{64}$"))' \
+jq -e '.ok and .started and .job.kind == "apply" and
+  (.job.id | test("^[0-9a-f]{64}$")) and (.job.status == "running" or .job.status == "failed")' \
   "$TMP_ROOT/apply.json" >/dev/null
 wait_for_unlock
 

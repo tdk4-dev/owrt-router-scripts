@@ -235,7 +235,9 @@ run_test tier0-renderer-guard python3 tests/test-tier0-renderer-guard.py || fini
 run_test control-census node tests/test-router-ui-control-census.mjs || finish 1
 run_test runtime-ownership-census node tests/test-router-ui-runtime-ownership.mjs || finish 1
 run_test seven-state-rendering node tests/test-router-ui-state-rendering.mjs || finish 1
+run_test update-operation-ui node tests/test-update-operation-ui.mjs || finish 1
 run_test tailscale-ping-ui node tests/test-tailscale-ping-ui.mjs || finish 1
+run_test tailscale-convergence-ui node tests/test-tailscale-convergence-ui.mjs || finish 1
 run_test adopted-luci-rpc-rollback node tests/test-vpn-luci-adopted-apply.mjs || finish 1
 run_test adopted-source-contracts node tests/test-xray-adopted-source-contracts.mjs || finish 1
 run_test xray-service-toggle sh tests/test-xray-service-toggle.sh || finish 1
@@ -243,10 +245,13 @@ run_test xray-native-apply sh tests/test-xray-native-apply.sh || finish 1
 run_test xray-transparent-init sh tests/test-xray-transparent-init.sh || finish 1
 run_test xray-mutation-callpaths sh tests/test-xray-mutation-callpaths.sh || finish 1
 run_test security-acl-boundaries sh tests/test-security-boundaries-0.7.11.sh || finish 1
+run_test async-success-contracts sh tests/test-async-success-contracts.sh || finish 1
 run_test updater-identity-contracts sh tests/test-vpn-hotfixes.sh || finish 1
 run_test updater-source-transactions sh tests/test-updater-source-contracts.sh || finish 1
 run_test updater-worker-locking sh tests/test-updater-worker-start.sh || finish 1
+run_test updater-operation-jobs sh tests/test-updater-operation-jobs.sh || finish 1
 run_test tailscale-registration sh tests/test-tailscale-registration.sh || finish 1
+run_test tailscale-convergence sh tests/test-tailscale-convergence.sh || finish 1
 run_test firstboot-optional-services sh tests/test-firstboot-optional-services.sh || finish 1
 run_test router-metadata sh tests/test-router-metadata.sh || finish 1
 run_test package-source-contracts sh tests/test-package-source-contracts.sh || finish 1

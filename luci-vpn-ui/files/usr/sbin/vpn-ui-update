@@ -35,6 +35,8 @@ ACTIVE_FILE="${VPN_UI_UPDATE_ACTIVE:-$PERSIST_ROOT/active-transaction}"
 LOG_FILE="${VPN_UI_UPDATE_LOG:-${ROOT_PREFIX}/tmp/premier-router-update.log}"
 WORKER_HANDSHAKE_DIR="${VPN_UI_WORKER_HANDSHAKE_DIR:-$PERSIST_ROOT/worker-handshakes}"
 WORKER_HANDSHAKE_TIMEOUT="${VPN_UI_WORKER_HANDSHAKE_TIMEOUT:-10}"
+JOB_DIR="$PERSIST_ROOT/jobs"
+JOB_RETAIN="${VPN_UI_UPDATE_JOB_RETAIN:-16}"
 INSTALLED_MANIFEST="${VPN_UI_INSTALLED_MANIFEST:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json}"
 INSTALLED_SIGNATURE="${VPN_UI_INSTALLED_SIGNATURE:-${ROOT_PREFIX}/etc/premier-router/installed-manifest.json.sig}"
 PR_INSTALLED_MANIFEST_FILE="$INSTALLED_MANIFEST"
@@ -48,6 +50,7 @@ SELF_PATH="${VPN_UI_UPDATE_SELF:-$0}"
 AUTO_UPDATE=0
 AUTO_SCHEDULE='Sunday 04:17'
 LOCK_TOKEN=""
+ACTIVE_JOB_ID=""
 TXN_DIR=""
 JOURNAL=""
 J_TRANSACTION_ID=""
@@ -72,8 +75,25 @@ J_CREATED_AT=""
 J_UPDATED_AT=""
 J_BOOT_ID=""
 J_WORKER_TOKEN=""
+J_OPERATION_JOB_ID=""
 J_INVOCATION=""
 J_NEEDS_REBOOT_VALIDATION=false
+JOB_ID=""
+JOB_KIND=""
+JOB_STATE=""
+JOB_CREATED_AT=""
+JOB_UPDATED_AT=""
+JOB_WORKER_PID=""
+JOB_WORKER_START_ID=""
+JOB_WORKER_BOOT_ID=""
+JOB_WORKER_TOKEN=""
+JOB_TRANSACTION_ID=""
+JOB_ERROR_CODE=""
+JOB_ERROR_MESSAGE=""
+JOB_COMPLETED_AT=""
+JOB_CHECKED_AT=""
+JOB_TARGET_VERSION=""
+JOB_AVAILABLE=false
 
 RC5_BRIDGE_APP_VERSION='0.7.11-rc.5'
 RC5_BRIDGE_PACKAGE_VERSION='0.7.11~rc5-1'
@@ -111,11 +131,11 @@ process_start_id() {
   awk '{ print $22 }' "${VPN_UI_PROCESS_ROOT:-${ROOT_PREFIX}/proc}/$pid/stat" 2>/dev/null
 }
 random_token() {
-  local token
+  local token random_source="${VPN_UI_RANDOM_SOURCE:-${ROOT_PREFIX}/dev/urandom}"
   token="$({
     printf '%s|%s|%s|%s|' "$$" "$(date +%s)" "$(process_start_id $$)" "$(boot_id)"
-    if [ -r "${ROOT_PREFIX}/dev/urandom" ]; then
-      dd if="${ROOT_PREFIX}/dev/urandom" bs=16 count=1 2>/dev/null || true
+    if [ -r "$random_source" ]; then
+      dd if="$random_source" bs=16 count=1 2>/dev/null || true
     fi
   } | sha256sum | awk '{print $1}')"
   [ "${#token}" -eq 64 ] || return 1
@@ -125,11 +145,251 @@ random_token() {
 atomic_from_stdin() {
   local dst="$1" tmp="$1.new.$$"
   mkdir -p "$(dirname "$dst")"
+  [ ! -L "$dst" ] && [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
   cat > "$tmp"
   chmod 600 "$tmp"
   [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
   mv "$tmp" "$dst"
   [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
+}
+
+valid_job_id() {
+  [ "${#1}" -eq 64 ] || return 1
+  case "$1" in *[!0-9a-f]*) return 1 ;; esac
+}
+valid_job_kind() {
+  case "$1" in check|apply) return 0 ;; esac
+  return 1
+}
+valid_job_state() {
+  case "$1" in starting|running|pending_reboot|succeeded|failed) return 0 ;; esac
+  return 1
+}
+job_path() {
+  valid_job_id "$1" || return 1
+  printf '%s/%s.json\n' "$JOB_DIR" "$1"
+}
+job_dir_prepare() {
+  [ ! -L "$PERSIST_ROOT" ] && [ ! -L "$JOB_DIR" ] || return 1
+  mkdir -p "$JOB_DIR" || return 1
+  [ -d "$JOB_DIR" ] && [ ! -L "$JOB_DIR" ] || return 1
+  chmod 700 "$JOB_DIR"
+}
+job_emit() {
+  printf '{"id":'; pr_json_string "$JOB_ID"
+  printf ',"kind":'; pr_json_string "$JOB_KIND"
+  printf ',"state":'; pr_json_string "$JOB_STATE"
+  printf ',"created_at":'; pr_json_string "$JOB_CREATED_AT"
+  printf ',"updated_at":'; pr_json_string "$JOB_UPDATED_AT"
+  printf ',"worker_pid":'; pr_json_string "$JOB_WORKER_PID"
+  printf ',"worker_process_start_id":'; pr_json_string "$JOB_WORKER_START_ID"
+  printf ',"worker_boot_id":'; pr_json_string "$JOB_WORKER_BOOT_ID"
+  printf ',"worker_ownership_token":'; pr_json_string "$JOB_WORKER_TOKEN"
+  printf ',"transaction_id":'; pr_json_string "$JOB_TRANSACTION_ID"
+  printf ',"error_code":'; pr_json_string "$JOB_ERROR_CODE"
+  printf ',"error_message":'; pr_json_string "$JOB_ERROR_MESSAGE"
+  printf ',"completed_at":'; pr_json_string "$JOB_COMPLETED_AT"
+  printf ',"checked_at":'; pr_json_string "$JOB_CHECKED_AT"
+  printf ',"target_version":'; pr_json_string "$JOB_TARGET_VERSION"
+  printf ',"available":%s}\n' "$JOB_AVAILABLE"
+}
+job_write() {
+  local path
+  valid_job_id "$JOB_ID" && valid_job_kind "$JOB_KIND" &&
+    valid_job_state "$JOB_STATE" || return 1
+  job_dir_prepare || return 1
+  path="$(job_path "$JOB_ID")" || return 1
+  [ ! -L "$path" ] || return 1
+  JOB_UPDATED_AT="$(now)"
+  job_emit | atomic_from_stdin "$path"
+}
+job_json_valid() {
+  if command -v jsonfilter >/dev/null 2>&1; then
+    jsonfilter -i "$1" -e '@' >/dev/null 2>&1
+  elif command -v jq >/dev/null 2>&1; then
+    jq -e 'type == "object"' "$1" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+job_load() {
+  local id="$1" path
+  path="$(job_path "$id")" || return 1
+  [ -s "$path" ] && [ ! -L "$path" ] || return 1
+  job_json_valid "$path" || return 1
+  JOB_ID="$(pr_json_get "$path" '@.id' '.id // empty')"
+  JOB_KIND="$(pr_json_get "$path" '@.kind' '.kind // empty')"
+  JOB_STATE="$(pr_json_get "$path" '@.state' '.state // empty')"
+  JOB_CREATED_AT="$(pr_json_get "$path" '@.created_at' '.created_at // empty')"
+  JOB_UPDATED_AT="$(pr_json_get "$path" '@.updated_at' '.updated_at // empty')"
+  JOB_WORKER_PID="$(pr_json_get "$path" '@.worker_pid' '.worker_pid // empty')"
+  JOB_WORKER_START_ID="$(pr_json_get "$path" '@.worker_process_start_id' '.worker_process_start_id // empty')"
+  JOB_WORKER_BOOT_ID="$(pr_json_get "$path" '@.worker_boot_id' '.worker_boot_id // empty')"
+  JOB_WORKER_TOKEN="$(pr_json_get "$path" '@.worker_ownership_token' '.worker_ownership_token // empty')"
+  JOB_TRANSACTION_ID="$(pr_json_get "$path" '@.transaction_id' '.transaction_id // empty')"
+  JOB_ERROR_CODE="$(pr_json_get "$path" '@.error_code' '.error_code // empty')"
+  JOB_ERROR_MESSAGE="$(pr_json_get "$path" '@.error_message' '.error_message // empty')"
+  JOB_COMPLETED_AT="$(pr_json_get "$path" '@.completed_at' '.completed_at // empty')"
+  JOB_CHECKED_AT="$(pr_json_get "$path" '@.checked_at' '.checked_at // empty')"
+  JOB_TARGET_VERSION="$(pr_json_get "$path" '@.target_version' '.target_version // empty')"
+  JOB_AVAILABLE="$(pr_json_get "$path" '@.available' '.available // false')"
+  [ "$JOB_ID" = "$id" ] && valid_job_kind "$JOB_KIND" && valid_job_state "$JOB_STATE" || return 1
+  case "$JOB_AVAILABLE" in true|false) ;; *) return 1 ;; esac
+}
+job_create() {
+  local id="$1" kind="$2" path
+  valid_job_id "$id" && valid_job_kind "$kind" && job_dir_prepare || return 1
+  path="$(job_path "$id")" || return 1
+  [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
+  JOB_ID="$id"
+  JOB_KIND="$kind"
+  JOB_STATE=starting
+  JOB_CREATED_AT="$(now)"
+  JOB_UPDATED_AT="$JOB_CREATED_AT"
+  JOB_WORKER_PID=""
+  JOB_WORKER_START_ID=""
+  JOB_WORKER_BOOT_ID=""
+  JOB_WORKER_TOKEN="$id"
+  JOB_TRANSACTION_ID=""
+  JOB_ERROR_CODE=""
+  JOB_ERROR_MESSAGE=""
+  JOB_COMPLETED_AT=""
+  JOB_CHECKED_AT=""
+  JOB_TARGET_VERSION=""
+  JOB_AVAILABLE=false
+  job_write
+}
+job_assign_worker() {
+  local id="$1" pid="$2" start="$3"
+  job_load "$id" || return 1
+  [ "$JOB_STATE" = starting ] || return 1
+  JOB_WORKER_PID="$pid"
+  JOB_WORKER_START_ID="$start"
+  JOB_WORKER_BOOT_ID="$(boot_id)"
+  job_write
+}
+job_running() {
+  job_load "$1" || return 1
+  case "$JOB_STATE" in starting|running) ;; *) return 1 ;; esac
+  JOB_STATE=running
+  JOB_ERROR_CODE=""
+  JOB_ERROR_MESSAGE=""
+  job_write
+}
+job_fail() {
+  local id="$1" code="$2" message="$3"
+  job_load "$id" || return 1
+  case "$JOB_STATE" in succeeded|failed) return 0 ;; esac
+  JOB_STATE=failed
+  JOB_ERROR_CODE="$code"
+  JOB_ERROR_MESSAGE="$(pr_one_line "$message")"
+  JOB_COMPLETED_AT="$(now)"
+  job_write
+  job_cleanup_retained "$id"
+  job_load "$id"
+}
+job_succeed_check() {
+  local id="$1" target="$2" checked="$3" current available=false
+  job_load "$id" || return 1
+  [ "$JOB_KIND" = check ] || return 1
+  current="$(current_version)"
+  pr_version_newer "$target" "$current" 2>/dev/null && available=true
+  JOB_STATE=succeeded
+  JOB_CHECKED_AT="$checked"
+  JOB_TARGET_VERSION="$target"
+  JOB_AVAILABLE="$available"
+  JOB_COMPLETED_AT="$(now)"
+  job_write
+  job_cleanup_retained "$id"
+  job_load "$id"
+}
+job_succeed_apply() {
+  job_load "$1" || return 1
+  [ "$JOB_KIND" = apply ] || return 1
+  JOB_STATE=succeeded
+  JOB_COMPLETED_AT="$(now)"
+  job_write
+  job_cleanup_retained "$1"
+  job_load "$1"
+}
+job_bind_transaction() {
+  local id="$1" transaction="$2"
+  job_load "$id" || return 1
+  [ "$JOB_KIND" = apply ] || return 1
+  JOB_TRANSACTION_ID="$transaction"
+  job_write
+}
+job_cleanup_retained() {
+  local protect="${1:-}" list="$JOB_DIR/.retention.$$" count=0 line id path limit
+  printf '%s' "$JOB_RETAIN" | grep -Eq '^[1-9][0-9]*$' || return 1
+  limit="$JOB_RETAIN"
+  if valid_job_id "$protect"; then
+    limit=$((limit - 1))
+  else
+    protect=""
+  fi
+  [ -d "$JOB_DIR" ] && [ ! -L "$JOB_DIR" ] || return 1
+  [ ! -e "$list" ] && [ ! -L "$list" ] || return 1
+  : > "$list"
+  for path in "$JOB_DIR"/*.json; do
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    id="${path##*/}"; id="${id%.json}"
+    valid_job_id "$id" && job_load "$id" || continue
+    case "$JOB_STATE" in succeeded|failed)
+      printf '%s|%s\n' "$JOB_COMPLETED_AT" "$id" >> "$list"
+      ;;
+    esac
+  done
+  LC_ALL=C sort -r "$list" | while IFS='|' read -r completed id; do
+    [ "$id" = "$protect" ] && continue
+    count=$((count + 1))
+    [ "$count" -le "$limit" ] && continue
+    valid_job_id "$id" || continue
+    rm -f "$JOB_DIR/$id.json"
+  done
+  rm -f "$list"
+}
+job_process_live() {
+  [ -n "$JOB_WORKER_PID" ] && [ -n "$JOB_WORKER_START_ID" ] &&
+    [ -n "$JOB_WORKER_BOOT_ID" ] && [ "$JOB_WORKER_BOOT_ID" = "$(boot_id)" ] &&
+    [ "$JOB_WORKER_START_ID" = "$(process_start_id "$JOB_WORKER_PID")" ]
+}
+job_status_json() {
+  local id="${1:-}" expected_kind="${2:-}"
+  valid_job_id "$id" || {
+    worker_start_error malformed_job_id "update operation ID is malformed"
+    return 64
+  }
+  valid_job_kind "$expected_kind" || {
+    worker_start_error invalid_job_kind "update operation kind is invalid"
+    return 64
+  }
+  job_load "$id" || {
+    worker_start_error unknown_job_id "update operation is unknown or malformed"
+    return 65
+  }
+  [ "$JOB_KIND" = "$expected_kind" ] || {
+    worker_start_error wrong_job_kind "update operation kind does not match"
+    return 65
+  }
+  if [ "$JOB_STATE" = running ] || { [ "$JOB_STATE" = starting ] && [ -n "$JOB_WORKER_PID" ]; }; then
+    if ! job_process_live; then
+      job_fail "$id" worker_exited "update worker exited before reaching its postcondition" || return 66
+      job_load "$id" || return 66
+    fi
+  fi
+  printf '{"ok":true,"job":{"id":'; pr_json_string "$JOB_ID"
+  printf ',"kind":'; pr_json_string "$JOB_KIND"
+  printf ',"status":'; pr_json_string "$JOB_STATE"
+  printf ',"created_at":'; pr_json_string "$JOB_CREATED_AT"
+  printf ',"updated_at":'; pr_json_string "$JOB_UPDATED_AT"
+  printf ',"transaction_id":'; pr_json_string "$JOB_TRANSACTION_ID"
+  printf ',"error_code":'; pr_json_string "$JOB_ERROR_CODE"
+  printf ',"message":'; pr_json_string "$JOB_ERROR_MESSAGE"
+  printf ',"completed_at":'; pr_json_string "$JOB_COMPLETED_AT"
+  printf ',"checked_at":'; pr_json_string "$JOB_CHECKED_AT"
+  printf ',"target":'; pr_json_string "$JOB_TARGET_VERSION"
+  printf ',"available":%s}}\n' "$JOB_AVAILABLE"
 }
 atomic_sort_file() {
   local file="$1" ordering="${2:-plain}" tmp="$1.sorted.$$"
@@ -227,6 +487,7 @@ journal_emit() {
   printf '  "updated_at":'; pr_json_string "$J_UPDATED_AT"; printf ',\n'
   printf '  "boot_id":'; pr_json_string "$J_BOOT_ID"; printf ',\n'
   printf '  "worker_ownership_token":'; pr_json_string "$J_WORKER_TOKEN"; printf ',\n'
+  printf '  "operation_job_id":'; pr_json_string "$J_OPERATION_JOB_ID"; printf ',\n'
   printf '  "invocation":'; pr_json_string "$J_INVOCATION"; printf ',\n'
   printf '  "needs_reboot_validation":%s\n' "$J_NEEDS_REBOOT_VALIDATION"
   printf '}\n'
@@ -260,6 +521,7 @@ journal_load() {
   J_UPDATED_AT="$(pr_json_get "$JOURNAL" '@.updated_at' '.updated_at // empty')"
   J_BOOT_ID="$(pr_json_get "$JOURNAL" '@.boot_id' '.boot_id // empty')"
   J_WORKER_TOKEN="$(pr_json_get "$JOURNAL" '@.worker_ownership_token' '.worker_ownership_token // empty')"
+  J_OPERATION_JOB_ID="$(pr_json_get "$JOURNAL" '@.operation_job_id' '.operation_job_id // empty')"
   J_INVOCATION="$(pr_json_get "$JOURNAL" '@.invocation' '.invocation // empty')"
   J_NEEDS_REBOOT_VALIDATION="$(pr_json_get "$JOURNAL" '@.needs_reboot_validation' '.needs_reboot_validation // false')"
 }
@@ -267,6 +529,7 @@ set_state() {
   J_LAST_COMPLETED_STATE="$J_STATE"
   J_STATE="$1"
   journal_write
+  job_sync_from_journal || true
   test_boundary "$1"
 }
 set_error() {
@@ -274,6 +537,36 @@ set_error() {
   J_ERROR_CODE="$2"
   J_ERROR_MESSAGE="$(pr_one_line "$3")"
   journal_write
+}
+job_sync_from_journal() {
+  valid_job_id "$J_OPERATION_JOB_ID" || return 0
+  job_load "$J_OPERATION_JOB_ID" || return 1
+  [ "$JOB_KIND" = apply ] || return 1
+  case "$JOB_STATE" in succeeded|failed) return 0 ;; esac
+  JOB_TRANSACTION_ID="$J_TRANSACTION_ID"
+  JOB_TARGET_VERSION="$J_TARGET_APP_VERSION"
+  JOB_ERROR_CODE="$J_ERROR_CODE"
+  JOB_ERROR_MESSAGE="$J_ERROR_MESSAGE"
+  case "$J_STATE" in
+    committed)
+      JOB_STATE=succeeded
+      JOB_COMPLETED_AT="$(now)"
+      ;;
+    committed_pending_reboot_validation)
+      JOB_STATE=pending_reboot
+      ;;
+    failed_before_mutation|rolled_back|rollback_failed|recovery_required)
+      JOB_STATE=failed
+      [ -n "$JOB_ERROR_CODE" ] || JOB_ERROR_CODE="$J_STATE"
+      [ -n "$JOB_ERROR_MESSAGE" ] || JOB_ERROR_MESSAGE="update transaction ended in $J_STATE"
+      JOB_COMPLETED_AT="$(now)"
+      ;;
+    *)
+      JOB_STATE=running
+      ;;
+  esac
+  job_write
+  case "$JOB_STATE" in succeeded|failed) job_cleanup_retained "$J_OPERATION_JOB_ID" ;; esac
 }
 test_boundary() {
   local configured="${VPN_UI_TEST_FAIL_AFTER:-}"
@@ -1856,10 +2149,12 @@ transaction_init() {
   J_UPDATED_AT="$J_CREATED_AT"
   J_BOOT_ID="$(boot_id)"
   J_WORKER_TOKEN="$LOCK_TOKEN"
+  J_OPERATION_JOB_ID="$ACTIVE_JOB_ID"
   J_INVOCATION="$invocation"
   J_NEEDS_REBOOT_VALIDATION=false
   journal_write
   printf '%s\n' "$J_TRANSACTION_ID" | atomic_from_stdin "$ACTIVE_FILE"
+  [ -z "$J_OPERATION_JOB_ID" ] || job_bind_transaction "$J_OPERATION_JOB_ID" "$J_TRANSACTION_ID"
 }
 
 quarantine_exists() {
@@ -1961,16 +2256,23 @@ apply_verified_assets() {
 }
 
 worker_start_error() {
-  local code="$1" message="$2"
+  local code="$1" message="$2" operation_id="${3:-}"
   printf '{"ok":false,"error":'
   pr_json_string "$message"
   printf ',"error_code":'
   pr_json_string "$code"
+  if valid_job_id "$operation_id" && job_load "$operation_id" 2>/dev/null; then
+    printf ',"job":{"id":'; pr_json_string "$JOB_ID"
+    printf ',"kind":'; pr_json_string "$JOB_KIND"
+    printf ',"status":'; pr_json_string "$JOB_STATE"
+    printf '}'
+  fi
   printf '}\n'
 }
 
 worker_signal_ready() {
   local kind="$1" token="$2" handshake="$3" tmp
+  job_running "$token" || return 1
   [ -n "$handshake" ] || return 0
   case "$handshake" in "$WORKER_HANDSHAKE_DIR/$token") ;; *) return 1 ;; esac
   [ ! -L "$WORKER_HANDSHAKE_DIR" ] || return 1
@@ -2024,33 +2326,47 @@ start_worker() {
     worker_start_error update_lock_busy "another update transaction owns the lock"
     return 73
   }
+  job_create "$token" "$kind" || {
+    lock_release "$token" || true
+    worker_start_error job_record_create_failed "could not create the update operation record"
+    return 74
+  }
   if [ "${VPN_UI_SYNC_WORKER:-0}" = 1 ]; then
+    job_assign_worker "$token" "$$" "$(process_start_id $$)" || {
+      job_fail "$token" worker_identity_unavailable "could not bind the synchronous update worker" || true
+      lock_release "$token" || true
+      return 75
+    }
     case "$kind" in
       check) check_worker "$token" ;;
       apply) apply_worker "$token" "" manual ;;
-      *) lock_release "$token"; return 2 ;;
+      *) job_fail "$token" invalid_job_kind "invalid update operation kind" || true; lock_release "$token"; return 2 ;;
     esac
     return $?
   fi
   nohup_bin="${VPN_UI_NOHUP_BIN:-nohup}"
   if ! command -v "$nohup_bin" >/dev/null 2>&1; then
+    job_fail "$token" missing_nohup "coreutils-nohup is required to start an asynchronous update worker" || true
     lock_release "$token" || true
-    worker_start_error missing_nohup "coreutils-nohup is required to start an asynchronous update worker"
+    worker_start_error missing_nohup "coreutils-nohup is required to start an asynchronous update worker" "$token"
     return 74
   fi
   printf '%s' "$WORKER_HANDSHAKE_TIMEOUT" | grep -Eq '^[1-9][0-9]*$' || {
+    job_fail "$token" invalid_handshake_timeout "worker handshake timeout is invalid" || true
     lock_release "$token" || true
-    worker_start_error invalid_handshake_timeout "worker handshake timeout is invalid"
+    worker_start_error invalid_handshake_timeout "worker handshake timeout is invalid" "$token"
     return 74
   }
   [ ! -L "$WORKER_HANDSHAKE_DIR" ] || {
+    job_fail "$token" unsafe_handshake_path "worker handshake directory is symlinked" || true
     lock_release "$token" || true
-    worker_start_error unsafe_handshake_path "worker handshake directory is symlinked"
+    worker_start_error unsafe_handshake_path "worker handshake directory is symlinked" "$token"
     return 74
   }
   mkdir -p "$WORKER_HANDSHAKE_DIR" || {
+    job_fail "$token" handshake_setup_failed "could not create the worker handshake directory" || true
     lock_release "$token" || true
-    worker_start_error handshake_setup_failed "could not create the worker handshake directory"
+    worker_start_error handshake_setup_failed "could not create the worker handshake directory" "$token"
     return 74
   }
   chmod 700 "$WORKER_HANDSHAKE_DIR"
@@ -2058,41 +2374,55 @@ start_worker() {
   rm -f "$handshake"
   if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
     [ "${VPN_UI_TEST_WORKER_SPAWN_FAIL:-0}" = 1 ]; then
+    job_fail "$token" worker_spawn_failed "asynchronous update worker did not start" || true
     lock_release "$token" || true
-    worker_start_error worker_spawn_failed "asynchronous update worker did not start"
+    worker_start_error worker_spawn_failed "asynchronous update worker did not start" "$token"
     return 74
   fi
   "$nohup_bin" "$SELF_PATH" "$kind-worker" "$token" "$handshake" >> "$LOG_FILE" 2>&1 </dev/null &
   child=$!
   kill -0 "$child" 2>/dev/null || {
+    job_fail "$token" worker_spawn_failed "asynchronous update worker did not start" || true
     lock_release "$token"
-    worker_start_error worker_spawn_failed "asynchronous update worker did not start"
+    worker_start_error worker_spawn_failed "asynchronous update worker did not start" "$token"
     return 74
   }
   child_start="$(process_start_id "$child")"
   [ -n "$child_start" ] || {
     kill "$child" 2>/dev/null || true
     wait "$child" 2>/dev/null || true
+    job_fail "$token" worker_identity_unavailable "could not identify the asynchronous update worker" || true
     lock_release "$token" || true
-    worker_start_error worker_identity_unavailable "could not identify the asynchronous update worker"
+    worker_start_error worker_identity_unavailable "could not identify the asynchronous update worker" "$token"
+    return 75
+  }
+  job_assign_worker "$token" "$child" "$child_start" || {
+    kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+    rm -f "$handshake"
+    job_fail "$token" job_worker_bind_failed "could not bind the asynchronous worker to its operation" || true
+    lock_release "$token" || true
+    worker_start_error job_worker_bind_failed "could not bind the asynchronous worker to its operation" "$token"
     return 75
   }
   lock_transfer_to_child "$token" "$child" || {
     kill "$child" 2>/dev/null || true
     wait "$child" 2>/dev/null || true
     rm -f "$handshake"
+    job_fail "$token" worker_ownership_transfer_failed "could not transfer update-lock ownership to the worker" || true
     lock_release "$token" || true
-    worker_start_error worker_ownership_transfer_failed "could not transfer update-lock ownership to the worker"
+    worker_start_error worker_ownership_transfer_failed "could not transfer update-lock ownership to the worker" "$token"
     return 75
   }
   while [ "$tries" -lt "$WORKER_HANDSHAKE_TIMEOUT" ]; do
     if worker_handshake_valid "$kind" "$token" "$child" "$child_start" "$handshake"; then
       rm -f "$handshake"
-      printf '{"ok":true,"started":true,"job":'
-      pr_json_string "$kind"
-      printf ',"ownership_token":'
+      job_load "$token" || return 76
+      printf '{"ok":true,"started":true,"job":{"id":'
       pr_json_string "$token"
-      printf '}\n'
+      printf ',"kind":'; pr_json_string "$kind"
+      printf ',"status":'; pr_json_string "$JOB_STATE"
+      printf '}}\n'
       return 0
     fi
     kill -0 "$child" 2>/dev/null || break
@@ -2104,17 +2434,26 @@ start_worker() {
   rm -f "$handshake"
   lock_release "$token" || true
   if [ "$tries" -ge "$WORKER_HANDSHAKE_TIMEOUT" ]; then
-    worker_start_error worker_handshake_timeout "asynchronous update worker did not acknowledge startup before the timeout"
+    job_fail "$token" worker_handshake_timeout "asynchronous update worker did not acknowledge startup before the timeout" || true
+    worker_start_error worker_handshake_timeout "asynchronous update worker did not acknowledge startup before the timeout" "$token"
     return 76
   fi
-  worker_start_error worker_exited_before_handshake "asynchronous update worker exited before acknowledging startup"
+  job_fail "$token" worker_exited_before_handshake "asynchronous update worker exited before acknowledging startup" || true
+  worker_start_error worker_exited_before_handshake "asynchronous update worker exited before acknowledging startup" "$token"
   return 76
 }
 
 check_worker() {
-  local token="$1" handshake="${2:-}" work version rc=0
-  worker_assert "$token" || return 76
-  worker_signal_ready check "$token" "$handshake" || return 76
+  local token="$1" handshake="${2:-}" work version protocol target checked rc=0
+  worker_assert "$token" || {
+    job_fail "$token" worker_ownership_failed "update worker could not prove lock ownership" || true
+    return 76
+  }
+  worker_signal_ready check "$token" "$handshake" || {
+    job_fail "$token" worker_handshake_failed "check worker could not publish its running state" || true
+    lock_release "$token" || true
+    return 76
+  }
   work="${ROOT_PREFIX}/tmp/premier-router-discovery.$$"
   rm -rf "$work"
   mkdir -p "$work"
@@ -2123,8 +2462,11 @@ check_worker() {
   [ -n "$protocol" ] || protocol=2
   if target="$(discover_release "$work" "$version" "$protocol")"; then
     printf 'Verified stable Router UI target: %s\n' "$target" >> "$LOG_FILE"
+    checked="$(pr_read_first "$CACHE_DIR/checked-at")"
+    job_succeed_check "$token" "$target" "$checked" || rc=78
   else
     rc=77
+    job_fail "$token" discovery_failed "update discovery failed" || true
   fi
   rm -rf "$work"
   lock_release "$token" || true
@@ -2140,16 +2482,26 @@ cached_release_files() {
 
 apply_worker() {
   local token="$1" handshake="${2:-}" invocation="${3:-manual}" tag manifest signature work rc=0
-  worker_assert "$token" || return 78
-  worker_signal_ready apply "$token" "$handshake" || return 78
+  worker_assert "$token" || {
+    job_fail "$token" worker_ownership_failed "update worker could not prove lock ownership" || true
+    return 78
+  }
+  worker_signal_ready apply "$token" "$handshake" || {
+    job_fail "$token" worker_handshake_failed "apply worker could not publish its running state" || true
+    lock_release "$token" || true
+    return 78
+  }
   LOCK_TOKEN="$token"
+  ACTIVE_JOB_ID="$token"
   tag="$(cached_release_files)" || {
+    job_fail "$token" cached_release_missing "no verified update target is cached" || true
     lock_release "$token" || true
     return 79
   }
   manifest="$CACHE_DIR/$tag/router-release-manifest.json"
   signature="$CACHE_DIR/$tag/router-release-manifest.json.sig"
   [ -s "$manifest" ] && [ -s "$signature" ] || {
+    job_fail "$token" cached_release_incomplete "verified update metadata is incomplete" || true
     lock_release "$token" || true
     return 80
   }
@@ -2160,6 +2512,18 @@ apply_worker() {
     apply_verified_assets "$work" "$manifest" "$signature" "$invocation" no || rc=$?
   else
     rc=81
+  fi
+  if [ "$rc" = 0 ]; then
+    if job_load "$token"; then
+      case "$JOB_STATE" in
+        pending_reboot|succeeded) ;;
+        *) job_succeed_apply "$token" || rc=82 ;;
+      esac
+    else
+      rc=82
+    fi
+  else
+    job_fail "$token" "apply_failed_$rc" "update apply failed safely" || true
   fi
   rm -rf "$work"
   lock_release "$token" || true
@@ -2381,6 +2745,9 @@ fi
 case "${1:-status}" in
   status)
     status_json
+    ;;
+  job-status)
+    job_status_json "${2:-}" "${3:-}"
     ;;
   check-start)
     start_worker check

@@ -20,6 +20,15 @@ case "${1:-status}" in
     [ "$#" -eq 1 ] || deny "${1:-unknown}"
     exec "$HELPER" "$@"
     ;;
+  update-job-status)
+    [ "$#" -eq 3 ] || deny "${1:-unknown}"
+    case "$2" in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+      *) deny "${1:-unknown}" ;;
+    esac
+    case "$3" in check|apply) ;; *) deny "${1:-unknown}" ;; esac
+    exec "$HELPER" "$@"
+    ;;
   tailscale-ping|test-domain)
     [ -n "${2:-}" ] || deny "${1:-unknown}"
     [ "$#" -eq 2 ] || deny "${1:-unknown}"

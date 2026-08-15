@@ -1222,7 +1222,7 @@ run_protocol_v2() {
   protected_before="$(guest protected-hash)"; usage_before="$(measure_stock)"
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' VPN_UI_DISCOVERY_BASE='$discovery' /usr/sbin/vpn-ui-update check-start" \
     > "$EVIDENCE_DIR/protocol-v2-check-start.json"
-  jq -e '.ok and .started and .job == "check"' \
+  jq -e '.ok and .started and .job.kind == "check" and (.job.id | test("^[0-9a-f]{64}$"))' \
     "$EVIDENCE_DIR/protocol-v2-check-start.json" >/dev/null || fail "detached update check did not start"
   state=waiting
   for poll in {1..120}; do
@@ -1236,7 +1236,7 @@ run_protocol_v2() {
   [[ "$state" = available ]] || fail "detached update check did not publish verified availability"
   "${ssh_base[@]}" "SSL_CERT_FILE=/etc/ssl/certs/router-ui-vm-ca.pem VPN_UI_RELEASE_ORIGIN='$ORIGIN' /usr/sbin/vpn-ui-update apply-start" \
     > "$EVIDENCE_DIR/protocol-v2-apply-start.json"
-  jq -e '.ok and .started and .job == "apply"' \
+  jq -e '.ok and .started and .job.kind == "apply" and (.job.id | test("^[0-9a-f]{64}$"))' \
     "$EVIDENCE_DIR/protocol-v2-apply-start.json" >/dev/null || fail "detached update apply did not start"
   transaction=""
   state=waiting

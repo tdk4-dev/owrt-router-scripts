@@ -33,15 +33,19 @@ function parseResponse(res) {
 		throw new Error(output || _('The update helper returned an unreadable response.'));
 	}
 
-	if (!data.ok)
-		throw new Error(data.error || _('The update helper rejected the request.'));
+	if (!data.ok) {
+		var error = new Error(data.error || _('The update helper rejected the request.'));
+		error.code = data.error_code || '';
+		throw error;
+	}
 
 	return data;
 }
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(args && args[0] === 'update-status' ? readonlyHelper : helper, args).then(parseResponse);
+		var command = args && args[0];
+		return fs.exec(command === 'update-status' || command === 'update-job-status' ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {
@@ -55,29 +59,37 @@ return view.extend({
 			dom.content(root, this.renderBody(data));
 	},
 
-	pollJob: function(kind, failures) {
+	pollJob: function(jobId, kind, failures) {
 		failures = failures || 0;
 		return new Promise(L.bind(function(resolve, reject) {
 			window.setTimeout(L.bind(function() {
-				this.callHelper(['update-status']).then(L.bind(function(data) {
+				this.callHelper(['update-job-status', jobId, kind]).then(L.bind(function(data) {
 					var job = data.job || {};
-					this.updateView(data);
+					if (job.id !== jobId || job.kind !== kind) {
+						reject(new Error(_('The update helper returned the wrong operation identity.')));
+						return;
+					}
 					if (job.status === 'starting' || job.status === 'running') {
-						this.pollJob(kind, 0).then(resolve, reject);
+						this.pollJob(jobId, kind, 0).then(resolve, reject);
 						return;
 					}
 					if (job.status === 'failed') {
 						reject(new Error(job.message || _('The update task failed safely.')));
 						return;
 					}
-					resolve(data);
-				}, this)).catch(L.bind(function(err) {
-					if (kind === 'apply' && failures >= 8) {
-						window.setTimeout(function() { window.location.reload(); }, 2500);
+					if (job.status === 'succeeded' || (kind === 'apply' && job.status === 'pending_reboot')) {
+						resolve(job);
 						return;
 					}
-					if (failures < 150) {
-						this.pollJob(kind, failures + 1).then(resolve, reject);
+					reject(new Error(_('The update helper returned an invalid operation state.')));
+				}, this)).catch(L.bind(function(err) {
+					if (err.code === 'malformed_job_id' || err.code === 'invalid_job_kind' ||
+						err.code === 'unknown_job_id' || err.code === 'wrong_job_kind') {
+						reject(err);
+						return;
+					}
+					if (failures < 300) {
+						this.pollJob(jobId, kind, failures + 1).then(resolve, reject);
 						return;
 					}
 					reject(err);
@@ -94,14 +106,29 @@ return view.extend({
 				: _('Contacting the release server…'))
 		]);
 		return this.callHelper([isInstall ? 'update-apply-start' : 'update-check-start'])
-			.then(L.bind(function() { return this.pollJob(kind, 0); }, this))
 			.then(L.bind(function(data) {
+				var job = data.job || {};
+				if (!/^[0-9a-f]{64}$/.test(job.id || '') || job.kind !== kind ||
+					(job.status !== 'starting' && job.status !== 'running' &&
+					 job.status !== 'succeeded' && job.status !== 'failed' &&
+					 job.status !== 'pending_reboot'))
+					throw new Error(_('The update helper did not return a valid operation identity.'));
+				return this.pollJob(job.id, kind, 0);
+			}, this))
+			.then(L.bind(function(job) {
+				return this.callHelper(['update-status']).then(function(data) {
+					return { job: job, data: data };
+				});
+			}, this))
+			.then(L.bind(function(result) {
 				ui.hideModal();
-				this.updateView(data);
-				if (isInstall) {
+				this.updateView(result.data);
+				if (isInstall && result.job.status === 'succeeded') {
 					ui.addNotification(null, E('p', {}, _('Update installed and validated. Reloading…')));
 					window.setTimeout(function() { window.location.reload(); }, 1500);
 				}
+				else if (isInstall && result.job.status === 'pending_reboot')
+					ui.addNotification(null, E('p', {}, _('Update installed. Reboot is required before it is committed.')));
 			}, this))
 			.catch(function(err) {
 				ui.hideModal();

@@ -59,15 +59,42 @@ return view.extend({
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
 	},
 
-	runAction: function(args, title) {
+	pollStatus: function(predicate, failures) {
+		failures = failures || 0;
+		return new Promise(L.bind(function(resolve, reject) {
+			window.setTimeout(L.bind(function() {
+				this.callHelper(['tailscale-status']).then(function(data) {
+					if (predicate(data.tailscale || {})) {
+						resolve(data);
+						return;
+					}
+					if (failures >= 59) {
+						reject(new Error(_('Tailscale state did not converge before the display timeout.')));
+						return;
+					}
+					this.pollStatus(predicate, failures + 1).then(resolve, reject);
+				}.bind(this)).catch(function(err) {
+					if (failures >= 59) {
+						reject(err);
+						return;
+					}
+					this.pollStatus(predicate, failures + 1).then(resolve, reject);
+				}.bind(this));
+			}, this), 800);
+		}, this));
+	},
+
+	runAction: function(args, title, predicate, successMessage) {
 		ui.showModal(title, [
 			E('p', { 'class': 'spinning' }, _('Applying changes...'))
 		]);
 
-		return this.callHelper(args).then(L.bind(function(data) {
+		return this.callHelper(args).then(L.bind(function() {
+			return this.pollStatus(predicate, 0);
+		}, this)).then(L.bind(function(data) {
 			ui.hideModal();
 			this.refresh(data);
-			ui.addNotification(null, E('p', {}, _('Tailscale settings updated.')));
+			ui.addNotification(null, E('p', {}, successMessage));
 		}, this)).catch(function(err) {
 			ui.hideModal();
 			ui.addNotification(null, E('p', {}, err.message || err));
@@ -88,21 +115,31 @@ return view.extend({
 			key ? key.value.trim() : '',
 			routes ? routes.value.trim() : '',
 			exitNode && exitNode.checked ? '1' : '0'
-		], _('Applying Tailscale settings'));
+		], _('Applying Tailscale settings'), function(state) {
+			return state.running === true && state.boot_enabled === true &&
+				state.backend_state === 'Running' && state.connected === true;
+		}, _('Tailscale settings applied.'));
 	},
 
 	handleRestart: function() {
-		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'));
+		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'), function(state) {
+			return state.running === true && ['Running', 'NeedsLogin', 'NeedsMachineAuth', 'Stopped', 'NoState']
+				.indexOf(state.backend_state) !== -1;
+		}, _('Tailscale restarted.'));
 	},
 
 	handleStop: function() {
-		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'));
+		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'), function(state) {
+			return state.running === false && state.boot_enabled === false;
+		}, _('Tailscale stopped.'));
 	},
 
 	handleLogout: function() {
 		if (!confirm(_('Log this router out of its current tailnet?')))
 			return;
-		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'));
+		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'), function(state) {
+			return state.backend_state === 'NeedsLogin' && state.connected === false;
+		}, _('Tailscale logged out.'));
 	},
 
 	handlePeerPing: function(peer) {

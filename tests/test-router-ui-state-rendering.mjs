@@ -100,7 +100,7 @@ function makePage(viewName, permission, execImpl = async () => ({ stdout: '{"ok"
 		value => value,
 		document,
 		() => true,
-		{ setTimeout() {}, location: { reload() {} } }
+		{ setTimeout(fn) { fn(); }, location: { reload() {} } }
 	);
 	return { page, modals, notifications, document };
 }
@@ -209,6 +209,14 @@ for (const action of ['tailscale-stop', 'tailscale-logout']) {
 	const calls = [];
 	const { page } = makePage('tailscale', true, async (command, args) => {
 		calls.push({ command, args });
+		if (args[0] === 'tailscale-status') {
+			return { stdout: JSON.stringify({
+				ok: true,
+				tailscale: action === 'tailscale-stop'
+					? { running: false, boot_enabled: false, connected: false, backend_state: '' }
+					: { running: true, boot_enabled: true, connected: false, backend_state: 'NeedsLogin' }
+			}) };
+		}
 		return { stdout: JSON.stringify({ ok: true, tailscale: { running: true, connected: true } }) };
 	});
 	assert.equal(tailscaleData.tailscale.running, true, `${action} fixture must start running`);
@@ -219,7 +227,8 @@ for (const action of ['tailscale-stop', 'tailscale-logout']) {
 	assert.equal(control.disabled, false, `${action} native disabled property must be false`);
 	assert.equal(interactable(control), true, `${action} must be interactable`);
 	assert.equal(await dispatchControl(control), true, `${action} must dispatch`);
-	assert.deepEqual(calls.at(-1), { command: '/usr/sbin/vpn-ui', args: [action] });
+	assert.deepEqual(calls[0], { command: '/usr/sbin/vpn-ui', args: [action] });
+	assert.deepEqual(calls.at(-1), { command: '/usr/sbin/vpn-ui-readonly', args: ['tailscale-status'] });
 }
 
 for (const permission of [true, false]) {

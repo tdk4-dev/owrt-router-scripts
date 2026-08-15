@@ -2,31 +2,43 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VPN_UI_SOURCE_ONLY=1 . "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
-
-MOCK_BACKEND=Running
-MOCK_IP=100.64.0.10
-
-tailscale() {
-  case "${1:-}" in
-    status) printf '%s\n' '{"BackendState":"mock"}' ;;
-    ip) [ -n "$MOCK_IP" ] && printf '%s\n' "$MOCK_IP" ;;
-    *) return 1 ;;
-  esac
-}
-
-jsonfilter() {
-  printf '%s\n' "$MOCK_BACKEND"
-}
+PREMIER_ROUTER_HOST_TEST=1
+VPN_UI_SOURCE_ONLY=1
+export PREMIER_ROUTER_HOST_TEST VPN_UI_SOURCE_ONLY
+. "$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 
 sleep() {
   :
 }
 
+VPN_UI_TEST_TAILSCALE_SNAPSHOT='pid=42
+process_start_id=1001
+enabled=true
+backend=Running
+ip4=100.64.0.10
+control_url=https://control.example.invalid
+tailnet=fixture
+route_hash=route
+rule_hash=rule
+management_route_hash=management-route
+management_rule_hash=management-rule
+state_hash=state'
+export VPN_UI_TEST_TAILSCALE_SNAPSHOT
 tailscale_registration_ready
 
-MOCK_BACKEND=NeedsLogin
-MOCK_IP=''
+VPN_UI_TEST_TAILSCALE_SNAPSHOT='pid=42
+process_start_id=1001
+enabled=true
+backend=NeedsLogin
+ip4=
+control_url=https://control.example.invalid
+tailnet=
+route_hash=route
+rule_hash=rule
+management_route_hash=management-route
+management_rule_hash=management-rule
+state_hash=state'
+export VPN_UI_TEST_TAILSCALE_SNAPSHOT
 if tailscale_registration_ready; then
   printf 'NeedsLogin was incorrectly accepted as a registered Tailscale state\n' >&2
   exit 1

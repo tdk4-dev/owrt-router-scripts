@@ -1445,7 +1445,7 @@ profile_id_from_current() {
 }
 
 write_profile_file() {
-  local file="$PROFILE_DIR/$P_ID.conf"
+  local file="$PROFILE_DIR/$P_ID.conf" tmp="$PROFILE_DIR/.$P_ID.conf.new.$$"
   mkdir -p "$PROFILE_DIR"
   {
     printf 'P_ID=%s\n' "$(shell_quote "$P_ID")"
@@ -1464,8 +1464,9 @@ write_profile_file() {
     printf 'P_FINGERPRINT=%s\n' "$(shell_quote "$P_FINGERPRINT")"
     printf 'P_SPIDERX=%s\n' "$(shell_quote "$P_SPIDERX")"
     printf 'P_SOURCE_ID=%s\n' "$(shell_quote "$P_SOURCE_ID")"
-  } > "$file"
-  chmod 600 "$file"
+  } > "$tmp" || return 1
+  chmod 600 "$tmp" || return 1
+  mv "$tmp" "$file"
 }
 
 reset_profile_vars() {
@@ -1806,7 +1807,7 @@ write_subscription_file() {
   local name="$2"
   local url="$3"
   local count="$4"
-  local file="$SUBSCRIPTION_DIR/$id.conf"
+  local file="$SUBSCRIPTION_DIR/$id.conf" tmp="$SUBSCRIPTION_DIR/.$id.conf.new.$$"
 
   {
     printf 'S_ID=%s\n' "$(shell_quote "$id")"
@@ -1814,8 +1815,9 @@ write_subscription_file() {
     printf 'S_URL=%s\n' "$(shell_quote "$url")"
     printf 'S_COUNT=%s\n' "$(shell_quote "$count")"
     printf 'S_UPDATED=%s\n' "$(shell_quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
-  } > "$file"
-  chmod 600 "$file"
+  } > "$tmp" || return 1
+  chmod 600 "$tmp" || return 1
+  mv "$tmp" "$file"
 }
 
 load_subscription_file() {
@@ -1911,7 +1913,10 @@ sync_subscription() {
     sh "$0" validate-vless "$line" 2>/dev/null | grep -q '"ok":true' || continue
     parse_vless_url "$line"
     P_SOURCE_ID="$id"
-    write_profile_file
+    write_profile_file || {
+      rm -f "$links" "$seen"
+      die_json "subscription profile commit failed"
+    }
     printf '%s\n' "$P_ID" >> "$seen"
     count=$((count + 1))
   done < "$links"
@@ -1932,8 +1937,24 @@ sync_subscription() {
     rm -f "$f"
     sed -i "\|^$old_id\$|d" "$AUTO_POOL_FILE" 2>/dev/null || true
   done
+  while IFS= read -r profile_id || [ -n "$profile_id" ]; do
+    [ -f "$PROFILE_DIR/$profile_id.conf" ] || {
+      rm -f "$seen"
+      die_json "subscription profile commit could not be verified"
+    }
+    load_profile_file "$PROFILE_DIR/$profile_id.conf"
+    [ "$P_ID" = "$profile_id" ] && [ "$P_SOURCE_ID" = "$id" ] || {
+      rm -f "$seen"
+      die_json "subscription profile identity could not be verified"
+    }
+  done < "$seen"
   rm -f "$seen"
-  write_subscription_file "$id" "$name" "$url" "$count"
+  write_subscription_file "$id" "$name" "$url" "$count" ||
+    die_json "subscription metadata commit failed"
+  load_subscription_file "$SUBSCRIPTION_DIR/$id.conf"
+  [ "$S_ID" = "$id" ] && [ "$S_NAME" = "$name" ] &&
+    [ "$S_URL" = "$url" ] && [ "$S_COUNT" = "$count" ] ||
+    die_json "subscription metadata postcondition failed"
 }
 
 subscription_json() {
@@ -2324,7 +2345,8 @@ adopted_xray_test() {
 
 tailscale_invariant_snapshot() {
   local output="$1" status_file="/tmp/vpn-ui-tailscale-invariant.$$" backend="" ip4=""
-  local tailscale_pid enabled route_hash rule_hash
+  local tailscale_pid first_pid start_id enabled route_hash rule_hash prefs control tailnet
+  local management_route_hash management_rule_hash state_file state_hash
 
   if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
     [ -n "${VPN_UI_TEST_TAILSCALE_SNAPSHOT:-}" ]; then
@@ -2338,29 +2360,222 @@ tailscale_invariant_snapshot() {
   fi
 
   tailscale_pid="$(pidof tailscaled 2>/dev/null || true)"
+  first_pid="${tailscale_pid%% *}"
+  start_id=""
+  [ -z "$first_pid" ] || start_id="$(overlay_process_start_id "$first_pid" 2>/dev/null || true)"
   enabled=false
   [ -x "${ROOT_PREFIX}/etc/init.d/tailscale" ] &&
     "${ROOT_PREFIX}/etc/init.d/tailscale" enabled >/dev/null 2>&1 && enabled=true
   if command -v tailscale >/dev/null 2>&1 && tailscale status --json > "$status_file" 2>/dev/null; then
     backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
+    tailnet="$(json_value "$status_file" '@.CurrentTailnet.Name' '.CurrentTailnet.Name')"
     ip4="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+  else
+    tailnet=""
   fi
+  prefs="$(tailscale debug prefs 2>/dev/null || true)"
+  control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
   if command -v ip >/dev/null 2>&1; then
     route_hash="$(ip -4 route show table all 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
     rule_hash="$(ip -4 rule show 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+    management_route_hash="$(ip -4 route show table main 2>/dev/null | grep -v 'tailscale0' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+    management_rule_hash="$(ip -4 rule show 2>/dev/null | grep -Ev 'lookup (52|tailscale)|tailscale0' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
   else
     route_hash=unavailable
     rule_hash=unavailable
+    management_route_hash=unavailable
+    management_rule_hash=unavailable
   fi
+  state_file="$(tailscale_state_path)"
+  state_hash=absent
+  [ -f "$state_file" ] && [ ! -L "$state_file" ] &&
+    state_hash="$(sha256sum "$state_file" | awk '{print $1}')"
   rm -f "$status_file"
   {
     printf 'pid=%s\n' "$tailscale_pid"
+    printf 'process_start_id=%s\n' "$start_id"
     printf 'enabled=%s\n' "$enabled"
     printf 'backend=%s\n' "$backend"
     printf 'ip4=%s\n' "$ip4"
+    printf 'control_url=%s\n' "$control"
+    printf 'tailnet=%s\n' "$tailnet"
     printf 'route_hash=%s\n' "$route_hash"
     printf 'rule_hash=%s\n' "$rule_hash"
+    printf 'management_route_hash=%s\n' "$management_route_hash"
+    printf 'management_rule_hash=%s\n' "$management_rule_hash"
+    printf 'state_hash=%s\n' "$state_hash"
   } > "$output"
+}
+
+tailscale_state_path() {
+  local path
+  path="$("$UCI_BIN" -q get tailscale.settings.state_file 2>/dev/null || true)"
+  [ -n "$path" ] || path=/var/lib/tailscale/tailscaled.state
+  case "$path" in /*) ;; *) return 1 ;; esac
+  case "$path" in *'/../'*|*/..|../*|*'/./'*|*/.) return 1 ;; esac
+  host_path "$path"
+}
+
+tailscale_snapshot_value() {
+  sed -n "s/^$2=//p" "$1" | sed -n '1p'
+}
+
+tailscale_action_begin() {
+  local snapshot="$1" transaction="$2" state_file
+  [ ! -e "$transaction" ] && [ ! -L "$transaction" ] || return 1
+  mkdir "$transaction" || return 1
+  chmod 700 "$transaction" || return 1
+  tailscale_invariant_snapshot "$snapshot" || return 1
+  state_file="$(tailscale_state_path)" || return 1
+  [ ! -L "$state_file" ] || return 1
+  printf '%s\n' "$state_file" > "$transaction/state.path"
+  chmod 600 "$transaction/state.path"
+  if [ -f "$state_file" ] && [ ! -L "$state_file" ]; then
+    cp -p "$state_file" "$transaction/state.preimage" || return 1
+    chmod 600 "$transaction/state.preimage"
+  else
+    : > "$transaction/state.absent"
+  fi
+}
+
+tailscale_backend_stable() {
+  case "$1" in Running|NeedsLogin|NeedsMachineAuth|Stopped|NoState) return 0 ;; esac
+  return 1
+}
+
+tailscale_wait_state() {
+  local expected_running="$1" expected_enabled="$2" expected_backend="$3" expected_ip="$4"
+  local timeout="$5" old_pid="${6:-}" old_start="${7:-}" require_new="${8:-false}"
+  local attempt=0 observed="/tmp/vpn-ui-tailscale-wait.$$" running enabled backend ip pid start matches
+  case "$timeout" in ''|*[!0-9]*) return 1 ;; esac
+  while [ "$attempt" -lt "$timeout" ]; do
+    tailscale_invariant_snapshot "$observed" || return 1
+    pid="$(tailscale_snapshot_value "$observed" pid)"
+    start="$(tailscale_snapshot_value "$observed" process_start_id)"
+    [ -n "$pid" ] && running=true || running=false
+    enabled="$(tailscale_snapshot_value "$observed" enabled)"
+    backend="$(tailscale_snapshot_value "$observed" backend)"
+    ip="$(tailscale_snapshot_value "$observed" ip4)"
+    matches=true
+    [ "$running" = "$expected_running" ] || matches=false
+    [ "$enabled" = "$expected_enabled" ] || matches=false
+    if [ "$expected_backend" = any-stable ]; then
+      tailscale_backend_stable "$backend" || matches=false
+    elif [ -n "$expected_backend" ] && [ "$backend" != "$expected_backend" ]; then
+      matches=false
+    fi
+    case "$expected_ip" in
+      nonempty) [ -n "$ip" ] || matches=false ;;
+      empty) [ -z "$ip" ] || matches=false ;;
+      '') ;;
+      *) [ "$ip" = "$expected_ip" ] || matches=false ;;
+    esac
+    if [ "$require_new" = true ] && [ "$old_pid:$old_start" = "$pid:$start" ]; then
+      matches=false
+    fi
+    if [ "$matches" = true ]; then
+      rm -f "$observed"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge "$timeout" ] || sleep 1
+  done
+  rm -f "$observed"
+  return 1
+}
+
+tailscale_snapshot_matches_restored() {
+  local before="$1" after="$2" key
+  for key in enabled backend ip4 control_url tailnet route_hash rule_hash \
+    management_route_hash management_rule_hash; do
+    [ "$(tailscale_snapshot_value "$before" "$key")" = \
+      "$(tailscale_snapshot_value "$after" "$key")" ] || return 1
+  done
+  if [ -n "$(tailscale_snapshot_value "$before" pid)" ]; then
+    [ -n "$(tailscale_snapshot_value "$after" pid)" ] || return 1
+  else
+    [ -z "$(tailscale_snapshot_value "$after" pid)" ] || return 1
+  fi
+}
+
+tailscale_wait_invariants() {
+  local before="$1" after="$2" mode="$3" timeout="$4" attempt=0 key matches
+  case "$timeout" in ''|*[!0-9]*) return 1 ;; esac
+  while [ "$attempt" -lt "$timeout" ]; do
+    tailscale_invariant_snapshot "$after" || return 1
+    matches=true
+    case "$mode" in
+      management) set -- management_route_hash management_rule_hash ;;
+      restart) set -- control_url tailnet route_hash rule_hash management_route_hash management_rule_hash ;;
+      *) return 1 ;;
+    esac
+    for key in "$@"; do
+      [ "$(tailscale_snapshot_value "$before" "$key")" = \
+        "$(tailscale_snapshot_value "$after" "$key")" ] || matches=false
+    done
+    [ "$matches" = true ] && return 0
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge "$timeout" ] || sleep 1
+  done
+  return 1
+}
+
+tailscale_restore_prestate() {
+  local before="$1" transaction="$2" state_file pre_running pre_enabled pre_backend pre_ip
+  local after="$transaction/restored.txt" early="$transaction/restored-early.txt" attempt=0 state_same=false
+  state_file="$(sed -n '1p' "$transaction/state.path" 2>/dev/null)"
+  case "$state_file" in /*) ;; *) return 1 ;; esac
+  case "$state_file" in *'/../'*|*/..|../*|*'/./'*|*/.) return 1 ;; esac
+  [ ! -L "$state_file" ] || return 1
+  pre_running=false
+  [ -n "$(tailscale_snapshot_value "$before" pid)" ] && pre_running=true
+  pre_enabled="$(tailscale_snapshot_value "$before" enabled)"
+  pre_backend="$(tailscale_snapshot_value "$before" backend)"
+  pre_ip="$(tailscale_snapshot_value "$before" ip4)"
+  if [ "$pre_enabled" = true ]; then
+    "${ROOT_PREFIX}/etc/init.d/tailscale" enable >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
+  else
+    "${ROOT_PREFIX}/etc/init.d/tailscale" disable >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
+  fi
+  if [ -f "$transaction/state.absent" ]; then
+    [ ! -e "$state_file" ] && state_same=true
+  else
+    [ -f "$transaction/state.preimage" ] || return 1
+    cmp -s "$transaction/state.preimage" "$state_file" && state_same=true
+  fi
+  if [ "$state_same" = true ]; then
+    tailscale_invariant_snapshot "$early" || return 1
+    tailscale_snapshot_matches_restored "$before" "$early" && return 0
+  fi
+  set_service_running_state tailscale false || return 1
+  if [ -f "$transaction/state.absent" ]; then
+    rm -f "$state_file"
+  else
+    mkdir -p "$(dirname "$state_file")" || return 1
+    cp -p "$transaction/state.preimage" "$state_file" || return 1
+    cmp -s "$transaction/state.preimage" "$state_file" || return 1
+  fi
+  if [ "$pre_running" = true ]; then
+    "${ROOT_PREFIX}/etc/init.d/tailscale" start >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
+  fi
+  tailscale_wait_state "$pre_running" "$pre_enabled" "$pre_backend" "$pre_ip" \
+    "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" || return 1
+  while [ "$attempt" -lt "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" ]; do
+    tailscale_invariant_snapshot "$after" || return 1
+    tailscale_snapshot_matches_restored "$before" "$after" && return 0
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" ] || sleep 1
+  done
+  return 1
+}
+
+tailscale_action_failed() {
+  local action="$1" before="$2" transaction="$3" reason="$4"
+  if tailscale_restore_prestate "$before" "$transaction"; then
+    rm -rf "$transaction"
+    die_json "$action failed; exact pre-action Tailscale state was restored: $reason"
+  fi
+  die_json "$action failed and exact pre-action Tailscale state restoration could not be proven: $reason"
 }
 
 restore_transparent_state() {
@@ -3150,9 +3365,18 @@ auto_json() {
 }
 
 tailscale_json() {
-  local running ip prefs control hostname status_file version tailnet
+  local running ip prefs control hostname status_file version tailnet backend enabled pid first_pid start_id
   running="false"
-  pidof tailscaled >/dev/null 2>&1 && running="true"
+  pid="$(pidof tailscaled 2>/dev/null || true)"
+  first_pid="${pid%% *}"
+  start_id=""
+  if [ -n "$first_pid" ]; then
+    running=true
+    start_id="$(overlay_process_start_id "$first_pid" 2>/dev/null || true)"
+  fi
+  enabled=false
+  [ -x "${ROOT_PREFIX}/etc/init.d/tailscale" ] &&
+    "${ROOT_PREFIX}/etc/init.d/tailscale" enabled >/dev/null 2>&1 && enabled=true
   ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
   prefs="$(tailscale debug prefs 2>/dev/null || true)"
   control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
@@ -3161,11 +3385,20 @@ tailscale_json() {
   status_file="/tmp/vpn-ui-tailscale-status.$$"
   if tailscale status --json > "$status_file" 2>/dev/null; then
     tailnet="$(jsonfilter -i "$status_file" -e '@.CurrentTailnet.Name' 2>/dev/null || true)"
+    backend="$(jsonfilter -i "$status_file" -e '@.BackendState' 2>/dev/null || true)"
   else
     : > "$status_file"
     tailnet=""
+    backend=""
   fi
-  printf '{"running":%s,"connected":%s,"ip":' "$running" "$([ -n "$ip" ] && printf true || printf false)"
+  printf '{"running":%s,"boot_enabled":%s,"connected":%s,"pid":' \
+    "$running" "$enabled" "$([ -n "$ip" ] && printf true || printf false)"
+  json_string "$pid"
+  printf ',"process_start_id":'
+  json_string "$start_id"
+  printf ',"backend_state":'
+  json_string "$backend"
+  printf ',"ip":'
   json_string "$ip"
   printf ',"control_url":'
   json_string "$control"
@@ -3863,6 +4096,7 @@ cmd_refresh_pings() {
     [ -f "$f" ] || continue
     load_profile_file "$f"
     id="$(basename "$f" .conf)"
+    rm -f "$PING_DIR/$id"
     refresh_profile_ping "$id" "$P_HOST" "$P_PORT" &
     running=$((running + 1))
     if [ "$running" -ge 6 ]; then
@@ -3871,6 +4105,13 @@ cmd_refresh_pings() {
     fi
   done
   wait
+  for f in "$PROFILE_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    id="$(basename "$f" .conf)"
+    [ -s "$PING_DIR/$id" ] &&
+      grep -Eq '^(timeout|[0-9]+ ms|tcp [0-9]+ ms)$' "$PING_DIR/$id" ||
+      die_json "reachability refresh did not produce a fresh result for every profile"
+  done
   status_json
 }
 
@@ -3955,8 +4196,8 @@ cmd_auto_config() {
   local periodic="$2"
   local hours="$3"
   local pool_text="$4"
-  local tmp="/tmp/vpn-ui-auto-pool.$$"
-  local id
+  local tmp="/tmp/vpn-ui-auto-pool.$$" config_tmp="$AUTO_CONFIG.new.$$"
+  local id expected_pool_hash
 
   require_managed_ownership
   init_state
@@ -3979,14 +4220,22 @@ cmd_auto_config() {
     }
   fi
 
-  cat > "$AUTO_CONFIG" <<EOF
+  expected_pool_hash="$(sha256sum "$tmp" | awk '{print $1}')"
+  cat > "$config_tmp" <<EOF
 AUTO_FAILOVER='$failover'
 AUTO_PERIODIC='$periodic'
 AUTO_PERIODIC_HOURS='$hours'
 AUTO_FAILURE_LIMIT='3'
 EOF
-  mv "$tmp" "$AUTO_POOL_FILE"
-  chmod 600 "$AUTO_CONFIG" "$AUTO_POOL_FILE"
+  chmod 600 "$config_tmp" || die_json "automatic-switch configuration commit failed"
+  mv "$config_tmp" "$AUTO_CONFIG" || die_json "automatic-switch configuration commit failed"
+  mv "$tmp" "$AUTO_POOL_FILE" || die_json "automatic-switch pool commit failed"
+  chmod 600 "$AUTO_CONFIG" "$AUTO_POOL_FILE" || die_json "automatic-switch file permissions failed"
+  load_auto_config
+  [ "$AUTO_FAILOVER" = "$failover" ] && [ "$AUTO_PERIODIC" = "$periodic" ] &&
+    [ "$AUTO_PERIODIC_HOURS" = "$hours" ] &&
+    [ "$(sha256sum "$AUTO_POOL_FILE" | awk '{print $1}')" = "$expected_pool_hash" ] ||
+    die_json "automatic-switch configuration postcondition failed"
   status_json
 }
 
@@ -4052,9 +4301,9 @@ $(best_pool_profile "$selected")
 EOF
         if [ -n "$best_id" ]; then
           if adoption_state_load; then
-            apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id"
+            apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id" || return 1
           else
-            render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+            render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0" || return 1
           fi
           selected="$best_id"
           current_ms="$best_ms"
@@ -4075,9 +4324,9 @@ EOF
       threshold=$((current_ms * 65 / 100))
       if [ "$best_ms" -le "$threshold" ] && [ $((current_ms - best_ms)) -ge 30 ]; then
         if adoption_state_load; then
-          apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id"
+          apply_adopted_rules "$DOMAINS_FILE" "$IPS_FILE" "$best_id" || return 1
         else
-          render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0"
+          render_and_apply "$best_id" "$DOMAINS_FILE" "$IPS_FILE" "0" || return 1
         fi
       fi
     fi
@@ -4096,14 +4345,19 @@ cmd_tailscale_up() {
   local auth_key="$3"
   local advertise_routes="$4"
   local advertise_exit="$5"
-  local log="/tmp/vpn-ui-tailscale-up.$$"
+  local log="/tmp/vpn-ui-tailscale-up.$$" transaction before after
+  transaction="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-action.$$"
+  before="$transaction/before.txt"
+  after="$transaction/after.txt"
 
   case "$login_server" in https://*) ;; *) die_json "Tailscale login server must use https://" ;; esac
   [ -n "$hostname" ] || hostname="$(uci -q get system.@system[0].hostname 2>/dev/null || printf openwrt)"
-  /etc/init.d/tailscale enable >/dev/null 2>&1 || true
-  /etc/init.d/tailscale restart >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
-    /etc/init.d/tailscale start >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
-    die_json "could not start tailscaled"
+  tailscale_action_begin "$before" "$transaction" || die_json "could not capture the pre-action Tailscale state"
+  "${ROOT_PREFIX}/etc/init.d/tailscale" enable >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
+    tailscale_action_failed "Tailscale settings apply" "$before" "$transaction" "boot enable failed"
+  "${ROOT_PREFIX}/etc/init.d/tailscale" restart >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
+    "${ROOT_PREFIX}/etc/init.d/tailscale" start >/tmp/vpn-ui-tailscale-service.log 2>&1 ||
+    tailscale_action_failed "Tailscale settings apply" "$before" "$transaction" "could not start tailscaled"
 
   set -- \
     "--login-server=$login_server" \
@@ -4116,47 +4370,90 @@ cmd_tailscale_up() {
   if ! tailscale up "$@" >"$log" 2>&1; then
     tailscale up --reset "$@" >"$log" 2>&1 || {
       rm -f "$log"
-      die_json "tailscale up failed; verify the login server, TLS, and preauth key"
+      tailscale_action_failed "Tailscale settings apply" "$before" "$transaction" \
+        "tailscale up failed; verify the login server, TLS, and preauth key"
     }
   fi
   rm -f "$log"
   tailscale_registration_ready ||
-    die_json "tailscale did not reach a registered Running state; verify the login server, TLS, and preauth key"
+    tailscale_action_failed "Tailscale settings apply" "$before" "$transaction" \
+      "tailscale did not reach a registered Running state"
+  tailscale_wait_invariants "$before" "$after" management "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale settings apply" "$before" "$transaction" \
+      "management-route invariants changed"
+  rm -rf "$transaction"
   tailscale_status_json
 }
 
 tailscale_registration_ready() {
-  local attempt=0 backend ip status_file="/tmp/vpn-ui-tailscale-registration.$$"
-  while [ "$attempt" -lt 20 ]; do
-    backend=""
-    if tailscale status --json > "$status_file" 2>/dev/null; then
-      backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
-    fi
-    rm -f "$status_file"
-    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
-    [ "$backend" = "Running" ] && [ -n "$ip" ] && return 0
-    attempt=$((attempt + 1))
-    sleep 1
-  done
-  return 1
+  tailscale_wait_state true true Running nonempty "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}"
 }
 
 cmd_tailscale_logout() {
+  local transaction before after enabled running
+  transaction="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-action.$$"
+  before="$transaction/before.txt"
+  after="$transaction/after.txt"
+  tailscale_action_begin "$before" "$transaction" || die_json "could not capture the pre-action Tailscale state"
+  enabled="$(tailscale_snapshot_value "$before" enabled)"
+  [ -n "$(tailscale_snapshot_value "$before" pid)" ] && running=true || running=false
   tailscale logout >/tmp/vpn-ui-tailscale-logout.log 2>&1 ||
-    die_json "tailscale logout failed"
+    tailscale_action_failed "Tailscale logout" "$before" "$transaction" "tailscale logout failed"
+  tailscale_wait_state "$running" "$enabled" NeedsLogin empty \
+    "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale logout" "$before" "$transaction" \
+      "logout state did not converge before timeout"
+  tailscale_wait_invariants "$before" "$after" management "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale logout" "$before" "$transaction" \
+      "management-route invariants changed"
+  rm -rf "$transaction"
   tailscale_status_json
 }
 
 cmd_tailscale_restart() {
-  /etc/init.d/tailscale restart >/tmp/vpn-ui-tailscale-restart.log 2>&1 ||
-    die_json "could not restart tailscale"
+  local transaction before after enabled backend expected_backend ip old_pid old_start require_new=false key
+  transaction="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-action.$$"
+  before="$transaction/before.txt"
+  after="$transaction/after.txt"
+  tailscale_action_begin "$before" "$transaction" || die_json "could not capture the pre-action Tailscale state"
+  enabled="$(tailscale_snapshot_value "$before" enabled)"
+  backend="$(tailscale_snapshot_value "$before" backend)"
+  ip="$(tailscale_snapshot_value "$before" ip4)"
+  old_pid="$(tailscale_snapshot_value "$before" pid)"
+  old_start="$(tailscale_snapshot_value "$before" process_start_id)"
+  [ -n "$old_pid" ] && require_new=true
+  expected_backend="$backend"
+  tailscale_backend_stable "$expected_backend" || expected_backend=any-stable
+  "${ROOT_PREFIX}/etc/init.d/tailscale" restart >/tmp/vpn-ui-tailscale-restart.log 2>&1 ||
+    tailscale_action_failed "Tailscale restart" "$before" "$transaction" "init restart failed"
+  tailscale_wait_state true "$enabled" "$expected_backend" "$ip" \
+    "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" "$old_pid" "$old_start" "$require_new" ||
+    tailscale_action_failed "Tailscale restart" "$before" "$transaction" \
+      "new healthy process state did not converge before timeout"
+  tailscale_wait_invariants "$before" "$after" restart "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale restart" "$before" "$transaction" \
+      "registered identity or routing invariant changed"
+  rm -rf "$transaction"
   tailscale_status_json
 }
 
 cmd_tailscale_stop() {
-  /etc/init.d/tailscale stop >/tmp/vpn-ui-tailscale-stop.log 2>&1 ||
-    die_json "could not stop tailscale"
-  /etc/init.d/tailscale disable >/dev/null 2>&1 || true
+  local transaction before after
+  transaction="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-action.$$"
+  before="$transaction/before.txt"
+  after="$transaction/after.txt"
+  tailscale_action_begin "$before" "$transaction" || die_json "could not capture the pre-action Tailscale state"
+  "${ROOT_PREFIX}/etc/init.d/tailscale" stop >/tmp/vpn-ui-tailscale-stop.log 2>&1 ||
+    tailscale_action_failed "Tailscale stop" "$before" "$transaction" "init stop failed"
+  "${ROOT_PREFIX}/etc/init.d/tailscale" disable >/tmp/vpn-ui-tailscale-stop.log 2>&1 ||
+    tailscale_action_failed "Tailscale stop" "$before" "$transaction" "boot disable failed"
+  tailscale_wait_state false false '' '' "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale stop" "$before" "$transaction" \
+      "stopped and disabled state did not converge before timeout"
+  tailscale_wait_invariants "$before" "$after" management "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+    tailscale_action_failed "Tailscale stop" "$before" "$transaction" \
+      "management-route invariants changed"
+  rm -rf "$transaction"
   tailscale_status_json
 }
 
@@ -4338,6 +4635,11 @@ case "${1:-status}" in
     ;;
   update-status)
     cmd_update status
+    ;;
+  update-job-status)
+    [ -n "${2:-}" ] || die_json "update-job-status requires an operation ID"
+    [ -n "${3:-}" ] || die_json "update-job-status requires an operation kind"
+    cmd_update job-status "$2" "$3"
     ;;
   update-check-start)
     cmd_update check-start

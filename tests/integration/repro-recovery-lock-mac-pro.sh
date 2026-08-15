@@ -565,7 +565,7 @@ run_next_candidate_proof() {
     VPN_UI_DISCOVERY_BASE='https://10.0.2.2:$HTTPS_PORT/candidate' \
     VPN_UI_RELEASE_CHANNEL=stable /usr/sbin/vpn-ui-update check-start" \
     > "$EVIDENCE_DIR/next-updater-check-start.json"
-  jq -e '.ok and .started and .job == "check"' \
+  jq -e '.ok and .started and .job.kind == "check" and (.job.id | test("^[0-9a-f]{64}$"))' \
     "$EVIDENCE_DIR/next-updater-check-start.json" >/dev/null ||
     fail 'detached stable update check did not start'
   state=waiting
@@ -583,7 +583,7 @@ run_next_candidate_proof() {
     VPN_UI_RELEASE_ORIGIN='https://10.0.2.2:$HTTPS_PORT' \
     VPN_UI_RELEASE_CHANNEL=stable /usr/sbin/vpn-ui-update apply-start" \
     > "$EVIDENCE_DIR/next-updater-apply-start.json"
-  jq -e '.ok and .started and .job == "apply"' \
+  jq -e '.ok and .started and .job.kind == "apply" and (.job.id | test("^[0-9a-f]{64}$"))' \
     "$EVIDENCE_DIR/next-updater-apply-start.json" >/dev/null ||
     fail 'detached stable update apply did not start'
   transaction=""

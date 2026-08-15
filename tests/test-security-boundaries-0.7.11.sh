@@ -40,7 +40,15 @@ sh "$TMP_ROOT/vpn-ui-readonly" tailscale-ping 100.64.0.1 |
   grep -Fq '"ok":true'
 sh "$TMP_ROOT/vpn-ui-readonly" test-domain example.com |
   grep -Fq '"ok":true'
-[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 7 ]
+sh "$TMP_ROOT/vpn-ui-readonly" update-job-status \
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa check |
+  grep -Fq '"ok":true'
+[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 8 ]
+
+before="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
+sh "$TMP_ROOT/vpn-ui-readonly" update-job-status malformed check | grep -Fq '"ok":false'
+after="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
+[ "$before" = "$after" ]
 
 for command in init refresh-pings add select delete adoption-confirm overlay-recover apply-rules check device xray \
   subscription-add subscription-sync subscription-delete subscription-preview \
