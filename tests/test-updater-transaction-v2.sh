@@ -798,7 +798,7 @@ stage 079-recovered
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
-# RC5 wrote no protected-validation pair. The RC13 reboot path may bridge only
+# RC5 wrote no protected-validation pair. The RC14 reboot path may bridge only
 # the exact signed bootstrap lineage and must materialize the current pair
 # after proving the stable protected state is unchanged.
 prepare_rc5_reboot_transaction() {
@@ -806,7 +806,7 @@ prepare_rc5_reboot_transaction() {
   local postinst_shape="${2:-absent}"
   local source_setup="${3:-seed}"
   local cron_source="$TMP_ROOT/rc5-source-root.cron"
-  local cron_expected="$TMP_ROOT/rc13-expected-root.cron"
+  local cron_expected="$TMP_ROOT/rc14-expected-root.cron"
   local package postinst_path
   case "$source_setup" in
     seed) seed_rc5_source ;;
@@ -1066,7 +1066,7 @@ stage exact-rc5-reboot-missing-cron-and-sequential-postinst-bridge
 
 # A successful exact rollback on real OpenWrt can retain the three authenticated
 # RC5 postinst control files even though the original bootstrap shape omitted
-# them. The next RC5 -> RC13 reboot must accept that complete byte-bound shape,
+# them. The next RC5 -> RC14 reboot must accept that complete byte-bound shape,
 # while partial or locally modified variants remain fail-closed.
 prepare_rc5_reboot_transaction missing retained
 for package in premier-router-core luci-app-premier-router premier-router-setup; do

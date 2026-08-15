@@ -67,7 +67,7 @@ const oldId = 'c'.repeat(64);
 			} };
 		case 'update-status':
 			return {
-				ok: true, current: '0.7.11-rc.13', latest: '0.7.11', checked_at: '2026-08-15T10:00:00Z',
+				ok: true, current: '0.7.11-rc.14', latest: '0.7.11', checked_at: '2026-08-15T10:00:00Z',
 				job: { id: oldId, status: 'success', stage: 'committed' }
 			};
 		default: throw new Error(`unexpected command ${args[0]}`);
@@ -140,7 +140,7 @@ const oldId = 'c'.repeat(64);
 			completed.push(args[1]);
 			return { ok: true, job: { id: args[1], kind: 'check', status: 'succeeded' } };
 		}
-		return { ok: true, current: '0.7.11-rc.13', job: { status: 'success' } };
+		return { ok: true, current: '0.7.11-rc.14', job: { status: 'success' } };
 	});
 	await page.startJob('check');
 	await page.startJob('check');

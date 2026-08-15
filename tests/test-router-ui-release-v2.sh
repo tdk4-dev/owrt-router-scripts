@@ -64,14 +64,14 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.13" and .package_version == "0.7.11~rc13-1" and
+  .app_version == "0.7.11-rc.14" and .package_version == "0.7.11~rc14-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.6" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.7" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
-  (any(.transitions[]; .source_version == "0.7.11-rc.13" and
+  (any(.transitions[]; .source_version == "0.7.11-rc.14" and
     .source_protocol == 2) | not) and
   (any(.transitions[]; .source_version == "0.7.11-rc.4" and
     .source_protocol == 2) | not)
@@ -86,7 +86,7 @@ STRICT_RELEASE=1 OUTPUT_DIR="$TMP_ROOT/synthetic-next" \
 jq -e --arg source "$SOURCE_COMMIT" '
   .app_version == "0.7.11" and .package_version == "0.7.11-1" and
   .source_commit == $source and .source_dirty == false and
-  any(.transitions[]; .source_version == "0.7.11-rc.13" and
+  any(.transitions[]; .source_version == "0.7.11-rc.14" and
     .source_protocol == 2 and .mode == "package-v2-rc")
 ' "$TMP_ROOT/synthetic-next/router-release-manifest.json" >/dev/null
 
