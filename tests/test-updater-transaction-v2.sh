@@ -499,7 +499,8 @@ run_exact_space_case() {
 }
 
 test_core_package_cron_scripts() {
-  local core_ipk control package_root cron before expected signal_bin transparent_sha
+  local core_ipk control package_root cron before expected signal_bin
+  local transparent_sha transparent_metadata
   core_ipk="$(find "$TMP_ROOT/ipk" -maxdepth 1 -type f \
     -name 'premier-router-core_*_all.ipk' -print -quit)"
   [ -n "$core_ipk" ]
@@ -569,6 +570,8 @@ EOF
     "$package_root/etc/init.d/xray-transparent"
   chmod 711 "$package_root/etc/init.d/xray-transparent"
   transparent_sha="$(sha256sum "$package_root/etc/init.d/xray-transparent" | awk '{ print $1 }')"
+  transparent_metadata="$(LC_ALL=C ls -ldn \
+    "$package_root/etc/init.d/xray-transparent" | awk '{ print $1 ":" $3 ":" $4 }')"
   prepare_package_transaction applying
   run_package_script preinst 1 1
   printf '%s\n' 'candidate transparent init bytes' > \
@@ -578,7 +581,8 @@ EOF
   run_package_script postrm 1 0 upgrade
   [ "$(sha256sum "$package_root/etc/init.d/xray-transparent" | awk '{ print $1 }')" = \
     "$transparent_sha" ]
-  [ "$(stat -c %a "$package_root/etc/init.d/xray-transparent")" = 711 ]
+  [ "$(LC_ALL=C ls -ldn "$package_root/etc/init.d/xray-transparent" |
+    awk '{ print $1 ":" $3 ":" $4 }')" = "$transparent_metadata" ]
 
   reset_package_root
   rm -f "$package_root/etc/init.d/xray-transparent"
@@ -596,8 +600,8 @@ EOF
     "$package_root/etc/init.d/xray-transparent"
   prepare_package_transaction applying
   run_package_script preinst 1 1
-  printf '%s\n' 'tampered prestate' >> \
-    "$package_root/root/premier-router-updates/20260815T120000Z-0123456789abcdef/rollback/xray-transparent-prestate/file"
+  printf '%s\n' 'tampered prestate' > \
+    "$package_root/root/premier-router-updates/20260815T120000Z-0123456789abcdef/rollback/xray-transparent-prestate/file.tar.gz"
   printf '%s\n' 'candidate transparent init bytes' > \
     "$package_root/etc/init.d/xray-transparent"
   set_package_transaction_state rolling_back
@@ -869,9 +873,10 @@ prepare_rc5_reboot_transaction() {
   export RC5_SOURCE_CRON_SHAPE RC5_SOURCE_CRON_SHA
   RC5_SOURCE_TRANSPARENT_SHA="$(sha256sum \
     "$FAKE_ROOT/etc/init.d/xray-transparent" | awk '{ print $1 }')"
-  RC5_SOURCE_TRANSPARENT_MODE="$(stat -c %a \
-    "$FAKE_ROOT/etc/init.d/xray-transparent")"
-  export RC5_SOURCE_TRANSPARENT_SHA RC5_SOURCE_TRANSPARENT_MODE
+  RC5_SOURCE_TRANSPARENT_METADATA="$(LC_ALL=C ls -ldn \
+    "$FAKE_ROOT/etc/init.d/xray-transparent" |
+    awk '{ print $1 ":" $3 ":" $4 }')"
+  export RC5_SOURCE_TRANSPARENT_SHA RC5_SOURCE_TRANSPARENT_METADATA
   awk 'index($0, "/usr/sbin/vpn-ui auto-tick") == 0 &&
     index($0, "/usr/sbin/vpn-ui-update auto") == 0 { print }' \
     "$cron_source" > "$cron_expected"
@@ -1023,8 +1028,8 @@ run_supervisor rollback "$RC5_TRANSACTION"
   "$RC5_SOURCE_CRON_SHA" ]
 [ "$(sha256sum "$FAKE_ROOT/etc/init.d/xray-transparent" | awk '{ print $1 }')" = \
   "$RC5_SOURCE_TRANSPARENT_SHA" ]
-[ "$(stat -c %a "$FAKE_ROOT/etc/init.d/xray-transparent")" = \
-  "$RC5_SOURCE_TRANSPARENT_MODE" ]
+[ "$(LC_ALL=C ls -ldn "$FAKE_ROOT/etc/init.d/xray-transparent" |
+  awk '{ print $1 ":" $3 ":" $4 }')" = "$RC5_SOURCE_TRANSPARENT_METADATA" ]
 PATH="$ORIGINAL_PATH"
 export PATH
 stage exact-rc5-reboot-metadata-bridge-busybox-sort

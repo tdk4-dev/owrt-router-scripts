@@ -206,16 +206,14 @@ snapshot_transparent_init_prestate() {
   if [ -e "$init" ] || [ -L "$init" ]; then
     [ -f "$init" ] && [ ! -L "$init" ] || exit 1
     [ "$(wc -c < "$init" | tr -d ' ')" -le 1048576 ] || exit 1
-    mode="$(stat -c %a "$init")"
-    uid="$(stat -c %u "$init")"
-    gid="$(stat -c %g "$init")"
     sha="$(sha256sum "$init" | awk '{ print $1 }')"
-    printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' || exit 1
-    printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' || exit 1
-    printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' || exit 1
     printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || exit 1
-    cp -p "$init" "$tmp/file"
-    printf 'file %s %s %s %s\n' "$mode" "$uid" "$gid" "$sha" > "$tmp/state"
+    tar -czf "$tmp/file.tar.gz" -C "${root_prefix:-/}" \
+      etc/init.d/xray-transparent
+    [ "$(tar -tzf "$tmp/file.tar.gz")" = etc/init.d/xray-transparent ] || exit 1
+    [ "$(tar -xzOf "$tmp/file.tar.gz" etc/init.d/xray-transparent |
+      sha256sum | awk '{ print $1 }')" = "$sha" ] || exit 1
+    printf 'file %s\n' "$sha" > "$tmp/state"
   else
     printf '%s\n' missing > "$tmp/state"
   fi
@@ -384,26 +382,17 @@ restore_transparent_init_prestate() {
       ;;
     file\ *)
       set -- $state
-      [ "$#" = 5 ] && [ "$1" = file ] || exit 1
-      mode="$2"; uid="$3"; gid="$4"; sha="$5"
-      printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' || exit 1
-      printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' || exit 1
-      printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' || exit 1
+      [ "$#" = 2 ] && [ "$1" = file ] || exit 1
+      sha="$2"
       printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || exit 1
-      backup="$snapshot/file"
+      backup="$snapshot/file.tar.gz"
       [ -f "$backup" ] && [ ! -L "$backup" ] &&
-        [ "$(sha256sum "$backup" | awk '{ print $1 }')" = "$sha" ] || exit 1
+        [ "$(tar -tzf "$backup")" = etc/init.d/xray-transparent ] &&
+        [ "$(tar -xzOf "$backup" etc/init.d/xray-transparent |
+          sha256sum | awk '{ print $1 }')" = "$sha" ] || exit 1
       [ ! -d "$init" ] || exit 1
-      tmp="$init.restore.$$"
-      [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
-      cp "$backup" "$tmp"
-      chmod "$mode" "$tmp"
-      chown "$uid:$gid" "$tmp"
-      mv "$tmp" "$init"
+      tar -xzpf "$backup" -C "${root_prefix:-/}"
       [ -f "$init" ] && [ ! -L "$init" ] &&
-        [ "$(stat -c %a "$init")" = "$mode" ] &&
-        [ "$(stat -c %u "$init")" = "$uid" ] &&
-        [ "$(stat -c %g "$init")" = "$gid" ] &&
         [ "$(sha256sum "$init" | awk '{ print $1 }')" = "$sha" ] || exit 1
       ;;
     *) exit 1 ;;

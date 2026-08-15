@@ -1203,7 +1203,7 @@ restore_protected_state() {
 restore_transparent_init_prestate() {
   local snapshot="$TXN_DIR/rollback/xray-transparent-prestate"
   local state init="${ROOT_PREFIX}/etc/init.d/xray-transparent"
-  local mode uid gid sha backup tmp
+  local sha backup
   [ -e "$snapshot" ] || [ -L "$snapshot" ] || return 0
   [ -d "$snapshot" ] && [ ! -L "$snapshot" ] &&
     regular_nonsymlink_file "$snapshot/state" || return 1
@@ -1216,23 +1216,17 @@ restore_transparent_init_prestate() {
       ;;
     file\ *)
       set -- $state
-      [ "$#" = 5 ] && [ "$1" = file ] || return 1
-      mode="$2"; uid="$3"; gid="$4"; sha="$5"
-      printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' &&
-        printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' &&
-        printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' &&
-        printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
-      backup="$snapshot/file"
-      regular_nonsymlink_file "$backup" && [ "$(pr_sha256 "$backup")" = "$sha" ] || return 1
+      [ "$#" = 2 ] && [ "$1" = file ] || return 1
+      sha="$2"
+      printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+      backup="$snapshot/file.tar.gz"
+      regular_nonsymlink_file "$backup" &&
+        [ "$(tar -tzf "$backup")" = etc/init.d/xray-transparent ] &&
+        [ "$(tar -xzOf "$backup" etc/init.d/xray-transparent |
+          sha256sum | awk '{ print $1 }')" = "$sha" ] || return 1
       [ ! -d "$init" ] || return 1
-      tmp="$init.restore.$$"
-      [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
-      cp "$backup" "$tmp" && chmod "$mode" "$tmp" && chown "$uid:$gid" "$tmp" &&
-        mv "$tmp" "$init" || { rm -f "$tmp"; return 1; }
+      tar -xzpf "$backup" -C "${ROOT_PREFIX:-/}" || return 1
       regular_nonsymlink_file "$init" &&
-        [ "$(stat -c %a "$init")" = "$mode" ] &&
-        [ "$(stat -c %u "$init")" = "$uid" ] &&
-        [ "$(stat -c %g "$init")" = "$gid" ] &&
         [ "$(pr_sha256 "$init")" = "$sha" ]
       ;;
     *) return 1 ;;
