@@ -323,6 +323,9 @@ generate_transparent_init() {
 START=95
 STOP=10
 
+EXTRA_COMMANDS="running"
+EXTRA_HELP="running Check whether complete transparent-proxy kernel state is present"
+
 TABLE='xray_transparent'
 LAN_IF='br-lan'
 LAN_IP='$LAN_IP'

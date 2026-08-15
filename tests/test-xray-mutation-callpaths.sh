@@ -46,6 +46,7 @@ grep -Fq 'service-state.tsv' "$MIGRATION"
 
 for setup in "$ROOT_DIR/setup-openwrt-x86-fin0.sh" "$ROOT_DIR/setup-rd23-vpn-ap.sh"; do
   grep -Fq 'kernel_state_present()' "$setup"
+  grep -Fq 'EXTRA_COMMANDS="running"' "$setup"
   grep -Fq '/etc/init.d/xray running' "$setup"
   grep -Fq '/etc/init.d/xray-transparent running' "$setup"
 done

@@ -1659,6 +1659,9 @@ write_xray_transparent_init() {
 START=99
 STOP=05
 
+EXTRA_COMMANDS="running"
+EXTRA_HELP="running Check whether complete transparent-proxy kernel state is present"
+
 TABLE="xray_transparent"
 XRAY_PORT="12345"
 ROUTER_DNS_PORT="53"

@@ -107,6 +107,20 @@ check_runtime_path() {
   fi
 }
 
+transparent_kernel_state_present() {
+  nft list table inet xray_transparent >/dev/null 2>&1 &&
+    nft list set inet xray_transparent bypass4 >/dev/null 2>&1 &&
+    nft list set inet xray_transparent vpn_ui_device_bypass4 >/dev/null 2>&1 &&
+    nft list chain inet xray_transparent dns_prerouting 2>/dev/null |
+      grep -q 'redirect to :53' &&
+    [ "$(nft list chain inet xray_transparent tproxy_prerouting 2>/dev/null |
+      grep -c 'tproxy.*:12345')" -ge 2 ] &&
+    ip -4 rule show 2>/dev/null |
+      grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100' &&
+    ip -4 route show table 100 2>/dev/null |
+      grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
+}
+
 for package in premier-router-core luci-app-premier-router premier-router-setup; do check_package "$package"; done
 
 while IFS='|' read -r kind target expected; do
@@ -191,6 +205,26 @@ check_uci 'system.@system[0]' /etc/config/system base-files:runtime
 check_uci network.lan /etc/config/network netifd:runtime
 check_uci dhcp.lan /etc/config/dhcp dnsmasq-full
 check_uci 'firewall.@defaults[0]' /etc/config/firewall firewall4
+
+xray_reported=false
+xray_process=false
+/etc/init.d/xray running >/dev/null 2>&1 && xray_reported=true
+pidof xray >/dev/null 2>&1 && xray_process=true
+if [ "$xray_reported" = "$xray_process" ]; then
+  row PASS init-postcondition xray-running "$xray_reported" xray-core xray-core matches-daemon-process
+else
+  fail_row init-postcondition xray-running "$xray_reported" xray-core "$xray_process" 'init running result does not match the daemon process'
+fi
+
+transparent_reported=false
+transparent_actual=false
+/etc/init.d/xray-transparent running >/dev/null 2>&1 && transparent_reported=true
+transparent_kernel_state_present && transparent_actual=true
+if [ "$transparent_reported" = "$transparent_actual" ]; then
+  row PASS init-postcondition xray-transparent-running "$transparent_reported" premier-router-core premier-router-core matches-kernel-state
+else
+  fail_row init-postcondition xray-transparent-running "$transparent_reported" premier-router-core "$transparent_actual" 'init running result does not match complete nftables and policy-routing state'
+fi
 
 if ubus -S list file 2>/dev/null | grep -Fxq file; then
   row PASS ubus-object file file rpcd-mod-file rpcd-mod-file present

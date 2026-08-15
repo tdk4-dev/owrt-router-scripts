@@ -50,6 +50,8 @@ VPN_UI_TEST_KERNEL_STATE="$TMP_ROOT/state"
 export PATH VPN_UI_TEST_KERNEL_STATE
 . "$INIT"
 
+grep -Fq 'EXTRA_COMMANDS="running"' "$INIT"
+grep -Fq 'running Check whether complete transparent-proxy kernel state is present' "$INIT"
 start
 running
 [ -f "$TMP_ROOT/state/table" ]
