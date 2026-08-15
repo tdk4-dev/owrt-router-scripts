@@ -1,6 +1,6 @@
-## Router UI 0.7.11 RC12 Phase 1 status
+## Router UI 0.7.11 RC13 Phase 1 status
 
-Router UI `0.7.11-rc.12` (`0.7.11~rc12-1`, candidate channel) has reached the
+Router UI `0.7.11-rc.13` (`0.7.11~rc13-1`, candidate channel) has reached the
 Phase 1 status recorded below. This template must not claim canonical package,
 image, signing, hardware, or release qualification. Issue #10 remains open.
 

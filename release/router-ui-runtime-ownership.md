@@ -1,6 +1,6 @@
 # Router UI runtime ownership census
 
-Candidate: `0.7.11-rc.12` (`0.7.11~rc12-1`). This is a pre-build source
+Candidate: `0.7.11-rc.13` (`0.7.11~rc13-1`). This is a pre-build source
 contract, not release qualification. The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 

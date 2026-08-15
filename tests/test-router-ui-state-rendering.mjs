@@ -261,10 +261,10 @@ for (const permission of [true, false]) {
 	const { page } = makePage('update', permission, async (command, args) => {
 		calls.push({ command, args });
 		assert.deepEqual(acl[permission ? 'write' : 'read'].file[command], ['exec']);
-		return { stdout: JSON.stringify({ ok: true, current: '0.7.11-rc.12' }) };
+		return { stdout: JSON.stringify({ ok: true, current: '0.7.11-rc.13' }) };
 	});
 	const data = {
-		current: '0.7.11-rc.12', current_channel: 'candidate', latest: '0.7.11',
+		current: '0.7.11-rc.13', current_channel: 'candidate', latest: '0.7.11',
 		available: true, auto_update: false, job: {}, checked_at: '2026-08-13T09:00:00Z'
 	};
 	const rendered = controls(page.renderBody(data));
@@ -272,7 +272,7 @@ for (const permission of [true, false]) {
 		assert.equal(blocked(rendered.get(id)), !permission, `${id} permission boundary mismatch`);
 	if (permission) {
 		const status = await page.callHelper(['update-status']);
-		assert.equal(status.current, '0.7.11-rc.12');
+		assert.equal(status.current, '0.7.11-rc.13');
 		assert.deepEqual(calls.at(-1), { command: '/usr/sbin/vpn-ui-readonly', args: ['update-status'] });
 	}
 }

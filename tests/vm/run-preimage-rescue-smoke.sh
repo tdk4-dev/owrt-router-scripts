@@ -28,10 +28,10 @@ release_manifest="$IMMUTABLE_RELEASE_DIR/router-release-manifest.json"
 candidate_app_version="$(jq -er '.app_version' "$release_manifest")"
 candidate_package_version="$(jq -er '.package_version' "$release_manifest")"
 jq -e '
-  .app_version == "0.7.11-rc.12" and .package_version == "0.7.11~rc12-1" and
-  .release_tag == "vpn-panel-v0.7.11-rc.12" and .channel == "candidate" and
+  .app_version == "0.7.11-rc.13" and .package_version == "0.7.11~rc13-1" and
+  .release_tag == "vpn-panel-v0.7.11-rc.13" and .channel == "candidate" and
   .source_dirty == false
-' "$release_manifest" >/dev/null || fail "immutable transition candidate is not the exact RC12 contract"
+' "$release_manifest" >/dev/null || fail "immutable transition candidate is not the exact RC13 contract"
 
 manifest="$BASELINE_PACK_DIR/baseline-pack-manifest.json"
 descriptor="$BASELINE_PACK_DIR/baseline-pack-descriptor.json"

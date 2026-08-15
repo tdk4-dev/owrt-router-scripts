@@ -23,7 +23,7 @@ Premier Router — пакетный продуктовый слой поверх
 | Контур | Текущий статус |
 | --- | --- |
 | Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 RC | RC12 (`0.7.11-rc.12` / `0.7.11~rc12-1`) проходит Phase 1: exact-SHA source preflight и один provisional three-IPK VM/browser checkpoint. Это не canonical artifact, image, hardware или release qualification; публичный stable 0.7.11 не опубликован. |
+| Router UI 0.7.11 RC | RC13 (`0.7.11-rc.13` / `0.7.11~rc13-1`) номинирован после exact-SHA source preflight и bounded pre-build VM/browser defect discovery. Единственный production build и его qualification ещё не завершены; публичный stable 0.7.11 не опубликован. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
@@ -81,10 +81,11 @@ development-код в обещание stable-релиза.
 
 - **Stable 0.7.10:** интерфейс Premier Router в LuCI; управление профилями
   VPN/VLESS Reality и direct-routing; поверхности статуса Tailscale/Headscale.
-- **0.7.11 RC12 Phase 1:** source-level package-first/updater protocol 2,
-  transaction journal, reboot recovery и exact rollback проходят дешёвый
-  preflight и один provisional checkpoint. Canonical IPK, signed manifest,
-  image, hardware и release gates остаются незавершёнными.
+- **0.7.11 RC13 pre-build:** source-level package-first/updater protocol 2,
+  transaction journal, reboot recovery, exact rollback и runtime ownership
+  прошли guarded preflight и clean-0.7.10 three-IPK defect-discovery proof.
+  Production-signed RC13 artifacts, full qualification, image, hardware и
+  release gates остаются незавершёнными.
 - **0.7.11 RC / image workflow:** first-boot setup, owner preparation и
   installation/support metadata. Реальное RD23-прохождение остаётся отдельным
   аппаратным gate.
@@ -123,10 +124,10 @@ Package-first поставка состоит из трёх независимо
 ## Установка на существующий OpenWrt
 
 Текущий публичный stable 0.7.10 использует только свой опубликованный release
-workflow. RC12 Phase 1 не создаёт устанавливаемый или распространяемый bundle:
+workflow. RC13 Phase 1 не создаёт устанавливаемый или распространяемый bundle:
 его три IPK являются исключительно provisional VM-checkpoint bytes.
 
-Черновой package-first путь RC12 описан в
+Черновой package-first путь RC13 описан в
 [`docs/ordinary-user-ipk-installation.md`](docs/ordinary-user-ipk-installation.md).
 Не используйте его до появления подписанного canonical manifest и финального,
 сгенерированного из этого manifest collateral с точными filenames, sizes,

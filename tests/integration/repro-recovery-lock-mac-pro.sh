@@ -6,8 +6,8 @@ umask 077
 ROOT_DIR=
 VBOXMANAGE=/usr/local/bin/VBoxManage
 USIGN_BIN="${USIGN_BIN:-/Users/mac-pro-host/.local/libexec/premier-router/usign-c4c72b1}"
-EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.12
-EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc12-1
+EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.13
+EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc13-1
 EXPECTED_SUCCESSOR_APP_VERSION=0.7.11
 EXPECTED_SUCCESSOR_PACKAGE_VERSION=0.7.11-1
 MODE=focused
@@ -74,8 +74,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc12-worktree ]] ||
-  fail 'source root is not the isolated RC12 worktree'
+[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc13-worktree ]] ||
+  fail 'source root is not the isolated RC13 worktree'
 ROOT_DIR="$SOURCE_ROOT"
 
 load_signed_manifest() {

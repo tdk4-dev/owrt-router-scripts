@@ -12,8 +12,8 @@ trap cleanup EXIT INT TERM
 FAKE_ROOT="$TMP_ROOT/root"
 mkdir -p "$FAKE_ROOT/usr/share/vpn-ui" "$FAKE_ROOT/usr/share/premier-router" \
   "$FAKE_ROOT/proc/sys/kernel/random" "$FAKE_ROOT/tmp" "$FAKE_ROOT/root"
-printf '%s\n' '0.7.11-rc.12' > "$FAKE_ROOT/usr/share/vpn-ui/version"
-printf '%s\n' 'UPDATER_PROTOCOL=2' 'PACKAGE_VERSION=0.7.11~rc12-1' > \
+printf '%s\n' '0.7.11-rc.13' > "$FAKE_ROOT/usr/share/vpn-ui/version"
+printf '%s\n' 'UPDATER_PROTOCOL=2' 'PACKAGE_VERSION=0.7.11~rc13-1' > \
   "$FAKE_ROOT/usr/share/premier-router/build-info"
 printf '%s\n' 'worker-test-boot' > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 
