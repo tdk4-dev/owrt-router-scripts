@@ -175,6 +175,58 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
 fi
 case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
 
+snapshot_transparent_init_prestate() {
+  active="$root_prefix/root/premier-router-updates/active-transaction"
+  [ -f "$active" ] && [ ! -L "$active" ] || return 0
+  transaction="$(sed -n '1p' "$active")"
+  printf '%s\n' "$transaction" |
+    grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$' || exit 1
+  transaction_dir="$root_prefix/root/premier-router-updates/$transaction"
+  journal="$transaction_dir/state.json"
+  rollback="$transaction_dir/rollback"
+  [ -f "$journal" ] && [ ! -L "$journal" ] &&
+    [ -d "$rollback" ] && [ ! -L "$rollback" ] || exit 1
+  grep -Fqx '  "state":"applying",' "$journal" || return 0
+  grep -Fqx '  "mutation_started":true,' "$journal" || exit 1
+  snapshot="$rollback/xray-transparent-prestate"
+  if [ -e "$snapshot" ] || [ -L "$snapshot" ]; then
+    [ -d "$snapshot" ] && [ ! -L "$snapshot" ] &&
+      [ -f "$snapshot/state" ] && [ ! -L "$snapshot/state" ] || exit 1
+    return 0
+  fi
+  tmp="$rollback/.xray-transparent-prestate.new.$$"
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+  mkdir "$tmp"
+  cleanup_transparent_snapshot_tmp() {
+    [ -z "${tmp:-}" ] || rm -rf "$tmp"
+  }
+  trap cleanup_transparent_snapshot_tmp EXIT
+  trap 'exit 1' HUP INT TERM
+  init="$root_prefix/etc/init.d/xray-transparent"
+  if [ -e "$init" ] || [ -L "$init" ]; then
+    [ -f "$init" ] && [ ! -L "$init" ] || exit 1
+    [ "$(wc -c < "$init" | tr -d ' ')" -le 1048576 ] || exit 1
+    mode="$(stat -c %a "$init")"
+    uid="$(stat -c %u "$init")"
+    gid="$(stat -c %g "$init")"
+    sha="$(sha256sum "$init" | awk '{ print $1 }')"
+    printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' || exit 1
+    printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' || exit 1
+    printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' || exit 1
+    printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || exit 1
+    cp -p "$init" "$tmp/file"
+    printf 'file %s %s %s %s\n' "$mode" "$uid" "$gid" "$sha" > "$tmp/state"
+  else
+    printf '%s\n' missing > "$tmp/state"
+  fi
+  chmod 600 "$tmp/state"
+  mv "$tmp" "$snapshot"
+  tmp=""
+  trap - EXIT HUP INT TERM
+}
+
+snapshot_transparent_init_prestate
+
 marker_dir="$root_prefix/tmp"
 marker="$marker_dir/premier-router-core-conffile-prestate"
 [ -d "$marker_dir" ] && [ ! -L "$marker_dir" ] || exit 1
@@ -302,13 +354,64 @@ EOF
 set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
-[ "${1:-}" != upgrade ] || exit 0
 
 root_prefix=""
 if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
   root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
 fi
 case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+restore_transparent_init_prestate() {
+  active="$root_prefix/root/premier-router-updates/active-transaction"
+  [ -f "$active" ] && [ ! -L "$active" ] || return 0
+  transaction="$(sed -n '1p' "$active")"
+  printf '%s\n' "$transaction" |
+    grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$' || exit 1
+  transaction_dir="$root_prefix/root/premier-router-updates/$transaction"
+  journal="$transaction_dir/state.json"
+  snapshot="$transaction_dir/rollback/xray-transparent-prestate"
+  [ -f "$journal" ] && [ ! -L "$journal" ] || exit 1
+  grep -Fqx '  "state":"rolling_back",' "$journal" || return 0
+  [ -d "$snapshot" ] && [ ! -L "$snapshot" ] &&
+    [ -f "$snapshot/state" ] && [ ! -L "$snapshot/state" ] || return 0
+  init="$root_prefix/etc/init.d/xray-transparent"
+  state="$(cat "$snapshot/state")"
+  case "$state" in
+    missing)
+      [ ! -d "$init" ] || exit 1
+      rm -f "$init"
+      [ ! -e "$init" ] && [ ! -L "$init" ] || exit 1
+      ;;
+    file\ *)
+      set -- $state
+      [ "$#" = 5 ] && [ "$1" = file ] || exit 1
+      mode="$2"; uid="$3"; gid="$4"; sha="$5"
+      printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' || exit 1
+      printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' || exit 1
+      printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' || exit 1
+      printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || exit 1
+      backup="$snapshot/file"
+      [ -f "$backup" ] && [ ! -L "$backup" ] &&
+        [ "$(sha256sum "$backup" | awk '{ print $1 }')" = "$sha" ] || exit 1
+      [ ! -d "$init" ] || exit 1
+      tmp="$init.restore.$$"
+      [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+      cp "$backup" "$tmp"
+      chmod "$mode" "$tmp"
+      chown "$uid:$gid" "$tmp"
+      mv "$tmp" "$init"
+      [ -f "$init" ] && [ ! -L "$init" ] &&
+        [ "$(stat -c %a "$init")" = "$mode" ] &&
+        [ "$(stat -c %u "$init")" = "$uid" ] &&
+        [ "$(stat -c %g "$init")" = "$gid" ] &&
+        [ "$(sha256sum "$init" | awk '{ print $1 }')" = "$sha" ] || exit 1
+      ;;
+    *) exit 1 ;;
+  esac
+}
+
+restore_transparent_init_prestate
+[ "${1:-}" != upgrade ] || exit 0
 
 cron="$root_prefix/etc/crontabs/root"
 if [ -f "$cron" ] && [ ! -L "$cron" ]; then

@@ -75,8 +75,6 @@ snapshot_protected_state
 SOURCE_FINGERPRINT="$(sha256sum "$TXN_DIR/rollback/protected-source.fingerprint" | awk '{print $1}')"
 grep -Fqx 'missing - - /etc/vpn-ui-update.conf-opkg' \
   "$TXN_DIR/rollback/protected-source.fingerprint"
-grep -Fqx 'missing - - /etc/init.d/xray-transparent' \
-  "$TXN_DIR/rollback/protected-source.fingerprint"
 printf '%s\n' 'mutated' > "$TMP_ROOT/root/etc/config/network"
 printf '%s\n' 'new unowned file' > "$TMP_ROOT/root/etc/xray/extra.json"
 printf '%s\n' 'candidate-owned opkg conflict artifact' > \

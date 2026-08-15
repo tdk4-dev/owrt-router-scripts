@@ -536,7 +536,6 @@ derive_candidate_owned_paths() {
 protected_path_list() {
   printf '%s\n' \
     /etc/config \
-    /etc/init.d/xray-transparent \
     /etc/xray \
     /etc/premier-router/xray-ownership.json \
     /etc/vpn-ui-update.conf \
@@ -744,7 +743,6 @@ rc5_expected_protected_paths() {
   printf '%s\n' \
     /etc/config \
     /etc/crontabs/root \
-    /etc/init.d/xray-transparent \
     /etc/vpn-ui-update.conf \
     /etc/xray \
     /usr/lib/opkg/status >> "$out"
@@ -1200,6 +1198,45 @@ restore_protected_state() {
   current="$rollback/protected-restored.fingerprint"
   fingerprint_paths "$rollback/protected.paths.list" "$current"
   cmp -s "$rollback/protected-source.fingerprint" "$current"
+}
+
+restore_transparent_init_prestate() {
+  local snapshot="$TXN_DIR/rollback/xray-transparent-prestate"
+  local state init="${ROOT_PREFIX}/etc/init.d/xray-transparent"
+  local mode uid gid sha backup tmp
+  [ -e "$snapshot" ] || [ -L "$snapshot" ] || return 0
+  [ -d "$snapshot" ] && [ ! -L "$snapshot" ] &&
+    regular_nonsymlink_file "$snapshot/state" || return 1
+  state="$(cat "$snapshot/state")"
+  case "$state" in
+    missing)
+      [ ! -d "$init" ] || return 1
+      rm -f "$init" || return 1
+      [ ! -e "$init" ] && [ ! -L "$init" ]
+      ;;
+    file\ *)
+      set -- $state
+      [ "$#" = 5 ] && [ "$1" = file ] || return 1
+      mode="$2"; uid="$3"; gid="$4"; sha="$5"
+      printf '%s\n' "$mode" | grep -Eq '^[0-7]{3,4}$' &&
+        printf '%s\n' "$uid" | grep -Eq '^[0-9]+$' &&
+        printf '%s\n' "$gid" | grep -Eq '^[0-9]+$' &&
+        printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+      backup="$snapshot/file"
+      regular_nonsymlink_file "$backup" && [ "$(pr_sha256 "$backup")" = "$sha" ] || return 1
+      [ ! -d "$init" ] || return 1
+      tmp="$init.restore.$$"
+      [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+      cp "$backup" "$tmp" && chmod "$mode" "$tmp" && chown "$uid:$gid" "$tmp" &&
+        mv "$tmp" "$init" || { rm -f "$tmp"; return 1; }
+      regular_nonsymlink_file "$init" &&
+        [ "$(stat -c %a "$init")" = "$mode" ] &&
+        [ "$(stat -c %u "$init")" = "$uid" ] &&
+        [ "$(stat -c %g "$init")" = "$gid" ] &&
+        [ "$(pr_sha256 "$init")" = "$sha" ]
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 record_services() {
@@ -1745,6 +1782,12 @@ rollback_transaction() {
       J_ROLLBACK_STATUS=failed
       set_error rollback restore_ipk_failed "exact previous IPKs could not be restored"
       set_state rollback_failed
+      return 1
+    }
+    restore_transparent_init_prestate || {
+      J_ROLLBACK_STATUS=failed
+      set_error rollback transparent_init_restore_failed "transparent init pre-state could not be restored"
+      set_state recovery_required
       return 1
     }
   else

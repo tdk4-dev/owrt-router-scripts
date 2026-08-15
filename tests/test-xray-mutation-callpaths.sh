@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VPN_UI="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui"
 UPDATER="$ROOT_DIR/luci-vpn-ui/files/usr/sbin/vpn-ui-update"
+BUILD_IPKS="$ROOT_DIR/scripts/build-openwrt-ipks.sh"
 FIRSTBOOT="$ROOT_DIR/image-overlay/www/cgi-bin/firstboot-setup"
 DEFAULTS="$ROOT_DIR/image-overlay/etc/uci-defaults/99-openwrt-fin0-firstboot"
 MIGRATION="$ROOT_DIR/migrate-openwrt-vpn-routes.sh"
@@ -22,7 +23,8 @@ done
 
 grep -Fq 'services_match || {' "$UPDATER"
 grep -Fq 'service_postcondition_failed' "$UPDATER"
-grep -Fq '/etc/init.d/xray-transparent' "$UPDATER"
+grep -Fq 'restore_transparent_init_prestate' "$UPDATER"
+grep -Fq 'xray-transparent-prestate' "$BUILD_IPKS"
 for service in xray xray-exit-st xray-transparent; do
   grep -Fq "cron rpcd uhttpd xray xray-exit-st xray-transparent" "$UPDATER"
 done
