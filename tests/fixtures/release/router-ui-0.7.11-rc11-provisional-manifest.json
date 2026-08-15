@@ -3,10 +3,10 @@
   "kind": "installed-package-set",
   "collateral_status": "fixture",
   "production": false,
-  "app_version": "0.7.11-rc.10",
-  "package_version": "0.7.11~rc10-1",
+  "app_version": "0.7.11-rc.11",
+  "package_version": "0.7.11~rc11-1",
   "channel": "candidate",
-  "future_tag": "vpn-panel-v0.7.11-rc.10",
+  "future_tag": "vpn-panel-v0.7.11-rc.11",
   "stable_successor": {
     "app_version": "0.7.11",
     "package_version": "0.7.11-1"
@@ -19,8 +19,8 @@
   "packages": [
     {
       "name": "premier-router-core",
-      "filename": "premier-router-core_0.7.11~rc10-1_all.ipk",
-      "version": "0.7.11~rc10-1",
+      "filename": "premier-router-core_0.7.11~rc11-1_all.ipk",
+      "version": "0.7.11~rc11-1",
       "architecture": "all",
       "install_order": 1,
       "size": 51200,
@@ -28,8 +28,8 @@
     },
     {
       "name": "luci-app-premier-router",
-      "filename": "luci-app-premier-router_0.7.11~rc10-1_all.ipk",
-      "version": "0.7.11~rc10-1",
+      "filename": "luci-app-premier-router_0.7.11~rc11-1_all.ipk",
+      "version": "0.7.11~rc11-1",
       "architecture": "all",
       "install_order": 2,
       "size": 16384,
@@ -37,8 +37,8 @@
     },
     {
       "name": "premier-router-setup",
-      "filename": "premier-router-setup_0.7.11~rc10-1_all.ipk",
-      "version": "0.7.11~rc10-1",
+      "filename": "premier-router-setup_0.7.11~rc11-1_all.ipk",
+      "version": "0.7.11~rc11-1",
       "architecture": "all",
       "install_order": 3,
       "size": 12288,

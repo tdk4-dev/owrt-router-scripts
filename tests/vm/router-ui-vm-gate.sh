@@ -202,11 +202,11 @@ load_release_contracts() {
     selected_status=previous
     candidate_channel_expected=stable
   else
-    CANDIDATE_CONTRACT_MODE=rc10-active-key
-    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.10 ]] ||
-      fail "candidate app version is not the RC10 contract: $CANDIDATE_APP_VERSION"
-    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc10-1' ]] ||
-      fail "candidate package version is not the opkg-safe RC10 contract: $CANDIDATE_PACKAGE_VERSION"
+    CANDIDATE_CONTRACT_MODE=rc11-active-key
+    [[ "$CANDIDATE_APP_VERSION" = 0.7.11-rc.11 ]] ||
+      fail "candidate app version is not the RC11 contract: $CANDIDATE_APP_VERSION"
+    [[ "$CANDIDATE_PACKAGE_VERSION" = '0.7.11~rc11-1' ]] ||
+      fail "candidate package version is not the opkg-safe RC11 contract: $CANDIDATE_PACKAGE_VERSION"
     [[ "$SUCCESSOR_APP_VERSION" = 0.7.11 &&
       "$SUCCESSOR_PACKAGE_VERSION" = 0.7.11-1 ]] ||
       fail "synthetic successor is not stable 0.7.11"

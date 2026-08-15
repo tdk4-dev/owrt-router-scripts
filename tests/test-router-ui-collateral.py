@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "scripts/render-router-ui-install-guide.py"
-MANIFEST = ROOT / "tests/fixtures/release/router-ui-0.7.11-rc10-provisional-manifest.json"
+MANIFEST = ROOT / "tests/fixtures/release/router-ui-0.7.11-rc11-provisional-manifest.json"
 RULES = ROOT / "release/router-ui-release-rules.json"
 TEMPLATE = ROOT / "docs/templates/router-ui-install-guide-template.json"
 BOOTSTRAP = ROOT / "bootstrap-router-ui-ipk-install.sh"

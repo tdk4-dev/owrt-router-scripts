@@ -236,9 +236,9 @@ case "$KIND" in
       key_fingerprint="$(jq -er --arg key "$key_id" \
         '.keys[] | select(.key_id == $key and .status == "active") | .fingerprint' \
         "$ROOT_DIR/release/keys/trusted-keys.json")"
-      candidate_app_version=0.7.11-rc.10
-      candidate_package_version=0.7.11~rc10-1
-      candidate_release_tag=vpn-panel-v0.7.11-rc.10
+      candidate_app_version=0.7.11-rc.11
+      candidate_package_version=0.7.11~rc11-1
+      candidate_release_tag=vpn-panel-v0.7.11-rc.11
       candidate_channel=candidate
       candidate_channel_file=candidate-channel.json
       successor_app_version=0.7.11

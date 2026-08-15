@@ -17,7 +17,7 @@ BASELINE_LOCK="$REMOTE_ROOT/runtime/legacy-baseline-lock.json"
 
 fail() { printf 'MATRIX-ERROR: %s\n' "$*" >&2; exit 1; }
 [[ -x "$VBOXMANAGE" && -x "$CONTROLLER" ]] || fail 'VirtualBox or matrix controller is unavailable'
-[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc10-worktree ]]
+[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc11-worktree ]]
 [[ "$CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
 [[ "$NEXT_CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]

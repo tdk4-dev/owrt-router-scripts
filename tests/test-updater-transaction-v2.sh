@@ -164,9 +164,23 @@ case "${1:-}" in
       "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postinst" \
       "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postrm"
     keep="$FAKE_ROOT/tmp/conffile.keep"
+    metadata_keep="$FAKE_ROOT/tmp/premier-router-metadata.keep"
     [ ! -f "$FAKE_ROOT/etc/vpn-ui-update.conf" ] || cp -p "$FAKE_ROOT/etc/vpn-ui-update.conf" "$keep"
+    [ ! -f "$FAKE_ROOT/etc/config/premier_router" ] ||
+      cp -p "$FAKE_ROOT/etc/config/premier_router" "$metadata_keep"
     tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$FAKE_ROOT"
-    [ ! -f "$keep" ] || { cp -p "$keep" "$FAKE_ROOT/etc/vpn-ui-update.conf"; rm -f "$keep"; }
+    if [ -f "$keep" ]; then
+      [ "$pkg" != premier-router-core ] ||
+        cp -p "$FAKE_ROOT/etc/vpn-ui-update.conf" "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg"
+      cp -p "$keep" "$FAKE_ROOT/etc/vpn-ui-update.conf"
+      rm -f "$keep"
+    fi
+    if [ -f "$metadata_keep" ]; then
+      [ "$pkg" != premier-router-core ] ||
+        cp -p "$FAKE_ROOT/etc/config/premier_router" "$FAKE_ROOT/etc/config/premier_router-opkg"
+      cp -p "$metadata_keep" "$FAKE_ROOT/etc/config/premier_router"
+      rm -f "$metadata_keep"
+    fi
     printf '%s\n' "$version" > "$db/$pkg"
     printf '%s\n' "$control" > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.control"
     tar -xzOf "$ipk" ./data.tar.gz | tar -tzf - > "$FAKE_ROOT/usr/lib/opkg/info/$pkg.list"
@@ -196,6 +210,32 @@ case "${1:-}" in
 esac
 EOS
       chmod 755 "$FAKE_ROOT/usr/sbin/vpn-ui"
+    fi
+    if [ "$pkg" = premier-router-core ] && [ "$upgrade" = 0 ]; then
+      cat > "$FAKE_ROOT/etc/config/premier_router" <<'EOS'
+config metadata 'router'
+	option router_id 'pr-0123456789abcdef0123456789abcdef'
+	option install_method 'manual-ipk-install'
+	option install_source 'package-first-local-ipk'
+	option installed_at '2026-08-15T12:00:00Z'
+	option support_level 'self-managed'
+	option registration_state 'local-only'
+	option direct_rules_channel 'stable'
+	option support_visible '1'
+	option support_tailnet_enabled '0'
+	option footer_enabled '1'
+	option footer_mode 'compact'
+	option prepared_by_owner '0'
+	option sealed '0'
+EOS
+      if [ "${FAKE_OPKG_TAMPER_FIRST_INSTALL_METADATA:-0}" = 1 ]; then
+        printf '%s\n' "\toption unexpected 'tampered'" >> "$FAKE_ROOT/etc/config/premier_router"
+      fi
+      chmod "${FAKE_OPKG_FIRST_INSTALL_METADATA_MODE:-600}" \
+        "$FAKE_ROOT/etc/config/premier_router"
+      if [ "${FAKE_OPKG_ADD_UNAUTHORIZED_CONFIG:-0}" = 1 ]; then
+        printf '%s\n' 'unauthorized protected addition' > "$FAKE_ROOT/etc/config/not-authorized"
+      fi
     fi
     if [ "$pkg" = premier-router-core ] &&
       tar -xzOf "$ipk" ./control.tar.gz | tar -tzf - | grep -Fqx ./postinst; then
@@ -467,15 +507,15 @@ test_core_package_cron_scripts() {
   package_root="$TMP_ROOT/core-package-root"
   mkdir -p "$control"
   tar -xzOf "$core_ipk" ./control.tar.gz | tar -xzf - -C "$control"
-  [ ! -e "$control/preinst" ]
-  for script in postinst postrm; do
+  for script in preinst postinst postrm; do
     [ -x "$control/$script" ]
     sh -n "$control/$script"
   done
 
   reset_package_root() {
     rm -rf "$package_root"
-    mkdir -p "$package_root/etc/crontabs" "$package_root/etc/init.d"
+    mkdir -p "$package_root/etc/crontabs" "$package_root/etc/init.d" \
+      "$package_root/tmp"
     tar -xzOf "$core_ipk" ./data.tar.gz | tar -xzf - -C "$package_root"
     cat > "$package_root/etc/init.d/premier-router-update-recovery" <<'EOF'
 #!/bin/sh
@@ -495,6 +535,35 @@ EOF
         PKG_UPGRADE="${2:-1}" sh "$control/$script"
     fi
   }
+
+  reset_package_root
+  run_package_script preinst 1 1
+  cp -p "$package_root/etc/config/premier_router" \
+    "$package_root/etc/config/premier_router-opkg"
+  cp -p "$package_root/etc/vpn-ui-update.conf" \
+    "$package_root/etc/vpn-ui-update.conf-opkg"
+  run_package_script postinst 1 1
+  [ ! -e "$package_root/etc/config/premier_router-opkg" ]
+  [ ! -e "$package_root/etc/vpn-ui-update.conf-opkg" ]
+
+  reset_package_root
+  cp -p "$package_root/etc/vpn-ui-update.conf" \
+    "$package_root/etc/vpn-ui-update.conf-opkg"
+  before="$(sha256sum "$package_root/etc/vpn-ui-update.conf-opkg" | awk '{ print $1 }')"
+  run_package_script preinst 1 1
+  run_package_script postinst 1 1
+  [ "$(sha256sum "$package_root/etc/vpn-ui-update.conf-opkg" | awk '{ print $1 }')" = "$before" ]
+
+  reset_package_root
+  run_package_script preinst 1 1
+  printf '%s\n' 'tampered candidate conffile artifact' > \
+    "$package_root/etc/vpn-ui-update.conf-opkg"
+  before="$(sha256sum "$package_root/etc/vpn-ui-update.conf-opkg" | awk '{ print $1 }')"
+  if run_package_script postinst 1 1 >/dev/null 2>&1; then
+    printf 'core postinst accepted a tampered candidate conffile artifact\n' >&2
+    exit 1
+  fi
+  [ "$(sha256sum "$package_root/etc/vpn-ui-update.conf-opkg" | awk '{ print $1 }')" = "$before" ]
 
   reset_package_root
   cron="$package_root/etc/crontabs/root"
@@ -653,7 +722,7 @@ stage 079-recovered
 [ ! -d "$FAKE_ROOT/root/premier-router-updates/update.lock" ]
 [ ! -e "$FAKE_ROOT/www/luci-static/resources/view/status/include/_35_vpn.js" ]
 
-# RC5 wrote no protected-validation pair. The RC10 reboot path may bridge only
+# RC5 wrote no protected-validation pair. The RC11 reboot path may bridge only
 # the exact signed bootstrap lineage and must materialize the current pair
 # after proving the stable protected state is unchanged.
 prepare_rc5_reboot_transaction() {
@@ -661,7 +730,7 @@ prepare_rc5_reboot_transaction() {
   local postinst_shape="${2:-absent}"
   local source_setup="${3:-seed}"
   local cron_source="$TMP_ROOT/rc5-source-root.cron"
-  local cron_expected="$TMP_ROOT/rc10-expected-root.cron"
+  local cron_expected="$TMP_ROOT/rc11-expected-root.cron"
   local package postinst_path
   case "$source_setup" in
     seed) seed_rc5_source ;;
@@ -911,7 +980,7 @@ stage exact-rc5-reboot-missing-cron-and-sequential-postinst-bridge
 
 # A successful exact rollback on real OpenWrt can retain the three authenticated
 # RC5 postinst control files even though the original bootstrap shape omitted
-# them. The next RC5 -> RC10 reboot must accept that complete byte-bound shape,
+# them. The next RC5 -> RC11 reboot must accept that complete byte-bound shape,
 # while partial or locally modified variants remain fail-closed.
 prepare_rc5_reboot_transaction missing retained
 for package in premier-router-core luci-app-premier-router premier-router-setup; do
@@ -1040,6 +1109,11 @@ fi
 transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
 journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .state "$journal")" = committed_pending_reboot_validation ]
+[ -s "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/protected-validation-transition" ]
+grep -Fqx 'legacy-first-install:/etc/config/premier_router' \
+  "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/protected-validation-transition"
+[ ! -e "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg" ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router-opkg" ]
 [ "$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')" = "$manual_config_sha" ]
 [ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
 jq -e '.ok == true and
@@ -1076,7 +1150,35 @@ run_supervisor rollback "$transaction"
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(sha256sum "$FAKE_ROOT/etc/xray/config.json" | awk '{print $1}')" = "$manual_config_sha" ]
 [ ! -e "$FAKE_ROOT/etc/premier-router/xray-ownership.json" ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router" ]
+[ ! -e "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg" ]
 stage adoption-aware-candidate-reboot-and-protected-rollback
+
+reset_source 0.7.10
+if run_update manual FAKE_OPKG_TAMPER_FIRST_INSTALL_METADATA=1; then
+  printf 'tampered first-install metadata unexpectedly passed protected-state validation\n' >&2
+  exit 1
+fi
+transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+[ "$(jq -r .state "$journal")" = rolled_back ]
+[ "$(jq -r .rollback_status "$journal")" = succeeded ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router" ]
+[ ! -e "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg" ]
+stage first-install-metadata-tamper-fails-closed
+
+reset_source 0.7.10
+if run_update manual FAKE_OPKG_ADD_UNAUTHORIZED_CONFIG=1; then
+  printf 'unrelated protected-state addition unexpectedly passed validation\n' >&2
+  exit 1
+fi
+transaction="$(cat "$FAKE_ROOT/root/premier-router-updates/active-transaction")"
+journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
+[ "$(jq -r .state "$journal")" = rolled_back ]
+[ "$(jq -r .rollback_status "$journal")" = succeeded ]
+[ ! -e "$FAKE_ROOT/etc/config/not-authorized" ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router" ]
+stage unrelated-protected-addition-fails-closed
 
 reset_source 0.7.10
 if ! run_update manual > "$TMP_ROOT/success.log" 2> "$TMP_ROOT/success.err"; then
@@ -1096,6 +1198,15 @@ journal="$FAKE_ROOT/root/premier-router-updates/$transaction/state.json"
 [ "$(jq -r .rollback_status "$journal")" = not_started ]
 [ -s "$FAKE_ROOT/root/premier-router-updates/$transaction/openwrt-configuration-recovery.tar.gz" ]
 [ -x "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback.sh" ]
+[ -s "$FAKE_ROOT/etc/config/premier_router" ]
+[ "$(stat -c '%a' "$FAKE_ROOT/etc/config/premier_router" 2>/dev/null ||
+  stat -f '%Lp' "$FAKE_ROOT/etc/config/premier_router")" = 600 ]
+[ ! -e "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg" ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router-opkg" ]
+grep -Fqx 'legacy-first-install:/etc/config/premier_router' \
+  "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/protected-validation-transition"
+grep -Fq ' /etc/config/premier_router' \
+  "$FAKE_ROOT/root/premier-router-updates/$transaction/rollback/protected-validation-source.fingerprint"
 if ! FAKE_ROOT="$FAKE_ROOT" PREMIER_ROUTER_HOST_TEST=1 \
   PR_USIGN_BIN="$USIGN_BIN" \
   VPN_UI_ROOT_PREFIX="$FAKE_ROOT" VPN_UI_UPDATE_LIB="$TMP_ROOT/release/router-update-lib.sh" \
@@ -1123,6 +1234,9 @@ stage 0710-rolled-back
 [ "$(cat "$FAKE_ROOT/usr/share/vpn-ui/version")" = 0.7.10 ]
 [ "$(jq -r .state "$journal")" = rolled_back ]
 [ "$(jq -r .rollback_status "$journal")" = succeeded ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router" ]
+[ ! -e "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg" ]
+[ ! -e "$FAKE_ROOT/etc/config/premier_router-opkg" ]
 [ "$(stat -c '%a' "$FAKE_ROOT/usr/sbin/vpn-ui" 2>/dev/null ||
   stat -f '%Lp' "$FAKE_ROOT/usr/sbin/vpn-ui")" = 755 ]
 ! find "$FAKE_ROOT/root/premier-router-updates" -name '*.new.*' -print | grep -q .

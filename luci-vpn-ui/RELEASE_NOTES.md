@@ -1,14 +1,21 @@
-Router UI 0.7.11 RC10
+Router UI 0.7.11 RC11
 
-Router UI `0.7.11-rc.10` is the conservative continuation candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc10-1`, its
+Router UI `0.7.11-rc.11` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc11-1`, its
 channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.10`, and its stable successor is `0.7.11` /
+`vpn-panel-v0.7.11-rc.11`, and its stable successor is `0.7.11` /
 `0.7.11-1`. It contains no Router UI 0.8 feature work.
 
 RC9 was rejected before publication after exact-byte testing from the retained
 public 0.7.10 VM origin proved that `coreutils-nohup` was not installed. RC10
-adds one narrow legacy-rescue repair: after authenticating the target manifest
+authenticated the target, installed that prerequisite and all three project
+IPKs, and reached a green candidate validator, but its supervisor then failed
+closed with protected-state exit 40. The exact mismatch was the deterministic
+first-install creation of `/etc/config/premier_router`: legacy 0.7.10 has no
+such file, while the package post-install creates its non-secret metadata.
+Automatic rollback still restored the legacy source.
+
+RC11 keeps the narrow legacy-rescue repair: after authenticating the target manifest
 and enforcing a conservative persistent and temporary storage gate, it updates
 the configured signed OpenWrt feeds and installs only that missing upstream
 worker prerequisite. It never performs a global package upgrade. If the
@@ -16,22 +23,32 @@ project transaction then fails, its ordinary exact application/configuration
 rollback still applies; the upstream prerequisite remains installed so a retry
 and the asynchronous updater have the required worker launcher.
 
+RC11 also treats that metadata creation as one explicit first-install
+transition instead of weakening protected-state checks. The supervisor removes
+only byte-exact candidate-owned `-opkg` conffile artifacts, requires every
+pre-existing protected path to remain exact, validates the new metadata as a
+root-owned mode-0600 regular file with exactly the expected 13 non-secret UCI
+fields, and freezes the resulting fingerprint for post-reboot validation.
+Rollback continues to restore the metadata file's original absence. Any extra
+field, unsafe mode, symlink, unexpected protected path, or mismatched conffile
+artifact fails closed.
+
 The VM legacy fixture now renders its selected non-routable test profile and
 records the canonical `/etc/xray/exit-st-cf.json` UCI path before candidate
 validation. This corrects qualification state only and does not broaden Xray
 adoption behavior.
 
-RC10 is not immutable release evidence merely because this identity is present
+RC11 is not immutable release evidence merely because this identity is present
 in source. It becomes consumed when its sole provisional package-build
 invocation begins; Phase 1 can only nominate the exact source for a separately
 authorized Phase 2 freeze decision.
 
-RC10 preserves protocol-2 signed-manifest verification, transactional package
+RC11 preserves protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
 sets are supported source states, but their retained evidence does not qualify
-RC10. The missing signed-manifest digest for the first RC6 byte set remains
+RC11. The missing signed-manifest digest for the first RC6 byte set remains
 unknown and is never replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated
@@ -49,11 +66,11 @@ supported fields, validates Xray, preserves Tailscale and management-route
 invariants, and restores exact private preimages on failure.
 
 The active production trust identity remains the public contract for key
-`production-2026-07`, fingerprint `d055711acf1d9a5b`. Phase 1 does not use its
-private key, production signing environment, canonical build path, images,
-Factory, hardware, tags, releases, or rollout. Provisional Phase 1 packages and
-VM/browser evidence are explicitly non-production and do not establish full
-release readiness.
+`production-2026-07`, fingerprint `d055711acf1d9a5b`. Production-signed
+qualification is performed only under Mac Pro signing custody. Signed candidate
+bytes and VM/browser evidence do not authorize images, Factory, hardware, tags,
+releases, discovery, or rollout and do not by themselves establish release
+readiness.
 
 Historical 0.7.10 notes
 

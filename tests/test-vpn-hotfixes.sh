@@ -16,29 +16,31 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.10" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc10-1" ]
+[ "$VERSION" = "0.7.11-rc.11" ]
+[ "$PACKAGE_VERSION" = "0.7.11~rc11-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
 pr_version_newer 0.7.11 0.7.10
 ! pr_version_newer 0.7.11 0.7.11
-pr_version_newer 0.7.11 0.7.11-rc.10
-pr_version_newer 0.7.11-rc.10 0.7.11-rc.6
-pr_version_newer 0.7.11-rc.10 0.7.11-rc.8
-pr_version_newer 0.7.11-rc.10 0.7.11-rc.5
-! pr_version_newer 0.7.11-rc.10 0.7.11
-! pr_version_newer 0.7.11-rc.6 0.7.11-rc.10
-! pr_version_newer 0.7.11-rc.8 0.7.11-rc.10
-! pr_version_newer 0.7.11-rc.10 0.7.11-rc.10
+pr_version_newer 0.7.11 0.7.11-rc.11
+pr_version_newer 0.7.11-rc.11 0.7.11-rc.6
+pr_version_newer 0.7.11-rc.11 0.7.11-rc.8
+pr_version_newer 0.7.11-rc.11 0.7.11-rc.10
+pr_version_newer 0.7.11-rc.11 0.7.11-rc.5
+! pr_version_newer 0.7.11-rc.11 0.7.11
+! pr_version_newer 0.7.11-rc.6 0.7.11-rc.11
+! pr_version_newer 0.7.11-rc.8 0.7.11-rc.11
+! pr_version_newer 0.7.11-rc.10 0.7.11-rc.11
+! pr_version_newer 0.7.11-rc.11 0.7.11-rc.11
 pr_version_newer 0.8.0 0.8.0RC2
 ! pr_version_newer 0.8.0RC2 0.8.0
 pr_version_newer 0.8.0RC3 0.8.0RC2
 pr_version_valid 0.7.9.1
-pr_version_valid 0.7.11-rc.10
-pr_package_version_matches_app 0.7.11-rc.10 0.7.11~rc10-1
+pr_version_valid 0.7.11-rc.11
+pr_package_version_matches_app 0.7.11-rc.11 0.7.11~rc11-1
 pr_package_version_matches_app 0.7.11 0.7.11-1
-! pr_package_version_matches_app 0.7.11-rc.10 0.7.11-1
+! pr_package_version_matches_app 0.7.11-rc.11 0.7.11-1
 ! pr_version_valid 0.7
 ! pr_version_valid 0.8.0-RC2
 
@@ -54,12 +56,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11-rc.10" and .current_channel == "candidate" and
+  .current == "0.7.11-rc.11" and .current_channel == "candidate" and
   .latest == "0.7.11" and .available == true
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11-rc.10" and .package_version == "0.7.11~rc10-1" and
+  .target == "0.7.11-rc.11" and .package_version == "0.7.11~rc11-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and
@@ -76,7 +78,15 @@ jq -e '
   any(.baselines[]; .version == "0.7.11-rc.8" and
     .tag_commit == "ded0d472efb2452ba40dd2847912f0230e899bb5" and
     .tree == "5db998924088f2b8aa1e95c70baf797f10830557" and
-    .support == "unsupported" and .evidence == "source-only-no-package-set")
+    .support == "unsupported" and .evidence == "source-only-no-package-set") and
+  any(.baselines[]; .version == "0.7.11-rc.9" and
+    .tag_commit == "890ce802a2e2dd104eb907867c0779b59a65feac" and
+    .tree == "52c544b0c36ff2e9716396541ec3ac46eaf875ed" and
+    .evidence == "invalidated-exact-byte-checkpoint") and
+  any(.baselines[]; .version == "0.7.11-rc.10" and
+    .tag_commit == "9c6e0c631dbba4e6c7b736769f23005e50b4d4c4" and
+    .tree == "6b5c8534c02f16c4025fcc56a14b4f0d951a7528" and
+    .evidence == "invalidated-protected-state-exit-40")
 ' "$ROOT_DIR/release/transition-matrix.json" >/dev/null
 
 grep -q 'flow_json=""' "$HELPER"

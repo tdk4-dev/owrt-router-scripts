@@ -539,6 +539,7 @@ protected_path_list() {
     /etc/xray \
     /etc/premier-router/xray-ownership.json \
     /etc/vpn-ui-update.conf \
+    /etc/vpn-ui-update.conf-opkg \
     /etc/crontabs/root \
     /usr/lib/opkg/status
   for package in $PR_PROJECT_PACKAGES; do
@@ -555,6 +556,7 @@ protected_validation_path_list() {
     /etc/xray \
     /etc/premier-router/xray-ownership.json \
     /etc/vpn-ui-update.conf \
+    /etc/vpn-ui-update.conf-opkg \
     /etc/crontabs/root
 }
 
@@ -595,6 +597,141 @@ fingerprint_paths() {
 
 regular_nonsymlink_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+cleanup_package_conffile_artifacts() {
+  local manifest="$1" assets="$2" rollback="$TXN_DIR/rollback"
+  local source="$rollback/protected-source.fingerprint" temp core="" filename=""
+  local path artifact source_kind member extracted rc=0 index=0
+  regular_nonsymlink_file "$source" || return 1
+  while [ "$index" -lt 16 ]; do
+    core="$(pr_json_get "$manifest" "@.packages[$index].name" ".packages[$index].name // empty")"
+    [ -n "$core" ] || break
+    if [ "$core" = premier-router-core ]; then
+      filename="$(pr_json_get "$manifest" "@.packages[$index].filename" ".packages[$index].filename // empty")"
+      break
+    fi
+    filename=""
+    index=$((index + 1))
+  done
+  [ "$core" = premier-router-core ] && regular_nonsymlink_file "$assets/$filename" || return 1
+  temp="$(mktemp -d "$rollback/.conffile-artifacts.XXXXXX")" || return 1
+  [ -d "$temp" ] && [ ! -L "$temp" ] || return 1
+  for path in /etc/config/premier_router /etc/vpn-ui-update.conf; do
+    artifact="${ROOT_PREFIX}${path}-opkg"
+    source_kind="$(awk -v path="${path}-opkg" '$4 == path { print $1 }' "$source")"
+    case "$source_kind" in
+      file|dir|link) continue ;;
+      ''|missing) ;;
+      *) rc=1; break ;;
+    esac
+    if [ -e "$artifact" ] || [ -L "$artifact" ]; then
+      regular_nonsymlink_file "$artifact" || { rc=1; break; }
+      member=".${path}"
+      extracted="$temp/${path##*/}"
+      tar -xzOf "$assets/$filename" ./data.tar.gz 2>/dev/null |
+        tar -xzOf - "$member" 2>/dev/null |
+        dd of="$extracted" bs=1 count=65537 2>/dev/null || { rc=1; break; }
+      [ -s "$extracted" ] &&
+        [ "$(wc -c < "$extracted" | tr -d ' ')" -le 65536 ] &&
+        cmp -s "$extracted" "$artifact" || { rc=1; break; }
+      rm -f "$artifact" || { rc=1; break; }
+    fi
+  done
+  rm -rf "$temp"
+  return "$rc"
+}
+
+first_install_metadata_validate() {
+  local metadata="${ROOT_PREFIX}/etc/config/premier_router" metadata_size metadata_mode
+  regular_nonsymlink_file "$metadata" || return 1
+  metadata_size="$(wc -c < "$metadata" | tr -d ' ')"
+  printf '%s\n' "$metadata_size" | grep -Eq '^[1-9][0-9]*$' || return 1
+  [ "$metadata_size" -le 4096 ] || return 1
+  metadata_mode="$(LC_ALL=C ls -ldn "$metadata" 2>/dev/null |
+    awk 'NR == 1 { sub(/[@+]$/, "", $1); print $1 ":" $3 ":" $4 }')"
+  case "$metadata_mode" in
+    -rw-------:*) ;;
+    *) return 1 ;;
+  esac
+  if [ "${PREMIER_ROUTER_HOST_TEST:-0}" != 1 ]; then
+    [ "$metadata_mode" = '-rw-------:0:0' ] || return 1
+  fi
+  awk '
+    BEGIN {
+      expected["router_id"] = "dynamic"
+      expected["install_method"] = "manual-ipk-install"
+      expected["install_source"] = "package-first-local-ipk"
+      expected["installed_at"] = "dynamic"
+      expected["support_level"] = "self-managed"
+      expected["registration_state"] = "local-only"
+      expected["direct_rules_channel"] = "stable"
+      expected["support_visible"] = "1"
+      expected["support_tailnet_enabled"] = "0"
+      expected["footer_enabled"] = "1"
+      expected["footer_mode"] = "compact"
+      expected["prepared_by_owner"] = "0"
+      expected["sealed"] = "0"
+    }
+    NF == 0 { next }
+    $1 == "config" {
+      if (NF != 3 || $2 != "metadata" || $3 != "\047router\047" || section++) exit 1
+      next
+    }
+    $1 == "option" {
+      if (NF != 3 || !($2 in expected) || seen[$2]++) exit 1
+      value = $3
+      if (value !~ /^\047[^\047]*\047$/) exit 1
+      sub(/^\047/, "", value)
+      sub(/\047$/, "", value)
+      if ($2 == "router_id") {
+        if (length(value) != 35 || substr(value, 1, 3) != "pr-" ||
+          substr(value, 4) !~ /^[0-9a-f]+$/) exit 1
+      } else if ($2 == "installed_at") {
+        digits = value
+        gsub(/[-:TZ]/, "", digits)
+        if (length(value) != 20 || length(digits) != 14 || digits ~ /[^0-9]/ ||
+          substr(value, 5, 1) != "-" || substr(value, 8, 1) != "-" ||
+          substr(value, 11, 1) != "T" || substr(value, 14, 1) != ":" ||
+          substr(value, 17, 1) != ":" || substr(value, 20, 1) != "Z") exit 1
+      } else if (value != expected[$2]) exit 1
+      option_count++
+      next
+    }
+    { exit 1 }
+    END {
+      if (section != 1 || option_count != 13) exit 1
+      for (key in expected) if (!seen[key]) exit 1
+    }
+  ' "$metadata"
+}
+
+first_install_protected_transition_validate() {
+  local source="$1" current="$2" temp="$3" path=/etc/config/premier_router
+  local source_count current_count current_record without_metadata new_source marker
+  case "$J_SOURCE_TYPE:$J_SOURCE_APP_VERSION" in
+    legacy:0.5.1|legacy:0.5.2|legacy:0.6.0|legacy:0.7.0|legacy:0.7.1|legacy:0.7.2|legacy:0.7.3|legacy:0.7.4|legacy:0.7.5|legacy:0.7.6|legacy:0.7.8|legacy:0.7.9|legacy:0.7.10) ;;
+    *) return 1 ;;
+  esac
+  source_count="$(awk -v path="$path" '$4 == path { count++ } END { print count + 0 }' "$source")"
+  current_count="$(awk -v path="$path" '$4 == path { count++ } END { print count + 0 }' "$current")"
+  [ "$source_count" = 0 ] && [ "$current_count" = 1 ] || return 1
+  current_record="$(awk -v path="$path" '$4 == path { print }' "$current")"
+  set -- $current_record
+  [ "$#" = 4 ] && [ "$1" = file ] && [ "$4" = "$path" ] || return 1
+  without_metadata="$temp/protected-without-first-install-metadata.fingerprint"
+  awk -v path="$path" '$4 != path { print }' "$current" > "$without_metadata" || return 1
+  cmp -s "$source" "$without_metadata" || return 1
+  first_install_metadata_validate || return 1
+  new_source="$source.new.$$"
+  marker="$TXN_DIR/rollback/protected-validation-transition"
+  [ ! -e "$new_source" ] && [ ! -L "$new_source" ] || return 1
+  cp "$current" "$new_source" || return 1
+  chmod 600 "$new_source" || { rm -f "$new_source"; return 1; }
+  [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] || sync
+  mv "$new_source" "$source" || return 1
+  printf '%s\n' 'legacy-first-install:/etc/config/premier_router' > "$marker" || return 1
+  chmod 600 "$marker" || return 1
 }
 
 rc5_expected_protected_paths() {
@@ -971,7 +1108,13 @@ target_protected_state_validate() {
     rc5_legacy_protected_validate_and_materialize || rc=1
   fi
   [ "$rc" != 0 ] || fingerprint_paths "$list" "$current" || rc=1
-  [ "$rc" != 0 ] || cmp -s "$source" "$current" || rc=1
+  if [ "$rc" = 0 ] && ! cmp -s "$source" "$current"; then
+    if [ "$phase" = candidate ]; then
+      first_install_protected_transition_validate "$source" "$current" "$temp" || rc=1
+    else
+      rc=1
+    fi
+  fi
   rm -rf "$temp"
   return "$rc"
 }
@@ -1737,6 +1880,9 @@ apply_verified_assets() {
   set_state applying || return 35
   install_packages "$manifest" "$TXN_DIR/downloads" || rc=36
   if [ -z "${rc:-}" ]; then
+    cleanup_package_conffile_artifacts "$manifest" "$TXN_DIR/downloads" || rc=37
+  fi
+  if [ -z "${rc:-}" ]; then
     apply_compatibility "$TXN_DIR/downloads" || rc=37
   fi
   if [ -z "${rc:-}" ]; then
@@ -2093,7 +2239,9 @@ recover_transaction() {
     committed_pending_reboot_validation)
       if [ "$(boot_id)" = "$J_BOOT_ID" ]; then
         rc=0
-      elif cleanup_compatibility && target_state_validate post-reboot &&
+      elif cleanup_compatibility &&
+        cleanup_package_conffile_artifacts "$TXN_DIR/router-release-manifest.json" "$TXN_DIR/downloads" &&
+        target_state_validate post-reboot &&
         test_boundary post-reboot-validation; then
         J_NEEDS_REBOOT_VALIDATION=false
         set_state committed || rc=$?

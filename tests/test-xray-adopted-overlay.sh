@@ -60,7 +60,7 @@ jq -e '
 
 if "$UCODE" "$OVERLAY" inspect "$INCOMPATIBLE_FIXTURE" \
   > "$TMP_ROOT/incompatible-result.json" 2>/dev/null; then
-  printf 'incompatible pre-RC10 adopted layout unexpectedly passed\n' >&2
+  printf 'incompatible pre-RC11 adopted layout unexpectedly passed\n' >&2
   exit 1
 fi
 jq -e '.ok == false and
@@ -70,7 +70,7 @@ jq -e '.ok == false and
 PLANNED_PROFILE_INPUT="$TMP_ROOT/planned-profile-input.json"
 PLANNED_PROFILE_CANDIDATE="$TMP_ROOT/planned-profile-candidate.json"
 cat > "$PLANNED_PROFILE_INPUT" <<'EOF'
-{"address":"203.0.113.11","port":8443,"uuid":"00000000-0000-4000-8000-000000000009","flow":"xtls-rprx-vision","server_name":"rc10.example.invalid","fingerprint":"firefox","public_key":"rc10-sanitized-public-key","short_id":"0123456789abcdef","spider_x":"/rc10","old_vps_ip":"203.0.113.10","new_vps_ip":"203.0.113.11"}
+{"address":"203.0.113.11","port":8443,"uuid":"00000000-0000-4000-8000-000000000009","flow":"xtls-rprx-vision","server_name":"rc11.example.invalid","fingerprint":"firefox","public_key":"rc11-sanitized-public-key","short_id":"0123456789abcdef","spider_x":"/rc11","old_vps_ip":"203.0.113.10","new_vps_ip":"203.0.113.11"}
 EOF
 "$UCODE" "$OVERLAY" patch-profile "$SOURCE" 3 4 "$DOMAINS" "$IPS" \
   "$PLANNED_PROFILE_CANDIDATE" "$PLANNED_PROFILE_INPUT" \
@@ -166,7 +166,7 @@ jq -e '(.inbounds | length) == 2 and (.routing.rules | length) == 3 and
 [ "$(wc -l < "$DOMAINS" | tr -d ' ')" -eq 3 ]
 [ "$(wc -l < "$IPS" | tr -d ' ')" -eq 2 ]
 
-printf '%s\n' 'full:rc10-validation.invalid' 'domain:kept.example' > "$DOMAINS"
+printf '%s\n' 'full:rc11-validation.invalid' 'domain:kept.example' > "$DOMAINS"
 printf '%s\n' '198.51.100.0/25' > "$IPS"
 "$UCODE" "$OVERLAY" patch "$SOURCE" 3 4 "$DOMAINS" "$IPS" "$CANDIDATE" > "$TMP_ROOT/patch.json"
 jq -e '.ok and .non_managed_semantics_unchanged and .domain_count == 2 and .ip_count == 1' \
@@ -182,7 +182,7 @@ jq -e '
   .routing.rules[1].protocol == ["bittorrent"] and
   .routing.rules[2].port == "8080" and
   .outbounds[0].settings.vnext[0].users[0].id == "00000000-0000-4000-8000-000000000006" and
-  .routing.rules[3].domain == ["full:rc10-validation.invalid", "domain:kept.example"] and
+  .routing.rules[3].domain == ["full:rc11-validation.invalid", "domain:kept.example"] and
   .routing.rules[4].ip == ["198.51.100.0/25"]
 ' "$CANDIDATE" >/dev/null
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = "$SOURCE_HASH" ]
@@ -392,11 +392,11 @@ jq -e '.ok == false and
 cp "$TMP_ROOT/supported-config.json" "$CONFIG"
 cp "$TMP_ROOT/supported-ownership.json" "$FAKE_ROOT/etc/premier-router/xray-ownership.json"
 
-printf '%s\n' 'full:rc10-validation.invalid' > "$TMP_ROOT/new-domains"
+printf '%s\n' 'full:rc11-validation.invalid' > "$TMP_ROOT/new-domains"
 printf '%s\n' '198.51.100.128/25' > "$TMP_ROOT/new-ips"
 backend apply_adopted_rules "$TMP_ROOT/new-domains" "$TMP_ROOT/new-ips"
 jq -e '
-  .routing.rules[3].domain == ["full:rc10-validation.invalid"] and
+  .routing.rules[3].domain == ["full:rc11-validation.invalid"] and
   .routing.rules[4].ip == ["198.51.100.128/25"] and
   .routing.rules[0].ip[3] == "203.0.113.10/32" and
   .routing.rules[1].protocol == ["bittorrent"] and .routing.rules[2].port == "8080" and

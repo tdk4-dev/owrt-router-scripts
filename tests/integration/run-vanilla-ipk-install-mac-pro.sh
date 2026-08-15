@@ -5,8 +5,8 @@ umask 077
 
 VBOXMANAGE=/usr/local/bin/VBoxManage
 USIGN_BIN="${USIGN_BIN:-/Users/mac-pro-host/.local/libexec/premier-router/usign-c4c72b1}"
-EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.10
-EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc10-1
+EXPECTED_CANDIDATE_APP_VERSION=0.7.11-rc.11
+EXPECTED_CANDIDATE_PACKAGE_VERSION=0.7.11~rc11-1
 VM_NAME=RouterUI-Vanilla-24.10.5-RC1
 SNAPSHOT_NAME=clean-openwrt-24.10.5-vanilla
 HOST_ONLY_IF=vboxnet1
@@ -90,7 +90,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc10-worktree ]]
+[[ "$SOURCE_ROOT" = /Users/mac-pro-host/Documents/RouterUI-release/Premier-Router-0.7.11-rc11-worktree ]]
 [[ "$CANDIDATE_DIR" = "$REMOTE_ROOT"/assets/* ]]
 [[ "$USIGN_BIN" = /* && -x "$USIGN_BIN" ]] || fail 'USIGN_BIN must be an absolute executable path'
 [[ -x "$VBOXMANAGE" && -s "$MANIFEST" && -s "$MANIFEST_SIGNATURE" &&

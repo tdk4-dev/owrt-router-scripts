@@ -64,14 +64,14 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.10" and .package_version == "0.7.11~rc10-1" and
+  .app_version == "0.7.11-rc.11" and .package_version == "0.7.11~rc11-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.6" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.7" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
-  (any(.transitions[]; .source_version == "0.7.11-rc.10" and
+  (any(.transitions[]; .source_version == "0.7.11-rc.11" and
     .source_protocol == 2) | not) and
   (any(.transitions[]; .source_version == "0.7.11-rc.4" and
     .source_protocol == 2) | not)
@@ -86,7 +86,7 @@ STRICT_RELEASE=1 OUTPUT_DIR="$TMP_ROOT/synthetic-next" \
 jq -e --arg source "$SOURCE_COMMIT" '
   .app_version == "0.7.11" and .package_version == "0.7.11-1" and
   .source_commit == $source and .source_dirty == false and
-  any(.transitions[]; .source_version == "0.7.11-rc.10" and
+  any(.transitions[]; .source_version == "0.7.11-rc.11" and
     .source_protocol == 2 and .mode == "package-v2-rc")
 ' "$TMP_ROOT/synthetic-next/router-release-manifest.json" >/dev/null
 
@@ -410,7 +410,13 @@ done | LC_ALL=C sort | uniq -d > "$TMP_ROOT/duplicate-owned-paths"
 }
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control.tar.gz |
   tar -xzOf - ./conffiles > "$TMP_ROOT/conffiles"
-[ "$(cat "$TMP_ROOT/conffiles")" = /etc/vpn-ui-update.conf ] || exit 1
+printf '%s\n' /etc/config/premier_router /etc/vpn-ui-update.conf > \
+  "$TMP_ROOT/conffiles.expected"
+cmp -s "$TMP_ROOT/conffiles.expected" "$TMP_ROOT/conffiles"
+tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control.tar.gz |
+  tar -xzOf - ./preinst > "$TMP_ROOT/core-preinst"
+grep -Fq '/etc/config/premier_router-opkg' "$TMP_ROOT/core-preinst"
+grep -Fq '/etc/vpn-ui-update.conf-opkg' "$TMP_ROOT/core-preinst"
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control.tar.gz |
   tar -xzOf - ./control > "$TMP_ROOT/core-control"
 grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"

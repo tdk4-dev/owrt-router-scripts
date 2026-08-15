@@ -159,7 +159,11 @@ EOF
 
 write_core_scripts() {
   control_dir="$1"
-  cat > "$control_dir/postinst" <<'EOF'
+  metadata_default_sha256="$(sha256sum \
+    "$CORE_ROOT/etc/config/premier_router" | awk '{ print $1 }')"
+  update_default_sha256="$(sha256sum \
+    "$CORE_ROOT/etc/vpn-ui-update.conf" | awk '{ print $1 }')"
+  cat > "$control_dir/preinst" <<'EOF'
 #!/bin/sh
 set -eu
 
@@ -170,6 +174,89 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
   root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
 fi
 case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+marker_dir="$root_prefix/tmp"
+marker="$marker_dir/premier-router-core-conffile-prestate"
+[ -d "$marker_dir" ] && [ ! -L "$marker_dir" ] || exit 1
+if [ -e "$marker" ] || [ -L "$marker" ]; then
+  [ -f "$marker" ] && [ ! -L "$marker" ] || exit 1
+fi
+tmp="$marker.new.$$"
+[ ! -e "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+cleanup_marker_tmp() {
+  [ -z "${tmp:-}" ] || rm -f "$tmp"
+}
+trap cleanup_marker_tmp EXIT
+trap 'exit 1' HUP INT TERM
+: > "$tmp"
+for logical_path in \
+  /etc/config/premier_router-opkg \
+  /etc/vpn-ui-update.conf-opkg
+do
+  artifact="$root_prefix$logical_path"
+  if [ ! -e "$artifact" ] && [ ! -L "$artifact" ]; then
+    printf '%s\n' "$logical_path" >> "$tmp"
+  fi
+done
+chmod 600 "$tmp"
+mv "$tmp" "$marker"
+tmp=""
+exit 0
+EOF
+  cat > "$control_dir/postinst" <<EOF
+#!/bin/sh
+set -eu
+
+METADATA_DEFAULT_SHA256='$metadata_default_sha256'
+UPDATE_DEFAULT_SHA256='$update_default_sha256'
+EOF
+  cat >> "$control_dir/postinst" <<'EOF'
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+
+root_prefix=""
+if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ]; then
+  root_prefix="${PREMIER_ROUTER_PACKAGE_ROOT:-}"
+fi
+case "$root_prefix" in ""|/*) ;; *) exit 1 ;; esac
+
+marker="$root_prefix/tmp/premier-router-core-conffile-prestate"
+cleanup_conffile_marker() {
+  if [ -f "$marker" ] && [ ! -L "$marker" ]; then
+    rm -f "$marker"
+  fi
+}
+trap cleanup_conffile_marker EXIT
+trap 'exit 1' HUP INT TERM
+if [ -e "$marker" ] || [ -L "$marker" ]; then
+  [ -f "$marker" ] && [ ! -L "$marker" ] || exit 1
+  [ "$(wc -c < "$marker" | tr -d ' ')" -le 128 ] || exit 1
+  awk '
+    BEGIN { metadata = 0; update = 0 }
+    $0 == "/etc/config/premier_router-opkg" { metadata++; next }
+    $0 == "/etc/vpn-ui-update.conf-opkg" { update++; next }
+    { exit 1 }
+    END { if (metadata > 1 || update > 1) exit 1 }
+  ' "$marker" || exit 1
+fi
+cleanup_candidate_conffile_artifact() {
+  logical_path="$1"
+  expected_sha256="$2"
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 0
+  grep -Fqx "$logical_path" "$marker" || return 0
+  artifact="$root_prefix$logical_path"
+  if [ ! -e "$artifact" ] && [ ! -L "$artifact" ]; then
+    return 0
+  fi
+  [ -f "$artifact" ] && [ ! -L "$artifact" ] || exit 1
+  [ "$(sha256sum "$artifact" | awk '{ print $1 }')" = "$expected_sha256" ] || exit 1
+  rm -f "$artifact"
+}
+cleanup_candidate_conffile_artifact \
+  /etc/config/premier_router-opkg "$METADATA_DEFAULT_SHA256"
+cleanup_candidate_conffile_artifact \
+  /etc/vpn-ui-update.conf-opkg "$UPDATE_DEFAULT_SHA256"
+cleanup_conffile_marker
+trap - EXIT HUP INT TERM
 
 VPN_UI_ROOT_PREFIX="$root_prefix" \
   "$root_prefix/usr/sbin/vpn-ui" metadata-init >/tmp/premier-router-metadata-init.log 2>&1 || true
@@ -240,7 +327,7 @@ if [ -f "$cron" ] && [ ! -L "$cron" ]; then
 fi
 exit 0
 EOF
-  chmod 755 "$control_dir/postinst" "$control_dir/postrm"
+  chmod 755 "$control_dir/preinst" "$control_dir/postinst" "$control_dir/postrm"
 cat > "$control_dir/conffiles" <<'EOF'
 /etc/config/premier_router
 /etc/vpn-ui-update.conf

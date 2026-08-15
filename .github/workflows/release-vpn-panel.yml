@@ -30,9 +30,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_VERSION: 0.7.11-rc.10
-  PACKAGE_VERSION: 0.7.11~rc10-1
-  RELEASE_BASENAME: release-v0.7.11-rc.10
+  APP_VERSION: 0.7.11-rc.11
+  PACKAGE_VERSION: 0.7.11~rc11-1
+  RELEASE_BASENAME: release-v0.7.11-rc.11
   ROUTER_UI_SIGNING_KEY_ID: production-2026-07
 
 jobs:
