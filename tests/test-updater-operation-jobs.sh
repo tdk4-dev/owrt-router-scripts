@@ -179,7 +179,8 @@ journal_load "$JOURNAL"
 [ "$J_STATE" = committed ]
 
 # Job files stay private and terminal retention remains bounded.
-mode="$(stat -f %Lp "$JOB_DIR/$apply_id.json" 2>/dev/null || stat -c %a "$JOB_DIR/$apply_id.json")"
+mode="$(stat -c '%a' "$JOB_DIR/$apply_id.json" 2>/dev/null ||
+  stat -f '%Lp' "$JOB_DIR/$apply_id.json")"
 [ "$mode" = 600 ]
 index=0
 while [ "$index" -lt 20 ]; do
