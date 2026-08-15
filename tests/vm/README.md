@@ -15,8 +15,8 @@ The test architecture has four deliberately separate workflows:
    product/builder commits, manifest hashes, and signing provenance are derived
    into immutable descriptor files and checked against the downloaded bytes.
    Diagnostic mode rebuilds nothing and has no signing or publication
-   permission. Its QEMU results never authorize an RC11 candidate or release.
-4. `publish-router-ui-rc11-virtualbox-evidence.yml` runs from `main` only on a
+   permission. Its QEMU results never authorize an RC12 candidate or release.
+4. `publish-router-ui-rc12-virtualbox-evidence.yml` runs from `main` only on a
    protected, one-job Linux publisher runner hosted in an isolated Mac Pro VM.
    It never checks out or executes candidate code. It validates and publishes
    an already-supervised VirtualBox evidence bundle staged under the fixed
@@ -26,14 +26,14 @@ The test architecture has four deliberately separate workflows:
    accepts only a successful pre-tag candidate whose VirtualBox-only job passed.
 
 The publisher workflow must exist on the default branch before it can be
-manually dispatched. For pre-merge RC11 qualification, merge a separate
+manually dispatched. For pre-merge RC12 qualification, merge a separate
 workflow-only bootstrap change containing exactly
-`.github/workflows/publish-router-ui-rc11-virtualbox-evidence.yml`; never merge
-RC11 merely to expose the workflow. Dispatch the publisher on `main`, record
+`.github/workflows/publish-router-ui-rc12-virtualbox-evidence.yml`; never merge
+RC12 merely to expose the workflow. Dispatch the publisher on `main`, record
 the Mac Pro's independently retained SHA-256 of
 `evidence-files-sha256sums`, and record its exact `head_sha`, artifact ID, and
 artifact ZIP SHA-256. The first value authorizes upload; pass the latter three
-identities to the RC11 protected-candidate workflow.
+identities to the RC12 protected-candidate workflow.
 
 Baseline compatibility is the digest emitted by
 `baseline-contract-digest.sh`, not equality between the baseline builder and
@@ -52,7 +52,7 @@ Every diagnostic QEMU VM is serial. QEMU receives `-m 256`; the harness records
 only the PID it started, terminates and waits for that PID, and does not inspect
 other host QEMU processes. Baseline consumers inject a fresh disposable SSH key
 and TLS CA over the serial console, so no private key is stored in the baseline
-artifact. These diagnostics are not RC11 release evidence.
+artifact. These diagnostics are not RC12 release evidence.
 
 ## Manual selectors
 
@@ -81,7 +81,7 @@ QEMU PID and serial evidence, terminates the owned process tree, and waits for
 it. Targeted diagnostic and single-version baseline jobs are capped at 90
 minutes; only complete matrices/packs retain the 360-minute job cap.
 
-Baseline and QEMU diagnostic artifacts are not release authorization. RC11
+Baseline and QEMU diagnostic artifacts are not release authorization. RC12
 authorization requires the final exact source SHA, production fingerprint
 `d055711acf1d9a5b`, and an immutable supervised Mac Pro VirtualBox evidence
-bundle that passes `validate-rc11-virtualbox-evidence.sh`.
+bundle that passes `validate-rc12-virtualbox-evidence.sh`.

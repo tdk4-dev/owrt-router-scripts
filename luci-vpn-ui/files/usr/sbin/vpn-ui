@@ -2772,20 +2772,63 @@ set_device_bypass() {
 }
 
 start_xray_services() {
+  local previous_gate=""
+
   init_state
+  if [ "$XRAY_SERVICE" = "xray" ] && command -v "$UCI_BIN" >/dev/null 2>&1; then
+    previous_gate="$("$UCI_BIN" -q get xray.enabled.enabled 2>/dev/null || true)"
+    case "$previous_gate" in
+      0|1) ;;
+      *) previous_gate="" ;;
+    esac
+    if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+      "$UCI_BIN" set xray.enabled.enabled=1 >/dev/null 2>&1 &&
+        "$UCI_BIN" commit xray >/dev/null 2>&1 ||
+        die_json "could not enable the packaged Xray service"
+    fi
+  fi
+
   if [ -x "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" ]; then
-    "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+    if ! "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" start >/tmp/vpn-ui-xray-start.log 2>&1; then
+      if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+        "$UCI_BIN" set "xray.enabled.enabled=$previous_gate" >/dev/null 2>&1 || true
+        "$UCI_BIN" commit xray >/dev/null 2>&1 || true
+      fi
       die_json "could not start $XRAY_SERVICE: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
+    fi
   elif [ -x "${ROOT_PREFIX}/etc/init.d/xray" ]; then
-    "${ROOT_PREFIX}/etc/init.d/xray" start >/tmp/vpn-ui-xray-start.log 2>&1 ||
+    if ! "${ROOT_PREFIX}/etc/init.d/xray" start >/tmp/vpn-ui-xray-start.log 2>&1; then
+      if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+        "$UCI_BIN" set "xray.enabled.enabled=$previous_gate" >/dev/null 2>&1 || true
+        "$UCI_BIN" commit xray >/dev/null 2>&1 || true
+      fi
       die_json "could not start xray: $(cat /tmp/vpn-ui-xray-start.log 2>/dev/null)"
+    fi
   else
+    if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+      "$UCI_BIN" set "xray.enabled.enabled=$previous_gate" >/dev/null 2>&1 || true
+      "$UCI_BIN" commit xray >/dev/null 2>&1 || true
+    fi
     die_json "could not find Xray init script"
   fi
 
+  if ! service_running "$XRAY_SERVICE"; then
+    if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+      "$UCI_BIN" set "xray.enabled.enabled=$previous_gate" >/dev/null 2>&1 || true
+      "$UCI_BIN" commit xray >/dev/null 2>&1 || true
+    fi
+    die_json "$XRAY_SERVICE did not reach the running state"
+  fi
+
   if [ -x "${ROOT_PREFIX}/etc/init.d/xray-transparent" ]; then
-    "${ROOT_PREFIX}/etc/init.d/xray-transparent" restart >/tmp/vpn-ui-transparent-start.log 2>&1 ||
+    if ! "${ROOT_PREFIX}/etc/init.d/xray-transparent" restart >/tmp/vpn-ui-transparent-start.log 2>&1; then
+      "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" stop >/dev/null 2>&1 || true
+      if [ -n "$previous_gate" ] && [ "$previous_gate" != 1 ]; then
+        "$UCI_BIN" set "xray.enabled.enabled=$previous_gate" >/dev/null 2>&1 || true
+        "$UCI_BIN" commit xray >/dev/null 2>&1 || true
+      fi
       die_json "could not start xray-transparent: $(cat /tmp/vpn-ui-transparent-start.log 2>/dev/null)"
+    fi
   fi
   ensure_device_bypass_nft
 }
@@ -2799,6 +2842,17 @@ stop_xray_services() {
     "${ROOT_PREFIX}/etc/init.d/$XRAY_SERVICE" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
   elif [ -x "${ROOT_PREFIX}/etc/init.d/xray" ]; then
     "${ROOT_PREFIX}/etc/init.d/xray" stop >/tmp/vpn-ui-xray-stop.log 2>&1 || true
+  fi
+
+  if [ "$XRAY_SERVICE" = "xray" ] && command -v "$UCI_BIN" >/dev/null 2>&1; then
+    case "$("$UCI_BIN" -q get xray.enabled.enabled 2>/dev/null || true)" in
+      0) ;;
+      1)
+        "$UCI_BIN" set xray.enabled.enabled=0 >/dev/null 2>&1 &&
+          "$UCI_BIN" commit xray >/dev/null 2>&1 ||
+          die_json "could not disable the packaged Xray service"
+        ;;
+    esac
   fi
 }
 

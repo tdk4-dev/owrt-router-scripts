@@ -1,9 +1,9 @@
-Router UI 0.7.11 RC11
+Router UI 0.7.11 RC12
 
-Router UI `0.7.11-rc.11` is the conservative continuation candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc11-1`, its
+Router UI `0.7.11-rc.12` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc12-1`, its
 channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.11`, and its stable successor is `0.7.11` /
+`vpn-panel-v0.7.11-rc.12`, and its stable successor is `0.7.11` /
 `0.7.11-1`. It contains no Router UI 0.8 feature work.
 
 RC9 was rejected before publication after exact-byte testing from the retained
@@ -15,7 +15,13 @@ first-install creation of `/etc/config/premier_router`: legacy 0.7.10 has no
 such file, while the package post-install creates its non-secret metadata.
 Automatic rollback still restored the legacy source.
 
-RC11 keeps the narrow legacy-rescue repair: after authenticating the target manifest
+RC11 authenticated and committed the full package transition, passed reboot
+validation, and reached the exact signed UI in a real LuCI browser. It was
+rejected when the global Enable control returned success while packaged Xray
+remained stopped: the helper invoked the init script without changing its
+`xray.enabled.enabled` UCI gate.
+
+RC12 keeps the narrow legacy-rescue repair: after authenticating the target manifest
 and enforcing a conservative persistent and temporary storage gate, it updates
 the configured signed OpenWrt feeds and installs only that missing upstream
 worker prerequisite. It never performs a global package upgrade. If the
@@ -23,7 +29,7 @@ project transaction then fails, its ordinary exact application/configuration
 rollback still applies; the upstream prerequisite remains installed so a retry
 and the asynchronous updater have the required worker launcher.
 
-RC11 also treats that metadata creation as one explicit first-install
+RC12 also treats that metadata creation as one explicit first-install
 transition instead of weakening protected-state checks. The supervisor removes
 only byte-exact candidate-owned `-opkg` conffile artifacts, requires every
 pre-existing protected path to remain exact, validates the new metadata as a
@@ -33,22 +39,29 @@ Rollback continues to restore the metadata file's original absence. Any extra
 field, unsafe mode, symlink, unexpected protected path, or mismatched conffile
 artifact fails closed.
 
+RC12 also makes the global VPN control persistent for the standard OpenWrt
+Xray package. Enable sets and commits the package UCI gate before starting the
+service, verifies that Xray reached the running state, and restores the prior
+gate if Xray or transparent-proxy startup fails. Disable stops the services and
+returns the same gate to disabled. Legacy `xray-exit-st` service behavior is
+unchanged.
+
 The VM legacy fixture now renders its selected non-routable test profile and
 records the canonical `/etc/xray/exit-st-cf.json` UCI path before candidate
 validation. This corrects qualification state only and does not broaden Xray
 adoption behavior.
 
-RC11 is not immutable release evidence merely because this identity is present
+RC12 is not immutable release evidence merely because this identity is present
 in source. It becomes consumed when its sole provisional package-build
 invocation begins; Phase 1 can only nominate the exact source for a separately
 authorized Phase 2 freeze decision.
 
-RC11 preserves protocol-2 signed-manifest verification, transactional package
+RC12 preserves protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
 sets are supported source states, but their retained evidence does not qualify
-RC11. The missing signed-manifest digest for the first RC6 byte set remains
+RC12. The missing signed-manifest digest for the first RC6 byte set remains
 unknown and is never replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated

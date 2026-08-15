@@ -3,8 +3,8 @@ set -eu
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VALIDATOR="$ROOT_DIR/tests/integration/validate-rc11-virtualbox-evidence.sh"
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rc11-virtualbox-evidence.XXXXXX")"
+VALIDATOR="$ROOT_DIR/tests/integration/validate-rc12-virtualbox-evidence.sh"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rc12-virtualbox-evidence.XXXXXX")"
 cleanup() { rm -rf "$TMP_ROOT"; }
 trap cleanup EXIT INT TERM
 
@@ -21,7 +21,7 @@ jq -n --arg source "$SOURCE_SHA" '{
 manifest_sha="$(sha256sum "$RELEASE_DIR/router-release-manifest.json" | awk '{print $1}')"
 
 printf 'sanitized controller transcript\n' > "$EVIDENCE_DIR/logs/controller.log"
-printf 'name="RouterUI-RC11-Valera-test"\nVMState="poweroff"\n' \
+printf 'name="RouterUI-RC12-Valera-test"\nVMState="poweroff"\n' \
   > "$EVIDENCE_DIR/logs/vbox-showvminfo.txt"
 python3 - "$EVIDENCE_DIR/screenshots/update.png" "$EVIDENCE_DIR/screenshots/vpn-rules.png" <<'PY'
 import binascii, struct, sys, zlib
@@ -44,24 +44,24 @@ jq -n --arg source "$SOURCE_SHA" --arg manifest "$manifest_sha" '{
   base_archive_sha256:"a3ac22e653fc8b0fa818163a4ae04b0693bf6a8bcf2e968feb4fdc791f3f5ad4",
   base_vdi_sha256:"54e37fdc012cb9d905219aeaf6c04e5da650b49bebfe5d6dfa8765fb3fb6614d",
   base_vm_uuid:"11111111-1111-4111-8111-111111111111",
-  clone_name:"RouterUI-RC11-Valera-test",clone_uuid:"22222222-2222-4222-8222-222222222222",
+  clone_name:"RouterUI-RC12-Valera-test",clone_uuid:"22222222-2222-4222-8222-222222222222",
   nic2:"none",final_power_state:"poweroff",qemu_processes_started:0
 }' > "$EVIDENCE_DIR/observations/vm.json"
 
 jq -n '{schema_version:1,
   source:{app_version:"0.7.11-rc.5",package_version:"0.7.11~rc5-1",protocol:2,
     source_commit:"d02b3bcd187a44d366469ed1f37bb1b273e60529"},
-  target:{app_version:"0.7.11-rc.11",package_version:"0.7.11~rc11-1",protocol:2},
+  target:{app_version:"0.7.11-rc.12",package_version:"0.7.11~rc12-1",protocol:2},
   boot_id_before:"11111111-2222-4333-8444-555555555555",
   boot_id_after:"66666666-7777-4888-8999-aaaaaaaaaaaa",
   candidate_state:"committed_pending_reboot_validation",post_reboot_state:"committed",
   ownership_before:"absent",ownership_after:"adopted-overlay",
   config_sha256_before:("a"*64),config_sha256_after_candidate:("a"*64),
-  config_sha256_after_adoption:("a"*64),exact_rc5_rollback:true,rc11_reapplied:true,
+  config_sha256_after_adoption:("a"*64),exact_rc5_rollback:true,rc12_reapplied:true,
   packages:[
-    {name:"premier-router-core",version:"0.7.11~rc11-1",sha256:("b"*64)},
-    {name:"luci-app-premier-router",version:"0.7.11~rc11-1",sha256:("c"*64)},
-    {name:"premier-router-setup",version:"0.7.11~rc11-1",sha256:("d"*64)}]
+    {name:"premier-router-core",version:"0.7.11~rc12-1",sha256:("b"*64)},
+    {name:"luci-app-premier-router",version:"0.7.11~rc12-1",sha256:("c"*64)},
+    {name:"premier-router-setup",version:"0.7.11~rc12-1",sha256:("d"*64)}]
 }' > "$EVIDENCE_DIR/observations/transition.json"
 
 jq -n '{schema_version:1,enrolled_test_identity:true,sample_count:120,failed_samples:0,
@@ -79,7 +79,7 @@ jq -n '{schema_version:1,rpc_acl_write_path:true,sentinel_count_before:0,
 jq -n '{schema_version:1,host_os:"Darwin",same_workstation:true,browser:"Firefox",
   direct_localhost:true,update_url:"http://127.0.0.1:18076/cgi-bin/luci/admin/update",
   vpn_url:"http://127.0.0.1:18076/cgi-bin/luci/admin/network/vpn",
-  update_page_rc_badge:"0.7.11-rc.11",vpn_page_mode:"adopted-overlay",console_errors:0
+  update_page_rc_badge:"0.7.11-rc.12",vpn_page_mode:"adopted-overlay",console_errors:0
 }' > "$EVIDENCE_DIR/observations/browser.json"
 
 jq -n --arg source "$SOURCE_SHA" --arg manifest_sha "$manifest_sha" '{
@@ -97,7 +97,7 @@ jq -n --arg source "$SOURCE_SHA" --arg manifest_sha "$manifest_sha" '{
   transition:{
     source:{app_version:"0.7.11-rc.5",package_version:"0.7.11~rc5-1",protocol:2,
       source_commit:"d02b3bcd187a44d366469ed1f37bb1b273e60529"},
-    target:{app_version:"0.7.11-rc.11",package_version:"0.7.11~rc11-1",protocol:2},
+    target:{app_version:"0.7.11-rc.12",package_version:"0.7.11~rc12-1",protocol:2},
     candidate_validation:{adoption_preview_only:true,config_unchanged:true,ownership_absent:true},
     pending_state:"committed_pending_reboot_validation",pre_reboot_mutation_refused:true,
     boot_id_changed:true,post_reboot_state:"committed",adoption_after_commit:true,

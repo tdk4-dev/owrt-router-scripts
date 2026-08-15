@@ -16,31 +16,33 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.11" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc11-1" ]
+[ "$VERSION" = "0.7.11-rc.12" ]
+[ "$PACKAGE_VERSION" = "0.7.11~rc12-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
 pr_version_newer 0.7.11 0.7.10
 ! pr_version_newer 0.7.11 0.7.11
-pr_version_newer 0.7.11 0.7.11-rc.11
-pr_version_newer 0.7.11-rc.11 0.7.11-rc.6
-pr_version_newer 0.7.11-rc.11 0.7.11-rc.8
-pr_version_newer 0.7.11-rc.11 0.7.11-rc.10
-pr_version_newer 0.7.11-rc.11 0.7.11-rc.5
-! pr_version_newer 0.7.11-rc.11 0.7.11
-! pr_version_newer 0.7.11-rc.6 0.7.11-rc.11
-! pr_version_newer 0.7.11-rc.8 0.7.11-rc.11
-! pr_version_newer 0.7.11-rc.10 0.7.11-rc.11
-! pr_version_newer 0.7.11-rc.11 0.7.11-rc.11
+pr_version_newer 0.7.11 0.7.11-rc.12
+pr_version_newer 0.7.11-rc.12 0.7.11-rc.6
+pr_version_newer 0.7.11-rc.12 0.7.11-rc.8
+pr_version_newer 0.7.11-rc.12 0.7.11-rc.10
+pr_version_newer 0.7.11-rc.12 0.7.11-rc.11
+pr_version_newer 0.7.11-rc.12 0.7.11-rc.5
+! pr_version_newer 0.7.11-rc.12 0.7.11
+! pr_version_newer 0.7.11-rc.6 0.7.11-rc.12
+! pr_version_newer 0.7.11-rc.8 0.7.11-rc.12
+! pr_version_newer 0.7.11-rc.10 0.7.11-rc.12
+! pr_version_newer 0.7.11-rc.11 0.7.11-rc.12
+! pr_version_newer 0.7.11-rc.12 0.7.11-rc.12
 pr_version_newer 0.8.0 0.8.0RC2
 ! pr_version_newer 0.8.0RC2 0.8.0
 pr_version_newer 0.8.0RC3 0.8.0RC2
 pr_version_valid 0.7.9.1
-pr_version_valid 0.7.11-rc.11
-pr_package_version_matches_app 0.7.11-rc.11 0.7.11~rc11-1
+pr_version_valid 0.7.11-rc.12
+pr_package_version_matches_app 0.7.11-rc.12 0.7.11~rc12-1
 pr_package_version_matches_app 0.7.11 0.7.11-1
-! pr_package_version_matches_app 0.7.11-rc.11 0.7.11-1
+! pr_package_version_matches_app 0.7.11-rc.12 0.7.11-1
 ! pr_version_valid 0.7
 ! pr_version_valid 0.8.0-RC2
 
@@ -56,12 +58,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11-rc.11" and .current_channel == "candidate" and
+  .current == "0.7.11-rc.12" and .current_channel == "candidate" and
   .latest == "0.7.11" and .available == true
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11-rc.11" and .package_version == "0.7.11~rc11-1" and
+  .target == "0.7.11-rc.12" and .package_version == "0.7.11~rc12-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and
@@ -86,7 +88,11 @@ jq -e '
   any(.baselines[]; .version == "0.7.11-rc.10" and
     .tag_commit == "9c6e0c631dbba4e6c7b736769f23005e50b4d4c4" and
     .tree == "6b5c8534c02f16c4025fcc56a14b4f0d951a7528" and
-    .evidence == "invalidated-protected-state-exit-40")
+    .evidence == "invalidated-protected-state-exit-40") and
+  any(.baselines[]; .version == "0.7.11-rc.11" and
+    .tag_commit == "32d9a07cc5412ea785af092558f85ad69d066cf7" and
+    .tree == "13805a2079b5a1b14d8fae7f1e14367bdac2b6bf" and
+    .evidence == "invalidated-real-browser-xray-toggle")
 ' "$ROOT_DIR/release/transition-matrix.json" >/dev/null
 
 grep -q 'flow_json=""' "$HELPER"

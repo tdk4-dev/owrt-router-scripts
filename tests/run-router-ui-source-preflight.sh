@@ -237,6 +237,7 @@ run_test seven-state-rendering node tests/test-router-ui-state-rendering.mjs || 
 run_test tailscale-ping-ui node tests/test-tailscale-ping-ui.mjs || finish 1
 run_test adopted-luci-rpc-rollback node tests/test-vpn-luci-adopted-apply.mjs || finish 1
 run_test adopted-source-contracts node tests/test-xray-adopted-source-contracts.mjs || finish 1
+run_test xray-service-toggle sh tests/test-xray-service-toggle.sh || finish 1
 run_test security-acl-boundaries sh tests/test-security-boundaries-0.7.11.sh || finish 1
 run_test updater-identity-contracts sh tests/test-vpn-hotfixes.sh || finish 1
 run_test updater-source-transactions sh tests/test-updater-source-contracts.sh || finish 1

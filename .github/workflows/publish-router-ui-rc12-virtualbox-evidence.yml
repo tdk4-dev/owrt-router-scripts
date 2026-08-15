@@ -1,10 +1,10 @@
-name: Publish supervised Mac Pro VirtualBox RC11 evidence
+name: Publish supervised Mac Pro VirtualBox RC12 evidence
 
 on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Exact clean RC11 candidate source commit SHA
+        description: Exact clean RC12 candidate source commit SHA
         required: true
         type: string
       evidence_index_sha256:
@@ -38,8 +38,8 @@ jobs:
           printf '%s' "$EXPECTED_SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'
           printf '%s' "$EXPECTED_EVIDENCE_INDEX_SHA256" | grep -Eq '^[0-9a-f]{64}$'
 
-          evidence="$EVIDENCE_ROOT/rc11-final/$EXPECTED_SOURCE_SHA"
-          release="$EVIDENCE_ROOT/releases/$EXPECTED_SOURCE_SHA/release-v0.7.11-rc.11"
+          evidence="$EVIDENCE_ROOT/rc12-final/$EXPECTED_SOURCE_SHA"
+          release="$EVIDENCE_ROOT/releases/$EXPECTED_SOURCE_SHA/release-v0.7.11-rc.12"
           qualification="$evidence/qualification.json"
           sums="$evidence/evidence-files-sha256sums"
           manifest="$release/router-release-manifest.json"
@@ -90,8 +90,8 @@ jobs:
             .transition.source.package_version == "0.7.11~rc5-1" and
             .transition.source.protocol == 2 and
             .transition.source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
-            .transition.target.app_version == "0.7.11-rc.11" and
-            .transition.target.package_version == "0.7.11~rc11-1" and
+            .transition.target.app_version == "0.7.11-rc.12" and
+            .transition.target.package_version == "0.7.11~rc12-1" and
             .transition.target.protocol == 2 and
             .transition.candidate_validation.adoption_preview_only == true and
             .transition.candidate_validation.config_unchanged == true and
@@ -132,7 +132,7 @@ jobs:
             .base_snapshot == "exact-image-preboot" and
             .base_archive_sha256 == "a3ac22e653fc8b0fa818163a4ae04b0693bf6a8bcf2e968feb4fdc791f3f5ad4" and
             .base_vdi_sha256 == "54e37fdc012cb9d905219aeaf6c04e5da650b49bebfe5d6dfa8765fb3fb6614d" and
-            (.clone_name | startswith("RouterUI-RC11-Valera-")) and
+            (.clone_name | startswith("RouterUI-RC12-Valera-")) and
             (.clone_uuid | test("^[0-9a-fA-F-]{36}$")) and
             .clone_uuid != .base_vm_uuid and .nic2 == "none" and
             .final_power_state == "poweroff" and .qemu_processes_started == 0
@@ -142,8 +142,8 @@ jobs:
             .source.app_version == "0.7.11-rc.5" and
             .source.package_version == "0.7.11~rc5-1" and .source.protocol == 2 and
             .source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
-            .target.app_version == "0.7.11-rc.11" and
-            .target.package_version == "0.7.11~rc11-1" and .target.protocol == 2 and
+            .target.app_version == "0.7.11-rc.12" and
+            .target.package_version == "0.7.11~rc12-1" and .target.protocol == 2 and
             (.boot_id_before | test("^[0-9a-f-]{36}$")) and
             (.boot_id_after | test("^[0-9a-f-]{36}$")) and
             .boot_id_before != .boot_id_after and
@@ -153,11 +153,11 @@ jobs:
             (.config_sha256_before | test("^[0-9a-f]{64}$")) and
             .config_sha256_before == .config_sha256_after_candidate and
             .config_sha256_before == .config_sha256_after_adoption and
-            .exact_rc5_rollback == true and .rc11_reapplied == true and
+            .exact_rc5_rollback == true and .rc12_reapplied == true and
             ([.packages[].name] | sort) == [
               "luci-app-premier-router", "premier-router-core", "premier-router-setup"
             ] and all(.packages[];
-              .version == "0.7.11~rc11-1" and (.sha256 | test("^[0-9a-f]{64}$")))
+              .version == "0.7.11~rc12-1" and (.sha256 | test("^[0-9a-f]{64}$")))
           ' "$evidence/observations/transition.json" >/dev/null
           jq -e '
             .schema_version == 1 and .enrolled_test_identity == true and
@@ -186,7 +186,7 @@ jobs:
             .direct_localhost == true and
             .update_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/update" and
             .vpn_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/network/vpn" and
-            .update_page_rc_badge == "0.7.11-rc.11" and
+            .update_page_rc_badge == "0.7.11-rc.12" and
             .vpn_page_mode == "adopted-overlay" and .console_errors == 0
           ' "$evidence/observations/browser.json" >/dev/null
 
@@ -230,7 +230,7 @@ jobs:
           cp -a "$evidence/." "$RUNNER_TEMP/virtualbox-evidence/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: router-ui-rc11-mac-pro-virtualbox-evidence-${{ inputs.source_sha }}
+          name: router-ui-rc12-mac-pro-virtualbox-evidence-${{ inputs.source_sha }}
           path: ${{ runner.temp }}/virtualbox-evidence/
           if-no-files-found: error
           retention-days: 30

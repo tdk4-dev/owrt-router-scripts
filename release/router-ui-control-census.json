@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "release": {
-    "application_version": "0.7.11-rc.11",
-    "package_version": "0.7.11~rc11-1",
+    "application_version": "0.7.11-rc.12",
+    "package_version": "0.7.11~rc12-1",
     "channel": "candidate"
   },
   "states": [

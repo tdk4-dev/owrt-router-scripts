@@ -81,8 +81,8 @@ jq -e \
   .transition.source.package_version == "0.7.11~rc5-1" and
   .transition.source.protocol == 2 and
   .transition.source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
-  .transition.target.app_version == "0.7.11-rc.11" and
-  .transition.target.package_version == "0.7.11~rc11-1" and
+  .transition.target.app_version == "0.7.11-rc.12" and
+  .transition.target.package_version == "0.7.11~rc12-1" and
   .transition.target.protocol == 2 and
   .transition.candidate_validation.adoption_preview_only == true and
   .transition.candidate_validation.config_unchanged == true and
@@ -131,7 +131,7 @@ jq -e --arg source "$EXPECTED_SOURCE_SHA" --arg manifest "$release_manifest_sha"
   .base_snapshot == "exact-image-preboot" and
   .base_archive_sha256 == "a3ac22e653fc8b0fa818163a4ae04b0693bf6a8bcf2e968feb4fdc791f3f5ad4" and
   .base_vdi_sha256 == "54e37fdc012cb9d905219aeaf6c04e5da650b49bebfe5d6dfa8765fb3fb6614d" and
-  (.clone_name | startswith("RouterUI-RC11-Valera-")) and
+  (.clone_name | startswith("RouterUI-RC12-Valera-")) and
   (.clone_uuid | test("^[0-9a-fA-F-]{36}$")) and
   .clone_uuid != .base_vm_uuid and .nic2 == "none" and
   .final_power_state == "poweroff" and .qemu_processes_started == 0
@@ -142,8 +142,8 @@ jq -e '
   .source.app_version == "0.7.11-rc.5" and
   .source.package_version == "0.7.11~rc5-1" and .source.protocol == 2 and
   .source.source_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529" and
-  .target.app_version == "0.7.11-rc.11" and
-  .target.package_version == "0.7.11~rc11-1" and .target.protocol == 2 and
+  .target.app_version == "0.7.11-rc.12" and
+  .target.package_version == "0.7.11~rc12-1" and .target.protocol == 2 and
   (.boot_id_before | test("^[0-9a-f-]{36}$")) and
   (.boot_id_after | test("^[0-9a-f-]{36}$")) and
   .boot_id_before != .boot_id_after and
@@ -153,13 +153,13 @@ jq -e '
   (.config_sha256_before | test("^[0-9a-f]{64}$")) and
   .config_sha256_before == .config_sha256_after_candidate and
   .config_sha256_before == .config_sha256_after_adoption and
-  .exact_rc5_rollback == true and .rc11_reapplied == true and
+  .exact_rc5_rollback == true and .rc12_reapplied == true and
   (.packages | type == "array" and length == 3) and
   ([.packages[].name] | sort) == [
     "luci-app-premier-router", "premier-router-core", "premier-router-setup"
   ] and
   all(.packages[];
-    .version == "0.7.11~rc11-1" and (.sha256 | test("^[0-9a-f]{64}$")))
+    .version == "0.7.11~rc12-1" and (.sha256 | test("^[0-9a-f]{64}$")))
 ' "$TRANSITION_OBS" >/dev/null || fail 'observed transition contract failed'
 
 jq -e '
@@ -191,7 +191,7 @@ jq -e '
   .direct_localhost == true and
   .update_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/update" and
   .vpn_url == "http://127.0.0.1:18076/cgi-bin/luci/admin/network/vpn" and
-  .update_page_rc_badge == "0.7.11-rc.11" and
+  .update_page_rc_badge == "0.7.11-rc.12" and
   .vpn_page_mode == "adopted-overlay" and
   .console_errors == 0
 ' "$BROWSER_OBS" >/dev/null || fail 'observed same-workstation browser contract failed'
@@ -239,5 +239,5 @@ jq -r '.browser.screenshots[]' "$QUALIFICATION" |
     is_png "$EVIDENCE_DIR/$relative" || fail "browser evidence is not a PNG: $relative"
   done
 
-printf 'Mac Pro VirtualBox-only RC11 qualification evidence passed for %s\n' \
+printf 'Mac Pro VirtualBox-only RC12 qualification evidence passed for %s\n' \
   "$EXPECTED_SOURCE_SHA"

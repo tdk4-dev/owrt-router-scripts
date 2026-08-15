@@ -58,7 +58,7 @@ section explicitly says it applies to the Phase 1 provisional checkpoint.
 
 ## Diagnostic QEMU boundary
 
-- QEMU is diagnostic-only for RC11 and cannot authorize candidate or release
+- QEMU is diagnostic-only for RC12 and cannot authorize candidate or release
   publication. The mandatory qualification hypervisor is VirtualBox on the Mac
   Pro, using a disposable, locally recoverable clone under supervision.
 - Configure every diagnostic OpenWrt QEMU VM with exactly 256 MiB RAM.
@@ -79,17 +79,17 @@ section explicitly says it applies to the Phase 1 provisional checkpoint.
 
 The Mac Pro qualification evidence must bind the exact source SHA and signed
 release-manifest hash, prove fingerprint `d055711acf1d9a5b`, record a changed
-boot ID, and cover RC5 → RC11 candidate preview, post-reboot commit, adoption,
+boot ID, and cover RC5 → RC12 candidate preview, post-reboot commit, adoption,
 LuCI/RPC direct-rule apply and removal, Xray restart, exact rollback, and
 continuous Tailscale invariants. Same-workstation browser proof must use direct
-localhost access. `validate-rc11-virtualbox-evidence.sh` enforces this contract.
+localhost access. `validate-rc12-virtualbox-evidence.sh` enforces this contract.
 
 ## Pre-merge VirtualBox evidence publication
 
 GitHub can dispatch a manual workflow only after that workflow path exists on
 the default branch. Expose the evidence publisher with a separate bootstrap PR
 from `origin/main` containing exactly
-`.github/workflows/publish-router-ui-rc11-virtualbox-evidence.yml`. Do not merge
+`.github/workflows/publish-router-ui-rc12-virtualbox-evidence.yml`. Do not merge
 the RC merely to expose its qualification workflow.
 
 Run the publisher on `main`, with the candidate commit supplied only as the
@@ -116,9 +116,9 @@ The publisher VM requires:
 - no repository checkout, production signing key, router credentials,
   VirtualBox control socket, or write access to the evidence source;
 - a root-owned, read-only staged tree at
-  `/srv/router-ui-evidence/rc11-final/<source-sha>` and the matching signed
+  `/srv/router-ui-evidence/rc12-final/<source-sha>` and the matching signed
   release at
-  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.11`;
+  `/srv/router-ui-evidence/releases/<source-sha>/release-v0.7.11-rc.12`;
 - protected environment approval for
   `router-ui-mac-pro-virtualbox-evidence`; and
 - external retention of the ephemeral runner diagnostic logs.
@@ -155,11 +155,11 @@ payload size, derived UBI accounting, and expected target UBIFS total.
 
 ## Clean Image Test
 
-This section describes later product-image qualification, not the RC11 Phase 1
+This section describes later product-image qualification, not the RC12 Phase 1
 checkpoint. The setup-wizard, AdGuard, Reset-page, new navigation, and
 owner-preparation checks below are Router UI 0.8-only surfaces under the
 canonical 0.7.11 non-goals and MUST NOT be imported into, exposed by, or used
-as acceptance criteria for RC11. Phase 1 tests only the retained VPN,
+as acceptance criteria for RC12. Phase 1 tests only the retained VPN,
 Tailscale, and Update routes against the authoritative control census.
 
 1. Create or reset a VirtualBox VM from the exact x86 image archive under test.

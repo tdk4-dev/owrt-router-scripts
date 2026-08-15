@@ -68,9 +68,9 @@ tailscale() {
     ip) printf '%s\n' 100.64.0.9 ;;
   esac
 }
-configure_tailscale true https://headscale.example.invalid tskey-secret-rc11
+configure_tailscale true https://headscale.example.invalid tskey-secret-rc12
 [ -z "$(find "$FIRSTBOOT_RUNTIME_DIR" -type f -name 'firstboot-tailscale-up.*' -print)" ]
-! grep -R 'tskey-secret-rc11' "$FIRSTBOOT_RUNTIME_DIR" >/dev/null 2>&1
+! grep -R 'tskey-secret-rc12' "$FIRSTBOOT_RUNTIME_DIR" >/dev/null 2>&1
 
 tailscale() {
   case "$1" in

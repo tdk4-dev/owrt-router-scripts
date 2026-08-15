@@ -42,7 +42,7 @@ const incompatibleFixture = JSON.parse(incompatibleFixtureText);
 assert.equal(plannedFixture.outbounds[0].streamSettings.network, 'tcp');
 assert.equal(plannedFixture.outbounds[0].streamSettings.security, 'reality');
 assert.equal(incompatibleFixture.outbounds[0].streamSettings.network, undefined,
-	'negative fixture must retain the pre-RC11 incompatible layout');
+	'negative fixture must retain the pre-RC12 incompatible layout');
 
 const config = JSON.parse(fixtureText);
 const eligible = (rule, key) => rule?.type === 'field' && rule.outboundTag === 'direct' &&
