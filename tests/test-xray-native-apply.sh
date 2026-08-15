@@ -55,6 +55,7 @@ EOF
 chmod 755 "$TMP_ROOT/etc/init.d/xray" "$TMP_ROOT/etc/init.d/xray-transparent"
 
 VPN_UI_SOURCE_ONLY=1 VPN_UI_ROOT_PREFIX="$TMP_ROOT" . "$HELPER"
+export VPN_UI_ROOT_PREFIX
 init_state() { XRAY_SERVICE=xray; }
 load_profile_id() {
   P_VPS_IP=198.51.100.20
