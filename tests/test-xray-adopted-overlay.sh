@@ -243,26 +243,44 @@ cat > "$FAKE_ROOT/usr/local/bin/xray-latest" <<'EOF'
 EOF
 cat > "$FAKE_ROOT/etc/init.d/xray" <<'EOF'
 #!/bin/sh
+running="$VPN_UI_ROOT_PREFIX/tmp/xray.running"
+enabled="$VPN_UI_ROOT_PREFIX/tmp/xray.enabled"
 case "${1:-}" in
-  running) exit 0 ;;
+  running) [ -f "$running" ] ;;
+  enabled) [ -f "$enabled" ] ;;
+  enable) : > "$enabled" ;;
+  disable) rm -f "$enabled" ;;
   restart)
     if [ "${VPN_UI_TEST_XRAY_RESTART_FAIL_ONCE:-0}" = 1 ] &&
       [ ! -f "$VPN_UI_ROOT_PREFIX/tmp/restart-failed-once" ]; then
       : > "$VPN_UI_ROOT_PREFIX/tmp/restart-failed-once"
       exit 42
     fi
-    exit 0
+    : > "$running"
     ;;
-  stop|start) exit 0 ;;
+  stop) rm -f "$running" ;;
+  start) : > "$running" ;;
   *) exit 1 ;;
 esac
 EOF
 cat > "$FAKE_ROOT/etc/init.d/xray-transparent" <<'EOF'
 #!/bin/sh
-case "${1:-}" in running|restart|stop|start) exit 0 ;; *) exit 1 ;; esac
+running="$VPN_UI_ROOT_PREFIX/tmp/xray-transparent.running"
+enabled="$VPN_UI_ROOT_PREFIX/tmp/xray-transparent.enabled"
+case "${1:-}" in
+  running) [ -f "$running" ] ;;
+  enabled) [ -f "$enabled" ] ;;
+  enable) : > "$enabled" ;;
+  disable) rm -f "$enabled" ;;
+  start|restart) : > "$running" ;;
+  stop) rm -f "$running" ;;
+  *) exit 1 ;;
+esac
 EOF
 chmod 755 "$FAKE_ROOT/usr/local/bin/xray-latest" "$FAKE_ROOT/etc/init.d/xray" \
   "$FAKE_ROOT/etc/init.d/xray-transparent"
+: > "$FAKE_ROOT/tmp/xray.running"
+: > "$FAKE_ROOT/tmp/xray-transparent.running"
 
 printf '%s\n' 0 > "$FAKE_ROOT/etc/xray-enabled"
 cat > "$FAKE_ROOT/usr/local/bin/uci" <<'EOF'
