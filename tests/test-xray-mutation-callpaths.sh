@@ -22,6 +22,7 @@ done
 
 grep -Fq 'services_match || {' "$UPDATER"
 grep -Fq 'service_postcondition_failed' "$UPDATER"
+grep -Fq '/etc/init.d/xray-transparent' "$UPDATER"
 for service in xray xray-exit-st xray-transparent; do
   grep -Fq "cron rpcd uhttpd xray xray-exit-st xray-transparent" "$UPDATER"
 done

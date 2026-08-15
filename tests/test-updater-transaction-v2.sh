@@ -910,6 +910,7 @@ prepare_rc5_reboot_transaction
 cat > "$TMP_ROOT/rc5-protected.paths.expected" <<'EOF'
 /etc/config
 /etc/crontabs/root
+/etc/init.d/xray-transparent
 /etc/vpn-ui-update.conf
 /etc/xray
 /usr/lib/opkg/info/luci-app-premier-router.control
