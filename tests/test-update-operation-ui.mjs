@@ -67,7 +67,7 @@ const oldId = 'c'.repeat(64);
 			} };
 		case 'update-status':
 			return {
-				ok: true, current: '0.7.11-rc.14', latest: '0.7.11', checked_at: '2026-08-15T10:00:00Z',
+				ok: true, current: '0.7.11-rc.15', latest: '0.7.11', checked_at: '2026-08-15T10:00:00Z',
 				job: { id: oldId, status: 'success', stage: 'committed' }
 			};
 		default: throw new Error(`unexpected command ${args[0]}`);
@@ -140,7 +140,7 @@ const oldId = 'c'.repeat(64);
 			completed.push(args[1]);
 			return { ok: true, job: { id: args[1], kind: 'check', status: 'succeeded' } };
 		}
-		return { ok: true, current: '0.7.11-rc.14', job: { status: 'success' } };
+		return { ok: true, current: '0.7.11-rc.15', job: { status: 'success' } };
 	});
 	await page.startJob('check');
 	await page.startJob('check');
@@ -153,7 +153,7 @@ const oldId = 'c'.repeat(64);
 			return { ok: true, job: { id: idA, kind: 'apply', status: 'running' } };
 		if (args[0] === 'update-job-status')
 			return { ok: true, job: { id: idA, kind: 'apply', status: 'pending_reboot', transaction_id: 'tx-1' } };
-		return { ok: true, current: '0.7.11-rc.14', job: { status: 'pending_reboot' } };
+		return { ok: true, current: '0.7.11-rc.15', job: { status: 'pending_reboot' } };
 	});
 	await page.startJob('apply');
 	assert.deepEqual(calls.map(call => call.args), [

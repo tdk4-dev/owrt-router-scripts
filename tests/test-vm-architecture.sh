@@ -8,8 +8,8 @@ DIAGNOSTIC="$ROOT_DIR/.github/workflows/diagnose-router-ui-vm.yml"
 BASELINES="$ROOT_DIR/.github/workflows/build-router-ui-legacy-baselines.yml"
 CANDIDATE="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
 RELEASE="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
-VIRTUALBOX_PUBLISH="$ROOT_DIR/.github/workflows/publish-router-ui-rc14-virtualbox-evidence.yml"
-VIRTUALBOX_VALIDATOR="$ROOT_DIR/tests/integration/validate-rc14-virtualbox-evidence.sh"
+VIRTUALBOX_PUBLISH="$ROOT_DIR/.github/workflows/publish-router-ui-rc15-virtualbox-evidence.yml"
+VIRTUALBOX_VALIDATOR="$ROOT_DIR/tests/integration/validate-rc15-virtualbox-evidence.sh"
 GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"
 RUNNER="$ROOT_DIR/tests/vm/fail-closed-runner.sh"
 ARTIFACT_HELPER="$ROOT_DIR/tests/vm/download-immutable-actions-artifact.sh"
@@ -68,7 +68,7 @@ grep -q 'workflow_run.head_sha == \$publisher' "$CANDIDATE" ||
   fail 'candidate does not bind VirtualBox evidence to the exact publisher commit'
 grep -q '.event == "workflow_dispatch"' "$CANDIDATE" ||
   fail 'candidate accepts VirtualBox evidence from a non-manual workflow run'
-grep -q 'publish-router-ui-rc14-virtualbox-evidence.yml' "$CANDIDATE" ||
+grep -q 'publish-router-ui-rc15-virtualbox-evidence.yml' "$CANDIDATE" ||
   fail 'candidate does not verify the exact VirtualBox publisher workflow path'
 for workflow in "$BASELINES" "$DIAGNOSTIC" "$CANDIDATE" "$RELEASE"; do
   grep -q 'group: router-ui-project-vm-global' "$workflow" ||
@@ -98,7 +98,7 @@ for workflow in "$DIAGNOSTIC" "$RELEASE"; do
   grep -q 'download-immutable-actions-artifact.sh' "$workflow" ||
     fail "workflow does not derive immutable artifact descriptors: $workflow"
 done
-grep -q 'validate-rc14-virtualbox-evidence.sh' "$CANDIDATE" ||
+grep -q 'validate-rc15-virtualbox-evidence.sh' "$CANDIDATE" ||
   fail 'candidate does not validate the immutable Mac Pro VirtualBox evidence bundle'
 grep -q 'vm_work_root="$RUNNER_TEMP/baseline-pack-work"' "$DIAGNOSTIC" ||
   fail 'diagnostic baseline consumer does not preserve the relocatable overlay layout'
@@ -178,7 +178,7 @@ grep -Fq "if: \${{ always() && needs.assemble-and-sign.result == 'success' }}" "
   fail 'candidate aggregation still emits a secondary failure when assembly is skipped'
 grep -q 'Require Mac Pro VirtualBox-only qualification evidence' "$CANDIDATE" ||
   fail 'candidate authorization is not explicitly VirtualBox-only'
-grep -q 'validate-rc14-virtualbox-evidence.sh' "$CANDIDATE" ||
+grep -q 'validate-rc15-virtualbox-evidence.sh' "$CANDIDATE" ||
   fail 'candidate authorization job does not run the VirtualBox evidence validator'
 grep -q '^  rd23-stock-image:' "$CANDIDATE" &&
   grep -q '^  rd23-ubootmod-image:' "$CANDIDATE" ||

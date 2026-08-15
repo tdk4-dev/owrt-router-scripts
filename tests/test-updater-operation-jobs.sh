@@ -152,7 +152,7 @@ job_running "$apply_id"
 ACTIVE_JOB_ID="$apply_id"
 LOCK_TOKEN="$apply_id"
 cat > "$TMP_ROOT/manifest.json" <<'EOF'
-{"app_version":"0.7.11-rc.14","package_version":"0.7.11~rc14-1","release_tag":"vpn-panel-v0.7.11-rc.14"}
+{"app_version":"0.7.11-rc.15","package_version":"0.7.11~rc15-1","release_tag":"vpn-panel-v0.7.11-rc.15"}
 EOF
 detect_source_type() { printf legacy; }
 source_protocol() { printf 2; }

@@ -1,9 +1,9 @@
-Router UI 0.7.11 RC14
+Router UI 0.7.11 RC15
 
-Router UI `0.7.11-rc.14` is the conservative continuation candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc14-1`, its
+Router UI `0.7.11-rc.15` is the conservative continuation candidate identity for the
+0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc15-1`, its
 channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.14`, and its stable successor is `0.7.11` /
+`vpn-panel-v0.7.11-rc.15`, and its stable successor is `0.7.11` /
 `0.7.11-1`. It contains no Router UI 0.8 feature work.
 
 RC9 was rejected before publication after exact-byte testing from the retained
@@ -21,7 +21,7 @@ rejected when the global Enable control returned success while packaged Xray
 remained stopped: the helper invoked the init script without changing its
 `xray.enabled.enabled` UCI gate.
 
-RC14 keeps the narrow legacy-rescue repair: after authenticating the target manifest
+RC15 keeps the narrow legacy-rescue repair: after authenticating the target manifest
 and enforcing a conservative persistent and temporary storage gate, it updates
 the configured signed OpenWrt feeds and installs only that missing upstream
 worker prerequisite. It never performs a global package upgrade. If the
@@ -29,7 +29,7 @@ project transaction then fails, its ordinary exact application/configuration
 rollback still applies; the upstream prerequisite remains installed so a retry
 and the asynchronous updater have the required worker launcher.
 
-RC14 also treats that metadata creation as one explicit first-install
+RC15 also treats that metadata creation as one explicit first-install
 transition instead of weakening protected-state checks. The supervisor removes
 only byte-exact candidate-owned `-opkg` conffile artifacts, requires every
 pre-existing protected path to remain exact, validates the new metadata as a
@@ -39,7 +39,7 @@ Rollback continues to restore the metadata file's original absence. Any extra
 field, unsafe mode, symlink, unexpected protected path, or mismatched conffile
 artifact fails closed.
 
-RC14 also makes the global VPN control persistent for the standard OpenWrt
+RC15 also makes the global VPN control persistent for the standard OpenWrt
 Xray package. Enable sets and commits the package UCI gate before starting the
 service, verifies that Xray reached the running state, and restores the prior
 gate if Xray or transparent-proxy startup fails. Disable stops the services and
@@ -71,7 +71,7 @@ install journal, while Tailscale Stop and Restart could report success before
 the displayed service state reached the requested postcondition. The RC13
 artifacts and NO-GO evidence remain preserved; no RC13 tag or release exists.
 
-RC14 repairs that shared asynchronous-success defect class. Update Check and
+RC14 repaired that shared asynchronous-success defect class. Update Check and
 Apply now return and persist an exact operation identity, workers transition
 only their own job record, Apply binds that job to its exact transaction, and
 the browser polls only the matching ID and kind. Tailscale mutations now use
@@ -81,17 +81,33 @@ view to agree before the browser announces success. The management-route
 invariant excludes only Tailscale's exact policy rules, so an intentional Stop
 does not misclassify their removal as unrelated route drift.
 
-RC14 is not immutable release evidence merely because this identity is present
+RC14 was production-built and signed, completed the exact 0.7.10 package-first
+upgrade and reboot commit, and passed Update stale-job isolation plus real
+Tailscale Restart convergence. It was rejected when real-browser Stop reached
+the correct stopped/disabled runtime state but exceeded LuCI's RPC window.
+After the daemon exited, invariant and response serialization still invoked
+blocking Tailscale client reads. The browser therefore rendered an XHR timeout
+instead of the proven stopped state. RC14 artifacts and NO-GO evidence remain
+immutable; no RC14 tag or release exists.
+
+RC15 distinguishes the real `tailscaled` daemon from client lookalike
+processes using `/proc` command identity. When the daemon is absent, invariant
+and read-only status paths no longer invoke daemon-dependent Tailscale client
+commands. Stop can therefore return its already-proven postcondition within
+the browser contract, while running-state Restart, registration, identity,
+and management-route checks retain their existing observations.
+
+RC15 is not immutable release evidence merely because this identity is present
 in source. It becomes consumed when its sole production package-build
 invocation begins. That artifact set must be frozen and qualified unchanged;
 source identity alone is not install or release evidence.
 
-RC14 preserves protocol-2 signed-manifest verification, transactional package
+RC15 preserves protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
 sets are supported source states, but their retained evidence does not qualify
-RC14. The missing signed-manifest digest for the first RC6 byte set remains
+RC15. The missing signed-manifest digest for the first RC6 byte set remains
 unknown and is never replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated

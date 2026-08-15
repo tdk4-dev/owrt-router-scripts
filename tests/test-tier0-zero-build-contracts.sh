@@ -49,7 +49,7 @@ printf '%s\n' "$ENTRYPOINTS" | while IFS= read -r relative; do
     scripts/render-router-ui-install-guide.py:*)
       output="$TMP_ROOT/guarded-renderer-output.pdf"
       ROUTER_UI_TIER0_GUARD_LOG="$probe" python3 "$entrypoint" \
-        --manifest "$ROOT_DIR/tests/fixtures/release/router-ui-0.7.11-rc14-provisional-manifest.json" \
+        --manifest "$ROOT_DIR/tests/fixtures/release/router-ui-0.7.11-rc15-provisional-manifest.json" \
         --rules "$ROOT_DIR/release/router-ui-release-rules.json" \
         --template "$ROOT_DIR/docs/templates/router-ui-install-guide-template.json" \
         --mode fixture --output "$output" >/dev/null 2>&1 ;;
