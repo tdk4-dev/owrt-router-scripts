@@ -1,10 +1,11 @@
-Router UI 0.7.11 RC15
+Router UI 0.7.11
 
-Router UI `0.7.11-rc.15` is the conservative continuation candidate identity for the
-0.7.11 trust/update bridge. Its OpenWrt package version is `0.7.11~rc15-1`, its
-channel is `candidate`, its future tag convention is
-`vpn-panel-v0.7.11-rc.15`, and its stable successor is `0.7.11` /
-`0.7.11-1`. It contains no Router UI 0.8 feature work.
+Router UI `0.7.11` is the identity-only stable promotion of the qualified RC15
+trust/update bridge. Its OpenWrt package version is `0.7.11-1`, its channel is
+`stable`, and its future tag convention is `vpn-panel-v0.7.11`. Functional
+product code is identical to RC15 and contains no Router UI 0.8 feature work.
+This source state is not published until separately authorized merge, tag, and
+GitHub Release steps are completed.
 
 RC9 was rejected before publication after exact-byte testing from the retained
 public 0.7.10 VM origin proved that `coreutils-nohup` was not installed. RC10
@@ -97,12 +98,12 @@ commands. Stop can therefore return its already-proven postcondition within
 the browser contract, while running-state Restart, registration, identity,
 and management-route checks retain their existing observations.
 
-RC15 is not immutable release evidence merely because this identity is present
-in source. It becomes consumed when its sole production package-build
-invocation begins. That artifact set must be frozen and qualified unchanged;
-source identity alone is not install or release evidence.
+RC15 is preserved as immutable qualified candidate evidence. Stable 0.7.11 is
+rebuilt from this identity-only promotion and must retain its own exact source,
+reproducibility, signing, and VM evidence; source identity alone is not install
+or publication evidence.
 
-RC15 preserves protocol-2 signed-manifest verification, transactional package
+Stable 0.7.11 preserves RC15 protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
 and signature handling. RC5 and both materially different historical RC6 byte
@@ -126,10 +127,9 @@ invariants, and restores exact private preimages on failure.
 
 The active production trust identity remains the public contract for key
 `production-2026-07`, fingerprint `d055711acf1d9a5b`. Production-signed
-qualification is performed only under Mac Pro signing custody. Signed candidate
-bytes and VM/browser evidence do not authorize images, Factory, hardware, tags,
-releases, discovery, or rollout and do not by themselves establish release
-readiness.
+qualification is performed only under Mac Pro signing custody. Signed package
+bytes and VM/browser evidence do not authorize images, Factory, hardware,
+merge, tags, releases, discovery, or rollout.
 
 Historical 0.7.10 notes
 

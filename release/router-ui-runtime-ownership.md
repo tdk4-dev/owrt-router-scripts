@@ -1,7 +1,7 @@
 # Router UI runtime ownership census
 
-Candidate: `0.7.11-rc.15` (`0.7.11~rc15-1`). This is a pre-build source
-contract, not release qualification. The machine-readable source of truth is
+Stable source: `0.7.11` (`0.7.11-1`). This is the functionally identical
+promotion of qualified RC15. The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 
 The install boundary is exactly three project IPKs:

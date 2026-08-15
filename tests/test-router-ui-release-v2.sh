@@ -64,22 +64,17 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.15" and .package_version == "0.7.11~rc15-1" and
-  any(.transitions[]; .source_version == "0.7.11-rc.5" and
+  .app_version == "0.7.11" and .package_version == "0.7.11-1" and
+  any(.transitions[]; .source_version == "0.7.11-rc.14" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
-  any(.transitions[]; .source_version == "0.7.11-rc.6" and
+  any(.transitions[]; .source_version == "0.7.11-rc.15" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
-  any(.transitions[]; .source_version == "0.7.11-rc.7" and
-    .source_protocol == 2 and .mode == "package-v2-rc") and
-  (any(.transitions[]; .source_version == "0.7.11-rc.15" and
-    .source_protocol == 2) | not) and
   (any(.transitions[]; .source_version == "0.7.11-rc.4" and
     .source_protocol == 2) | not)
 ' "$TMP_ROOT/release/router-release-manifest.json" >/dev/null
 
-# A caller may itself be a strict candidate job. The deliberately
-# version-mutated synthetic successor must remain a bounded disposable VM
-# fixture instead of inheriting strict candidate staging policy.
+# The disposable stable fixture must remain bounded and must not inherit a
+# caller's strict production staging policy.
 STRICT_RELEASE=1 OUTPUT_DIR="$TMP_ROOT/synthetic-next" \
   SOURCE_COMMIT="$SOURCE_COMMIT" SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
   "$ROOT_DIR/tests/vm/build-synthetic-next.sh" >/dev/null
@@ -421,7 +416,7 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control
   tar -xzOf - ./control > "$TMP_ROOT/core-control"
 grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx "X-Premier-App-Version: $APP_VERSION" "$TMP_ROOT/core-control"
-grep -Fqx 'X-Premier-Release-Channel: candidate' "$TMP_ROOT/core-control"
+grep -Fqx 'X-Premier-Release-Channel: stable' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*coreutils-nohup' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*kmod-nft-tproxy' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*ip-full' "$TMP_ROOT/core-control"
@@ -463,7 +458,7 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.ta
   tar -xzOf - ./usr/share/premier-router/build-info > "$TMP_ROOT/build-info"
 grep -Fqx "APP_VERSION=$APP_VERSION" "$TMP_ROOT/build-info"
 grep -Fqx "PACKAGE_VERSION=$PKG_VERSION" "$TMP_ROOT/build-info"
-grep -Fqx 'RELEASE_CHANNEL=candidate' "$TMP_ROOT/build-info"
+grep -Fqx 'RELEASE_CHANNEL=stable' "$TMP_ROOT/build-info"
 ! tar -xzOf "$TMP_ROOT/ipk-a/luci-app-premier-router_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -tzf - | grep -q '/_35_vpn.js$'
 

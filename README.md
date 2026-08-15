@@ -23,13 +23,13 @@ Premier Router — пакетный продуктовый слой поверх
 | Контур | Текущий статус |
 | --- | --- |
 | Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 RC | RC15 (`0.7.11-rc.15` / `0.7.11~rc15-1`) номинирован после исправления блокирующего stopped-status пути Tailscale. RC13 и RC14 сохранены как отдельные отклонённые NO-GO; единственный RC15 production build и его qualification ещё не завершены. Публичный stable 0.7.11 не опубликован. |
+| Router UI 0.7.11 | Stable source `0.7.11` / `0.7.11-1` is the identity-only promotion of the fully qualified RC15 code. RC13 and RC14 remain separate rejected NO-GO evidence. Publication still requires separate merge, tag, and release authorization. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
 
-RC 0.7.11 не является опубликованным stable, а 0.8 не является релизом.
-Ни один из этих каналов не устанавливается на клиентский роутер автоматически.
+The 0.7.11 source is not a published release until its separately authorized
+merge, tag, and GitHub Release. Router UI 0.8 remains development-only.
 
 ## Основные возможности
 

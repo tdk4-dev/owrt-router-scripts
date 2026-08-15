@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "audited_at": "2026-08-16",
-  "target": "0.7.11-rc.15",
-  "package_version": "0.7.11~rc15-1",
-  "release_channel": "candidate",
+  "target": "0.7.11",
+  "package_version": "0.7.11-1",
+  "release_channel": "stable",
   "baselines": [
     {"version":"0.7.0","tag_commit":"067b4eb8a399e96a8bd071f802cdbcd066a4ba61","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
     {"version":"0.7.1","tag_commit":"fc839b3288f91414b183f66e9d5d0761dae3b15d","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
@@ -26,6 +26,7 @@
     {"version":"0.7.11-rc.11","tag_commit":"32d9a07cc5412ea785af092558f85ad69d066cf7","tree":"13805a2079b5a1b14d8fae7f1e14367bdac2b6bf","published_release":false,"support":"unsupported","adapter":"none","evidence":"invalidated-real-browser-xray-toggle","reason":"production-signed RC11 completed the 0.7.10 transaction and reboot validation, but real LuCI control testing proved that Enable reported success without opening the standard Xray package UCI gate; the VM was restored to its dedicated preinstall snapshot"},
     {"version":"0.7.11-rc.12","tag_commit":"2fcbf4328f9a752e8b6b523d49118688fcdcc61a","tree":"16fe6681bb4611390a57f897e7b132b3fad7b835","published_release":false,"support":"unsupported","adapter":"none","evidence":"source-complete-unsigned-runtime-census-only","reason":"RC12 completed bounded pre-build defect discovery and clean 0.7.10 three-IPK runtime ownership proof, but no production-signed artifact set was created; product fixes advanced the next production candidate to RC13"},
     {"version":"0.7.11-rc.13","tag_commit":"2a5fcb2a37a6697f8c83a48610ce456a158d8cab","tree":"9031cebf3f7dd7d02a12692011a28cdf9162a006","published_release":false,"support":"unsupported","adapter":"none","evidence":"rejected-browser-async-state","reason":"production-signed RC13 passed exact source, lifecycle, ownership, and runtime gates but was rejected because Update Check could accept stale transaction state and Tailscale Stop/Restart could report before displayed state converged; its artifacts and NO-GO evidence remain preserved and no tag or release was created"},
-    {"version":"0.7.11-rc.14","tag_commit":"7fb0ecb35c54e34e1c8eedf47bbe0848cf3e9866","tree":"8330ab9dbda0663344f4d8d5e2bd11aadbf6b762","published_release":false,"support":"unsupported","adapter":"none","evidence":"rejected-browser-tailscale-stop-timeout","reason":"production-signed RC14 passed exact 0.7.10 upgrade, reboot commit, Update stale-job isolation, and Tailscale Restart convergence, but real-browser Stop exceeded the LuCI RPC window because stopped-state serialization still invoked blocking Tailscale client reads; exact artifacts and NO-GO evidence remain preserved and no tag or release was created"}
+    {"version":"0.7.11-rc.14","tag_commit":"7fb0ecb35c54e34e1c8eedf47bbe0848cf3e9866","tree":"8330ab9dbda0663344f4d8d5e2bd11aadbf6b762","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"rejected-browser-tailscale-stop-timeout","reason":"production-signed RC14 remains rejected release evidence, but its valid protocol-2 installation is an explicitly supported source for the stable repair"},
+    {"version":"0.7.11-rc.15","tag_commit":"04b5c6028c4305be9d7493599825c70e9bc55198","tree":"8856806c1245c17ab18147d07fc82ded72c64444","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"qualified-exact-byte-package-only","reason":"production-signed RC15 passed exact-byte package, updater, lifecycle, Tailscale convergence, ownership, and browser qualification and is the functional source of stable 0.7.11"}
   ]
 }
