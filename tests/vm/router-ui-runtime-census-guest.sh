@@ -184,11 +184,16 @@ fi
 check_runtime_path configuration /etc/crontabs/root premier-router-core:runtime post-install
 check_runtime_path runtime-state /etc/firstboot-wizard premier-router-setup:runtime post-install
 check_runtime_path configuration /etc/firstboot-wizard/complete premier-router-setup:runtime post-install
-check_runtime_path runtime-state /etc/premier-router premier-router-installer:runtime post-canonical-installer
-check_runtime_path configuration /etc/premier-router/installed-manifest.json premier-router-installer:runtime post-canonical-installer
-check_runtime_path configuration /etc/premier-router/installed-manifest.json.sig premier-router-installer:runtime post-canonical-installer
 check_runtime_path runtime-state /tmp/dhcp.leases dnsmasq:runtime post-service-start
 check_runtime_path runtime-state /etc/xray xray-core dependency-install
+
+if [ -e /etc/premier-router/installed-manifest.json ] ||
+  [ -e /etc/premier-router/installed-manifest.json.sig ]; then
+  check_runtime_path configuration /etc/premier-router/installed-manifest.json premier-router-installer:runtime post-canonical-installer
+  check_runtime_path configuration /etc/premier-router/installed-manifest.json.sig premier-router-installer:runtime post-canonical-installer
+else
+  row PASS lifecycle-boundary installed-manifest not-created premier-router-installer:runtime none post-canonical-installer-only
+fi
 
 INIT_RESULT="$OUT_DIR/backend-init.json"
 /usr/sbin/vpn-ui init > "$INIT_RESULT" 2>&1 || true

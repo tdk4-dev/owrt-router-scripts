@@ -40,3 +40,7 @@ command, init service, UCI object, ubus object, TPROXY module, installer-created
 manifest, or lifecycle-created configuration is absent, has no package owner,
 has multiple owners, or differs from this contract. It also runs the
 non-activating backend initialization and verifies all managed Xray state paths.
+Installer manifests and update-cache paths have separate, explicit lifecycle
+owners; an IPK-only run requires them to be absent as a pair or present as a
+complete pair, and the canonical installer/update qualification verifies their
+later creation.
