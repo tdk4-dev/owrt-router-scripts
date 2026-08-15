@@ -312,5 +312,6 @@ jq -e '.ok and .tailscale.backend_state == "NeedsLogin" and (.tailscale.connecte
   "$TMP_ROOT/logout.json" >/dev/null
 
 grep -Fq 'tailscale_wait_state' "$HELPER"
+grep -Fq 'fwmark 0x80000/0xff0000' "$HELPER"
 ! sed -n '/^cmd_tailscale_stop()/,/^}/p' "$HELPER" | grep -Fq '|| true'
 printf '%s\n' 'Tailscale bounded convergence, delayed success, timeout, and exact restoration checks passed'

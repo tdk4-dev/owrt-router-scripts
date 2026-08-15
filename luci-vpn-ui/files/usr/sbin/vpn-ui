@@ -2379,7 +2379,9 @@ tailscale_invariant_snapshot() {
     route_hash="$(ip -4 route show table all 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
     rule_hash="$(ip -4 rule show 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
     management_route_hash="$(ip -4 route show table main 2>/dev/null | grep -v 'tailscale0' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
-    management_rule_hash="$(ip -4 rule show 2>/dev/null | grep -Ev 'lookup (52|tailscale)|tailscale0' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+    management_rule_hash="$(ip -4 rule show 2>/dev/null |
+      grep -Ev 'lookup (52|tailscale)|tailscale0|fwmark 0x80000/0xff0000' |
+      LC_ALL=C sort | sha256sum | awk '{print $1}')"
   else
     route_hash=unavailable
     rule_hash=unavailable
