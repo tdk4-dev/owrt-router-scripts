@@ -252,6 +252,7 @@ run_test updater-worker-locking sh tests/test-updater-worker-start.sh || finish 
 run_test updater-operation-jobs sh tests/test-updater-operation-jobs.sh || finish 1
 run_test tailscale-registration sh tests/test-tailscale-registration.sh || finish 1
 run_test tailscale-convergence sh tests/test-tailscale-convergence.sh || finish 1
+run_test tailscale-stopped-status sh tests/test-tailscale-stopped-status.sh || finish 1
 run_test firstboot-optional-services sh tests/test-firstboot-optional-services.sh || finish 1
 run_test router-metadata sh tests/test-router-metadata.sh || finish 1
 run_test package-source-contracts sh tests/test-package-source-contracts.sh || finish 1

@@ -2359,22 +2359,25 @@ tailscale_invariant_snapshot() {
     return 0
   fi
 
-  tailscale_pid="$(pidof tailscaled 2>/dev/null || true)"
+  tailscale_pid="$(tailscale_daemon_pids)"
   first_pid="${tailscale_pid%% *}"
   start_id=""
   [ -z "$first_pid" ] || start_id="$(overlay_process_start_id "$first_pid" 2>/dev/null || true)"
   enabled=false
   [ -x "${ROOT_PREFIX}/etc/init.d/tailscale" ] &&
     "${ROOT_PREFIX}/etc/init.d/tailscale" enabled >/dev/null 2>&1 && enabled=true
-  if command -v tailscale >/dev/null 2>&1 && tailscale status --json > "$status_file" 2>/dev/null; then
-    backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
-    tailnet="$(json_value "$status_file" '@.CurrentTailnet.Name' '.CurrentTailnet.Name')"
+  tailnet=""
+  prefs=""
+  control=""
+  if [ -n "$first_pid" ] && command -v tailscale >/dev/null 2>&1; then
+    if tailscale status --json > "$status_file" 2>/dev/null; then
+      backend="$(json_value "$status_file" '@.BackendState' '.BackendState')"
+      tailnet="$(json_value "$status_file" '@.CurrentTailnet.Name' '.CurrentTailnet.Name')"
+    fi
     ip4="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
-  else
-    tailnet=""
+    prefs="$(tailscale debug prefs 2>/dev/null || true)"
+    control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
   fi
-  prefs="$(tailscale debug prefs 2>/dev/null || true)"
-  control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
   if command -v ip >/dev/null 2>&1; then
     route_hash="$(ip -4 route show table all 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
     rule_hash="$(ip -4 rule show 2>/dev/null | LC_ALL=C sort | sha256sum | awk '{print $1}')"
@@ -2407,6 +2410,23 @@ tailscale_invariant_snapshot() {
     printf 'management_rule_hash=%s\n' "$management_rule_hash"
     printf 'state_hash=%s\n' "$state_hash"
   } > "$output"
+}
+
+tailscale_daemon_pids() {
+  local proc_root pid command found=""
+  proc_root="${VPN_UI_PROC_ROOT:-${ROOT_PREFIX}/proc}"
+  [ -d "$proc_root" ] || proc_root=/proc
+  for pid in $(pidof tailscaled 2>/dev/null || true); do
+    [ -r "$proc_root/$pid/cmdline" ] || continue
+    command="$(tr '\000' '\n' < "$proc_root/$pid/cmdline" 2>/dev/null | sed -n '1p')"
+    case "${command##*/}" in tailscaled) ;; *) continue ;; esac
+    if [ -z "$found" ]; then
+      found="$pid"
+    else
+      found="$found $pid"
+    fi
+  done
+  printf '%s\n' "$found"
 }
 
 tailscale_state_path() {
@@ -3369,7 +3389,7 @@ auto_json() {
 tailscale_json() {
   local running ip prefs control hostname status_file version tailnet backend enabled pid first_pid start_id
   running="false"
-  pid="$(pidof tailscaled 2>/dev/null || true)"
+  pid="$(tailscale_daemon_pids)"
   first_pid="${pid%% *}"
   start_id=""
   if [ -n "$first_pid" ]; then
@@ -3379,19 +3399,24 @@ tailscale_json() {
   enabled=false
   [ -x "${ROOT_PREFIX}/etc/init.d/tailscale" ] &&
     "${ROOT_PREFIX}/etc/init.d/tailscale" enabled >/dev/null 2>&1 && enabled=true
-  ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
-  prefs="$(tailscale debug prefs 2>/dev/null || true)"
-  control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
-  hostname="$(printf '%s\n' "$prefs" | jsonfilter -e '@.Hostname' 2>/dev/null || true)"
+  ip=""
+  prefs=""
+  control=""
+  hostname=""
+  tailnet=""
+  backend=""
   version="$(tailscale version 2>/dev/null | sed -n '1p')"
   status_file="/tmp/vpn-ui-tailscale-status.$$"
-  if tailscale status --json > "$status_file" 2>/dev/null; then
-    tailnet="$(jsonfilter -i "$status_file" -e '@.CurrentTailnet.Name' 2>/dev/null || true)"
-    backend="$(jsonfilter -i "$status_file" -e '@.BackendState' 2>/dev/null || true)"
-  else
-    : > "$status_file"
-    tailnet=""
-    backend=""
+  : > "$status_file"
+  if [ -n "$first_pid" ]; then
+    ip="$(tailscale ip -4 2>/dev/null | sed -n '1p')"
+    prefs="$(tailscale debug prefs 2>/dev/null || true)"
+    control="$(printf '%s\n' "$prefs" | jsonfilter -e '@.ControlURL' 2>/dev/null || true)"
+    hostname="$(printf '%s\n' "$prefs" | jsonfilter -e '@.Hostname' 2>/dev/null || true)"
+    if tailscale status --json > "$status_file" 2>/dev/null; then
+      tailnet="$(jsonfilter -i "$status_file" -e '@.CurrentTailnet.Name' 2>/dev/null || true)"
+      backend="$(jsonfilter -i "$status_file" -e '@.BackendState' 2>/dev/null || true)"
+    fi
   fi
   printf '{"running":%s,"boot_enabled":%s,"connected":%s,"pid":' \
     "$running" "$enabled" "$([ -n "$ip" ] && printf true || printf false)"
