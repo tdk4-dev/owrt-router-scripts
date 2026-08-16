@@ -1659,19 +1659,51 @@ write_xray_transparent_init() {
 START=99
 STOP=05
 
+EXTRA_COMMANDS="running"
+EXTRA_HELP="running Check whether complete transparent-proxy kernel state is present"
+
 TABLE="xray_transparent"
 XRAY_PORT="12345"
 ROUTER_DNS_PORT="53"
 MARK="0x1"
 ROUTE_TABLE="100"
 
-start() {
-  nft delete table inet \$TABLE 2>/dev/null || true
+kernel_state_present() {
+  nft list table inet \$TABLE >/dev/null 2>&1 &&
+    nft list set inet \$TABLE bypass4 >/dev/null 2>&1 &&
+    nft list chain inet \$TABLE dns_prerouting 2>/dev/null |
+      grep -q "redirect to :\$ROUTER_DNS_PORT" &&
+    [ "\$(nft list chain inet \$TABLE tproxy_prerouting 2>/dev/null |
+      grep -c "tproxy.*:\$XRAY_PORT")" -ge 2 ] &&
+    ip -4 rule show 2>/dev/null | grep -Eq "fwmark (0x0*1|1)(/0xffffffff)? .*lookup \$ROUTE_TABLE" &&
+    ip -4 route show table \$ROUTE_TABLE 2>/dev/null |
+      grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |\$)'
+}
 
-  ip rule del fwmark \$MARK lookup \$ROUTE_TABLE 2>/dev/null || true
-  ip route flush table \$ROUTE_TABLE 2>/dev/null || true
-  ip route add local 0.0.0.0/0 dev lo table \$ROUTE_TABLE
-  ip rule add fwmark \$MARK lookup \$ROUTE_TABLE pref 100
+stop() {
+  local failed=0
+
+  nft delete table inet \$TABLE 2>/dev/null || true
+  while ip -4 rule del fwmark \$MARK lookup \$ROUTE_TABLE 2>/dev/null; do :; done
+  ip -4 route flush table \$ROUTE_TABLE 2>/dev/null || true
+  nft list table inet \$TABLE >/dev/null 2>&1 && failed=1
+  ip -4 rule show 2>/dev/null |
+    grep -Eq "fwmark (0x0*1|1)(/0xffffffff)? .*lookup \$ROUTE_TABLE" && failed=1
+  ip -4 route show table \$ROUTE_TABLE 2>/dev/null |
+    grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |\$)' && failed=1
+  return "\$failed"
+}
+
+start() {
+  stop || return 1
+  ip -4 route add local 0.0.0.0/0 dev lo table \$ROUTE_TABLE || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
+  ip -4 rule add fwmark \$MARK lookup \$ROUTE_TABLE pref 100 || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
 
   nft add table inet \$TABLE
   nft 'add chain inet xray_transparent dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }'
@@ -1689,18 +1721,22 @@ $torrent_rules
 $quic_rule
   nft add rule inet \$TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip daddr @bypass4 counter return
   nft add rule inet \$TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol tcp counter tproxy ip to :\$XRAY_PORT meta mark set \$MARK accept
-  nft add rule inet \$TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol udp counter tproxy ip to :\$XRAY_PORT meta mark set \$MARK accept
+  nft add rule inet \$TABLE tproxy_prerouting iifname { "br-lan", "tailscale0" } ip protocol udp counter tproxy ip to :\$XRAY_PORT meta mark set \$MARK accept || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
+  kernel_state_present || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
 }
 
-stop() {
-  nft delete table inet \$TABLE 2>/dev/null || true
-  ip rule del fwmark \$MARK lookup \$ROUTE_TABLE 2>/dev/null || true
-  ip route flush table \$ROUTE_TABLE 2>/dev/null || true
+running() {
+  kernel_state_present
 }
 
 restart() {
-  stop
-  start
+  stop && start
 }
 EOF
   chmod 755 /etc/init.d/xray-transparent
@@ -1731,6 +1767,13 @@ configure_xray() {
   /etc/init.d/xray restart
   /etc/init.d/xray-transparent enable
   /etc/init.d/xray-transparent restart
+  /etc/init.d/xray enabled
+  /etc/init.d/xray running
+  /etc/init.d/xray-transparent enabled
+  /etc/init.d/xray-transparent running
+  nft list table inet xray_transparent >/dev/null
+  ip -4 rule show | grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100'
+  ip -4 route show table 100 | grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
 }
 
 render_xray_from_saved_state() {
@@ -1745,6 +1788,11 @@ render_xray_from_saved_state() {
   sh -n /etc/init.d/xray-transparent
   /etc/init.d/xray restart
   /etc/init.d/xray-transparent restart
+  /etc/init.d/xray running
+  /etc/init.d/xray-transparent running
+  nft list table inet xray_transparent >/dev/null
+  ip -4 rule show | grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100'
+  ip -4 route show table 100 | grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
   echo "VPN route rules applied."
 }
 

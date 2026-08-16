@@ -3,9 +3,9 @@
 'require fs';
 'require ui';
 'require dom';
-'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
 var isReadonlyView = !L.hasViewPermission() || null;
 
 var css = '\
@@ -44,36 +44,57 @@ function parseResponse(res) {
 
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		var command = args && args[0];
+		var readCommand = command === 'tailscale-status' || command === 'tailscale-ping';
+
+		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return Promise.all([
-			this.callHelper(['tailscale-status']),
-			this.callHelper(['footer-info'])
-		]).then(function(result) {
-			result[0].metadata = result[1];
-			return result[0];
-		});
+		return this.callHelper(['tailscale-status']);
 	},
 
 	refresh: function(data) {
-		data.metadata = data.metadata || this.metadata || {};
-		this.metadata = data.metadata;
 		this.data = data;
 		dom.content(document.querySelector('#tailscale-ui-root'), this.renderBody(data));
-		routerFooter.apply(data.metadata);
 	},
 
-	runAction: function(args, title) {
+	pollStatus: function(predicate, failures) {
+		failures = failures || 0;
+		return new Promise(L.bind(function(resolve, reject) {
+			window.setTimeout(L.bind(function() {
+				this.callHelper(['tailscale-status']).then(function(data) {
+					if (predicate(data.tailscale || {})) {
+						resolve(data);
+						return;
+					}
+					if (failures >= 59) {
+						reject(new Error(_('Tailscale state did not converge before the display timeout.')));
+						return;
+					}
+					this.pollStatus(predicate, failures + 1).then(resolve, reject);
+				}.bind(this)).catch(function(err) {
+					if (failures >= 59) {
+						reject(err);
+						return;
+					}
+					this.pollStatus(predicate, failures + 1).then(resolve, reject);
+				}.bind(this));
+			}, this), 800);
+		}, this));
+	},
+
+	runAction: function(args, title, predicate, successMessage) {
 		ui.showModal(title, [
 			E('p', { 'class': 'spinning' }, _('Applying changes...'))
 		]);
 
-		return this.callHelper(args).then(L.bind(function(data) {
+		return this.callHelper(args).then(L.bind(function() {
+			return this.pollStatus(predicate, 0);
+		}, this)).then(L.bind(function(data) {
 			ui.hideModal();
 			this.refresh(data);
-			ui.addNotification(null, E('p', {}, _('Tailscale settings updated.')));
+			ui.addNotification(null, E('p', {}, successMessage));
 		}, this)).catch(function(err) {
 			ui.hideModal();
 			ui.addNotification(null, E('p', {}, err.message || err));
@@ -94,21 +115,31 @@ return view.extend({
 			key ? key.value.trim() : '',
 			routes ? routes.value.trim() : '',
 			exitNode && exitNode.checked ? '1' : '0'
-		], _('Applying Tailscale settings'));
+		], _('Applying Tailscale settings'), function(state) {
+			return state.running === true && state.boot_enabled === true &&
+				state.backend_state === 'Running' && state.connected === true;
+		}, _('Tailscale settings applied.'));
 	},
 
 	handleRestart: function() {
-		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'));
+		return this.runAction(['tailscale-restart'], _('Restarting Tailscale'), function(state) {
+			return state.running === true && ['Running', 'NeedsLogin', 'NeedsMachineAuth', 'Stopped', 'NoState']
+				.indexOf(state.backend_state) !== -1;
+		}, _('Tailscale restarted.'));
 	},
 
 	handleStop: function() {
-		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'));
+		return this.runAction(['tailscale-stop'], _('Stopping Tailscale'), function(state) {
+			return state.running === false && state.boot_enabled === false;
+		}, _('Tailscale stopped.'));
 	},
 
 	handleLogout: function() {
 		if (!confirm(_('Log this router out of its current tailnet?')))
 			return;
-		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'));
+		return this.runAction(['tailscale-logout'], _('Logging out of Tailscale'), function(state) {
+			return state.backend_state === 'NeedsLogin' && state.connected === false;
+		}, _('Tailscale logged out.'));
 	},
 
 	handlePeerPing: function(peer) {
@@ -126,14 +157,14 @@ return view.extend({
 			ui.showModal(title, [
 				E('p', { 'style': 'white-space:pre-wrap; overflow-wrap:anywhere' }, message),
 				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+					E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'tailscale-ping-close', 'click': ui.hideModal }, _('Close'))
 				])
 			]);
 		}).catch(function(err) {
 			ui.showModal(title, [
 				E('p', {}, err.message || err),
 				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
+					E('button', { 'class': 'btn cbi-button-neutral', 'data-control-id': 'tailscale-ping-close', 'click': ui.hideModal }, _('Close'))
 				])
 			]);
 		});
@@ -175,6 +206,7 @@ return view.extend({
 				E('td', { 'class': 'td left' }, this.formatLastSeen(peer.last_seen, peer.online)),
 				E('td', { 'class': 'td right' }, [
 					E('a', {
+						'data-control-id': 'tailscale-peer-ping',
 						'class': 'cbi-button cbi-button-action',
 						'href': '#',
 						'aria-disabled': peer.ip ? 'false' : 'true',
@@ -247,6 +279,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-login-server' }, _('Login server')),
 					E('input', {
+						'data-control-id': 'tailscale-login-server',
 						'id': 'ts-login-server',
 						'type': 'text',
 						'value': tailscale.control_url || 'https://login.tailscale.com',
@@ -256,6 +289,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-hostname' }, _('Node hostname')),
 					E('input', {
+						'data-control-id': 'tailscale-hostname',
 						'id': 'ts-hostname',
 						'type': 'text',
 						'value': tailscale.hostname || '',
@@ -265,6 +299,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-auth-key' }, _('Preauth key')),
 					E('input', {
+						'data-control-id': 'tailscale-auth-key',
 						'id': 'ts-auth-key',
 						'type': 'password',
 						'autocomplete': 'off',
@@ -275,6 +310,7 @@ return view.extend({
 				E('div', { 'class': 'ts-field' }, [
 					E('label', { 'for': 'ts-routes' }, _('Advertise routes')),
 					E('input', {
+						'data-control-id': 'tailscale-routes',
 						'id': 'ts-routes',
 						'type': 'text',
 						'placeholder': '10.77.0.0/24',
@@ -283,6 +319,7 @@ return view.extend({
 				]),
 				E('label', { 'class': 'ts-check' }, [
 					E('input', {
+						'data-control-id': 'tailscale-exit-node',
 						'id': 'ts-exit-node',
 						'type': 'checkbox',
 						'disabled': isReadonlyView
@@ -292,21 +329,25 @@ return view.extend({
 			]),
 			E('div', { 'class': 'ts-actions' }, [
 				E('button', {
+					'data-control-id': 'tailscale-restart',
 					'class': 'cbi-button cbi-button-neutral',
 					'disabled': isReadonlyView,
 					'click': ui.createHandlerFn(this, 'handleRestart')
 				}, _('Restart')),
 				E('button', {
+					'data-control-id': 'tailscale-stop',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.running,
+					'disabled': (isReadonlyView || !tailscale.running) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleStop')
 				}, _('Stop service')),
 				E('button', {
+					'data-control-id': 'tailscale-logout',
 					'class': 'cbi-button cbi-button-negative',
-					'disabled': isReadonlyView || !tailscale.connected,
+					'disabled': (isReadonlyView || !tailscale.connected) ? true : null,
 					'click': ui.createHandlerFn(this, 'handleLogout')
 				}, _('Log out')),
 				E('button', {
+					'data-control-id': 'tailscale-apply',
 					'class': 'cbi-button cbi-button-positive',
 					'disabled': isReadonlyView,
 					'click': ui.createHandlerFn(this, 'handleApply')
@@ -318,9 +359,7 @@ return view.extend({
 	},
 
 	render: function(data) {
-		this.metadata = data.metadata || {};
 		this.data = data;
-		routerFooter.apply(data.metadata);
 
 		return E('div', { 'class': 'cbi-map tailscale-ui' }, [
 			E('style', {}, css),

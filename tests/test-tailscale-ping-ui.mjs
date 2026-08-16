@@ -93,7 +93,7 @@ await pingLink.attrs.click({
 
 assert.equal(prevented, true, 'Ping action must prevent anchor navigation');
 assert.deepEqual(helperCalls, [{
-	command: '/usr/sbin/vpn-ui',
+	command: '/usr/sbin/vpn-ui-readonly',
 	args: ['tailscale-ping', '100.64.0.28']
 }]);
 assert.equal(modalCalls.length, 2, 'Ping must show progress and result modals');

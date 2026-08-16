@@ -23,13 +23,13 @@ Premier Router — пакетный продуктовый слой поверх
 | Контур | Текущий статус |
 | --- | --- |
 | Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 RC | Package-first RC локально проверен на уровне пакетов, protocol 2, обновления, перезагрузки и точного отката. Публичный stable 0.7.11 ещё не опубликован; locked-image и аппаратная квалификация описываются отдельно и не считаются завершёнными. |
+| Router UI 0.7.11 | Stable source `0.7.11` / `0.7.11-1` is the identity-only promotion of fully qualified RC16 code. RC13, RC14, RC15, and the first stable build remain separate rejected evidence. Publication still requires separate merge, tag, and release authorization. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
 
-RC 0.7.11 не является опубликованным stable, а 0.8 не является релизом.
-Ни один из этих каналов не устанавливается на клиентский роутер автоматически.
+The 0.7.11 source is not a published release until its separately authorized
+merge, tag, and GitHub Release. Router UI 0.8 remains development-only.
 
 ## Основные возможности
 
@@ -81,9 +81,15 @@ development-код в обещание stable-релиза.
 
 - **Stable 0.7.10:** интерфейс Premier Router в LuCI; управление профилями
   VPN/VLESS Reality и direct-routing; поверхности статуса Tailscale/Headscale.
-- **0.7.11 RC:** канонические package-first IPK, подписанные release manifests,
-  updater protocol 2, журнал транзакции, восстановление после перезагрузки и
-  точный rollback без глобального обновления OpenWrt.
+- **0.7.11 RC16 pre-build:** RC15 прошёл candidate qualification, но первая
+  identity-only stable сборка выявила независимый rollback defect. Байты
+  исходных пакетов восстанавливались, однако удалённый `opkg` init-файл
+  `xray-transparent` не попадал в pre-state, а проверка service postcondition
+  выполнялась без bounded convergence. RC16 сохраняет exact source init до
+  мутации, восстанавливает его из подписанного known-good IPK при package-order
+  race и ждёт свежие service observations с ограниченным timeout. RC13, RC14,
+  RC15 и первая stable сборка остаются immutable rejected evidence; RC16 ещё
+  должен пройти production build и exact-byte qualification.
 - **0.7.11 RC / image workflow:** first-boot setup, owner preparation и
   installation/support metadata. Реальное RD23-прохождение остаётся отдельным
   аппаратным gate.
@@ -121,52 +127,17 @@ Package-first поставка состоит из трёх независимо
 
 ## Установка на существующий OpenWrt
 
-Существующий OpenWrt можно обновить проверенными IPK или через подписанный
-package feed без перепрошивки. Текущий публичный stable 0.7.10 использует свой
-опубликованный release workflow; package-first команды ниже относятся только к
-явно выданному **limited 0.7.11 RC bundle**, а не к `main` и не к 0.8
-development.
+Текущий публичный stable 0.7.10 использует только свой опубликованный release
+workflow. Наличие RC16 identity в source не создаёт устанавливаемый или
+распространяемый bundle: production build, immutable hashes и qualification
+остаются обязательными отдельными gates.
 
-На доверенной рабочей станции в неизменяемом каталоге одного RC сначала
-проверьте подпись manifest штатным RC-инсталлятором и затем все SHA-256:
-
-```sh
-sha256sum -c SHA256SUMS
-```
-
-OpenWrt/Dropbear не гарантирует SFTP. Передать три проверенных IPK можно через
-SSH и tar-stream:
-
-```sh
-tar -cf - \
-  premier-router-core_0.7.11-1_all.ipk \
-  luci-app-premier-router_0.7.11-1_all.ipk \
-  premier-router-setup_0.7.11-1_all.ipk | \
-ssh root@ROUTER 'umask 077; mkdir -p /tmp/premier-router-0.7.11-rc; tar -xf - -C /tmp/premier-router-0.7.11-rc'
-```
-
-Для стандартного режима с панелями установите core и LuCI; setup добавляйте
-только при необходимости:
-
-```sh
-ssh root@ROUTER 'opkg install \
-  /tmp/premier-router-0.7.11-rc/premier-router-core_0.7.11-1_all.ipk \
-  /tmp/premier-router-0.7.11-rc/luci-app-premier-router_0.7.11-1_all.ipk'
-```
-
-```sh
-ssh root@ROUTER 'opkg install \
-  /tmp/premier-router-0.7.11-rc/premier-router-setup_0.7.11-1_all.ipk'
-```
-
-Если оператор RC предоставляет подписанный feed, после установки его публичного
-ключа и точной feed-конфигурации из release notes используются только
-`opkg update` и установка пакетов Premier Router. **Не выполняйте глобальный
-`opkg upgrade`**: он смешивает независимые обновления OpenWrt и продукта и
-лишает транзакцию проверяемой границы.
-
-Raw-branch installers не являются рекомендуемым release-путём. Не загружайте и
-не запускайте установщик непосредственно из mutable-ветки.
+Черновой package-first путь RC16 описан в
+[`docs/ordinary-user-ipk-installation.md`](docs/ordinary-user-ipk-installation.md).
+Не используйте его до появления подписанного canonical manifest и финального,
+сгенерированного из этого manifest collateral с точными filenames, sizes,
+SHA-256 и storage gates. Никогда не устанавливайте из mutable-ветки и не
+выполняйте глобальный `opkg upgrade`.
 
 ## Образы и оборудование
 
