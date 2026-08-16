@@ -51,7 +51,8 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$input" ] && [ -n "$expression" ] || exit 1
 expression="${expression#@}"
-jq -r "$expression // empty" "$input"
+jq -r "$expression | select(. != null) |
+  if type == \"boolean\" then tostring else . end" "$input"
 EOF
 chmod 755 "$HOST_TEST_BIN/jsonfilter"
 PATH="$HOST_TEST_BIN:$PATH"
