@@ -16,8 +16,8 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.16" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc16-1" ]
+[ "$VERSION" = "0.7.11" ]
+[ "$PACKAGE_VERSION" = "0.7.11-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
@@ -64,12 +64,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11-rc.16" and .current_channel == "candidate" and
-  .latest == "0.7.11" and .available == true
+  .current == "0.7.11" and .current_channel == "stable" and
+  .latest == "0.7.11" and .available == false
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11-rc.16" and .package_version == "0.7.11~rc16-1" and
+  .target == "0.7.11" and .package_version == "0.7.11-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and
@@ -110,7 +110,12 @@ jq -e '
   any(.baselines[]; .version == "0.7.11-rc.15" and
     .tag_commit == "04b5c6028c4305be9d7493599825c70e9bc55198" and
     .support == "supported-through-protocol2" and
-    .evidence == "rejected-stable-rollback-postcondition")
+    .evidence == "rejected-stable-rollback-postcondition") and
+  any(.baselines[]; .version == "0.7.11-rc.16" and
+    .tag_commit == "44fb942a878cf5fbf8d1d06d1897b02973871204" and
+    .tree == "b29ab379744242a842fb74337f48d673cdb78829" and
+    .support == "supported-through-protocol2" and
+    .evidence == "qualified-exact-byte-package-only")
 ' "$ROOT_DIR/release/transition-matrix.json" >/dev/null
 
 grep -q 'flow_json=""' "$HELPER"
@@ -174,4 +179,4 @@ grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.11 RC16 identity and updater-version checks passed\n'
+printf 'VPN 0.7.11 stable identity and updater-version checks passed\n'

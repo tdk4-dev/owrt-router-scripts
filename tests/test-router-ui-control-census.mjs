@@ -45,9 +45,9 @@ const sources = Object.fromEntries(await Promise.all(Object.entries(viewPaths).m
 
 assert.equal(census.schema, 1);
 assert.deepEqual(census.release, {
-	application_version: '0.7.11-rc.16',
-	package_version: '0.7.11~rc16-1',
-	channel: 'candidate'
+	application_version: '0.7.11',
+	package_version: '0.7.11-1',
+	channel: 'stable'
 });
 assert.equal(new Set(census.states).size, 7, 'all seven UI states must be unique');
 assert.deepEqual(Object.keys(census.state_fixtures).sort(), [...census.states].sort(),
@@ -102,7 +102,7 @@ for (const control of census.controls) {
 }
 
 assert.equal(new Set(censusIds).size, censusIds.length, 'control IDs must be unique in the census');
-assert.equal(censusIds.length, 46, 'RC16 authoritative census must contain exactly 46 controls');
+assert.equal(censusIds.length, 46, 'stable authoritative census must contain exactly 46 controls');
 for (const id of requiredControls)
 	assert.ok(censusIds.includes(id), `required control ${id} must be in the census`);
 

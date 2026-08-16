@@ -1,8 +1,7 @@
 # Router UI runtime ownership census
 
-Active candidate: `0.7.11-rc.16` (`0.7.11~rc16-1`). RC16 repairs the
-rollback service/init postcondition defect demonstrated during the rejected
-stable promotion. The machine-readable source of truth is
+Stable source: `0.7.11` (`0.7.11-1`) is the identity-only promotion of the
+qualified RC16 rollback and service-convergence repair. The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 
 The install boundary is exactly three project IPKs:

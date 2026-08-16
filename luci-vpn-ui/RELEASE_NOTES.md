@@ -1,10 +1,10 @@
-Router UI 0.7.11 RC16
+Router UI 0.7.11
 
-Router UI `0.7.11-rc.16` is the active package-only release candidate. Its
-OpenWrt package version is `0.7.11~rc16-1`, its channel is `candidate`, and it
-contains no Router UI 0.8 feature work. This source state is not an installable
-or published release until production build, exact-byte qualification, and
-separately authorized merge, tag, and GitHub Release steps are completed.
+Router UI `0.7.11` is the identity-only stable promotion of fully qualified
+RC16 code. Its OpenWrt package version is `0.7.11-1`, its channel is `stable`,
+and it contains no Router UI 0.8 feature work. Functional product code is
+identical to RC16. This source state is not published until separately
+authorized merge, tag, and GitHub Release steps are completed.
 
 RC9 was rejected before publication after exact-byte testing from the retained
 public 0.7.10 VM origin proved that `coreutils-nohup` was not installed. RC10
@@ -21,7 +21,7 @@ rejected when the global Enable control returned success while packaged Xray
 remained stopped: the helper invoked the init script without changing its
 `xray.enabled.enabled` UCI gate.
 
-RC16 keeps the narrow legacy-rescue repair: after authenticating the target manifest
+Stable 0.7.11 keeps the narrow legacy-rescue repair: after authenticating the target manifest
 and enforcing a conservative persistent and temporary storage gate, it updates
 the configured signed OpenWrt feeds and installs only that missing upstream
 worker prerequisite. It never performs a global package upgrade. If the
@@ -29,7 +29,7 @@ project transaction then fails, its ordinary exact application/configuration
 rollback still applies; the upstream prerequisite remains installed so a retry
 and the asynchronous updater have the required worker launcher.
 
-RC16 also treats that metadata creation as one explicit first-install
+Stable 0.7.11 also treats that metadata creation as one explicit first-install
 transition instead of weakening protected-state checks. The supervisor removes
 only byte-exact candidate-owned `-opkg` conffile artifacts, requires every
 pre-existing protected path to remain exact, validates the new metadata as a
@@ -39,7 +39,7 @@ Rollback continues to restore the metadata file's original absence. Any extra
 field, unsafe mode, symlink, unexpected protected path, or mismatched conffile
 artifact fails closed.
 
-RC16 also makes the global VPN control persistent for the standard OpenWrt
+Stable 0.7.11 also makes the global VPN control persistent for the standard OpenWrt
 Xray package. Enable sets and commits the package UCI gate before starting the
 service, verifies that Xray reached the running state, and restores the prior
 gate if Xray or transparent-proxy startup fails. Disable stops the services and
@@ -107,17 +107,20 @@ That stable artifact set is immutable rejected evidence and was not published.
 RC16 snapshots the exact transparent init before package mutation, reconstructs
 it from the authenticated known-good source IPK when package ordering has
 already removed it, and verifies restored service state through bounded fresh
-observations. Timeout remains fail-closed. The repair was reproduced on a real
-OpenWrt disposable clone without changing release bytes; RC16 still requires
-its own complete production and exact-byte qualification.
+observations. Timeout remains fail-closed. RC16 passed production-signed
+exact-byte qualification from 0.7.10 and RC15, including controlled rollback,
+reapply, reboot commit, updater correlation, Tailscale convergence, lifecycle,
+ownership, and the complete browser census. Its immutable artifacts and
+evidence remain the functional qualification source for stable 0.7.11.
 
-RC16 preserves protocol-2 signed-manifest verification, transactional package
+Stable 0.7.11 preserves RC16 protocol-2 signed-manifest verification, transactional package
 updates, reboot validation, exact rollback/recovery, structured asynchronous
 Update Check/Apply results, and fail-closed compatibility, checksum, storage,
-and signature handling. RC5 and both materially different historical RC6 byte
-sets are supported source states, but their retained evidence does not qualify
-RC16. The missing signed-manifest digest for the first RC6 byte set remains
-unknown and is never replaced with the hotfix digest.
+and signature handling. RC5, both materially different historical RC6 byte
+sets, RC14, RC15, and RC16 are supported protocol-2 source states, but their
+retained evidence is not substituted for stable qualification. The missing
+signed-manifest digest for the first RC6 byte set remains unknown and is never
+replaced with the hotfix digest.
 
 Xray ownership has two supported modes. The generated
 `/etc/xray/exit-st-cf.json` path remains `native-generated`. A manual active
