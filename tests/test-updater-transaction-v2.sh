@@ -37,6 +37,23 @@ cat > "$fake_xray" <<'EOF'
   jq -e . "$4" >/dev/null 2>&1
 EOF
 chmod 755 "$fake_xray"
+cat > "$HOST_TEST_BIN/jsonfilter" <<'EOF'
+#!/bin/sh
+set -eu
+input=""
+expression=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -i) input="$2"; shift 2 ;;
+    -e) expression="$2"; shift 2 ;;
+    *) exit 1 ;;
+  esac
+done
+[ -n "$input" ] && [ -n "$expression" ] || exit 1
+expression="${expression#@}"
+jq -r "$expression // empty" "$input"
+EOF
+chmod 755 "$HOST_TEST_BIN/jsonfilter"
 PATH="$HOST_TEST_BIN:$PATH"
 export PATH
 
