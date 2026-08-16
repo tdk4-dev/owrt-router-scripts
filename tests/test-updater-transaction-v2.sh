@@ -500,7 +500,8 @@ run_exact_space_case() {
 
 test_core_package_cron_scripts() {
   local core_ipk control package_root cron before expected signal_bin
-  local transparent_sha transparent_metadata
+  local transparent_sha transparent_metadata source_transparent_sha
+  local source_bundle transaction_dir
   core_ipk="$(find "$TMP_ROOT/ipk" -maxdepth 1 -type f \
     -name 'premier-router-core_*_all.ipk' -print -quit)"
   [ -n "$core_ipk" ]
@@ -594,6 +595,36 @@ EOF
   run_package_script postrm 1 0 upgrade
   [ ! -e "$package_root/etc/init.d/xray-transparent" ] &&
     [ ! -L "$package_root/etc/init.d/xray-transparent" ]
+
+  reset_package_root
+  source_transparent_sha="$(
+    tar -xzOf "$core_ipk" ./data.tar.gz |
+      tar -xzOf - ./etc/init.d/xray-transparent |
+      sha256sum | awk '{ print $1 }'
+  )"
+  rm -f "$package_root/etc/init.d/xray-transparent"
+  prepare_package_transaction applying
+  transaction_dir="$package_root/root/premier-router-updates/20260815T120000Z-0123456789abcdef"
+  source_bundle="$package_root/root/premier-router-updates/known-good/source-manifest"
+  mkdir -p "$source_bundle"
+  cp "$core_ipk" "$source_bundle/source-core.ipk"
+  printf '%s\n' "$source_bundle" > "$transaction_dir/rollback/source-known-good-path"
+  printf '%s\n' 'xray-transparent true false' > "$transaction_dir/rollback/services"
+  jq -n --arg sha "$(sha256sum "$source_bundle/source-core.ipk" | awk '{ print $1 }')" \
+    '{packages:[{name:"premier-router-core",filename:"source-core.ipk",sha256:$sha}]}' \
+    > "$transaction_dir/rollback/source-manifest.json"
+  run_package_script preinst 1 1
+  grep -Fqx "file $source_transparent_sha" \
+    "$transaction_dir/rollback/xray-transparent-prestate/state"
+  [ "$(tar -xzOf "$transaction_dir/rollback/xray-transparent-prestate/file.tar.gz" \
+    etc/init.d/xray-transparent | sha256sum | awk '{ print $1 }')" = \
+    "$source_transparent_sha" ]
+  printf '%s\n' 'candidate transparent init bytes' > \
+    "$package_root/etc/init.d/xray-transparent"
+  set_package_transaction_state rolling_back
+  run_package_script postrm 1 0 upgrade
+  [ "$(sha256sum "$package_root/etc/init.d/xray-transparent" | awk '{ print $1 }')" = \
+    "$source_transparent_sha" ]
 
   reset_package_root
   printf '%s\n' 'source transparent init bytes' > \

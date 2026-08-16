@@ -21,9 +21,12 @@ for contract in \
   grep -Fq "$contract" "$VPN_UI"
 done
 
-grep -Fq 'services_match || {' "$UPDATER"
+grep -Fq 'services_match_wait || {' "$UPDATER"
+grep -Fq 'services_match && return 0' "$UPDATER"
 grep -Fq 'service_postcondition_failed' "$UPDATER"
 grep -Fq 'restore_transparent_init_prestate' "$UPDATER"
+grep -Fq 'snapshot_transparent_init_prestate' "$UPDATER"
+grep -Fq 'snapshot_source_package_init' "$BUILD_IPKS"
 grep -Fq 'xray-transparent-prestate' "$BUILD_IPKS"
 for service in xray xray-exit-st xray-transparent; do
   grep -Fq "cron rpcd uhttpd xray xray-exit-st xray-transparent" "$UPDATER"

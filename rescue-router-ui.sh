@@ -3,7 +3,7 @@ set -eu
 umask 077
 
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
-TARGET_VERSION=0.7.11-rc.15
+TARGET_VERSION=0.7.11-rc.16
 TARGET_TAG="vpn-panel-v$TARGET_VERSION"
 RELEASE_BASE="${ROUTER_UI_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TARGET_TAG}"
 VERSION_FILE="${ROUTER_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"

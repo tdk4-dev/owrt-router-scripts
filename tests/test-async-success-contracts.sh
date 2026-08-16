@@ -19,6 +19,9 @@ grep -Fq "this.callHelper(['update-job-status', jobId, kind])" "$UPDATE_VIEW"
 grep -Fq 'job.id !== jobId || job.kind !== kind' "$UPDATE_VIEW"
 ! sed -n '/pollJob: function/,/startJob: function/p' "$UPDATE_VIEW" |
   grep -Fq "this.callHelper(['update-status'])"
+grep -Fq 'services_match_wait || {' "$UPDATER"
+extract_function services_match_wait "$UPDATER" | grep -Fq 'services_match && return 0'
+extract_function services_match_wait "$UPDATER" | grep -Fq 'sleep 1'
 
 # Tailscale mutations wait for fresh runtime/boot/backend observations and restore on failure.
 for fn in cmd_tailscale_stop cmd_tailscale_restart cmd_tailscale_logout; do

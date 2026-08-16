@@ -203,6 +203,58 @@ snapshot_transparent_init_prestate() {
   trap cleanup_transparent_snapshot_tmp EXIT
   trap 'exit 1' HUP INT TERM
   init="$root_prefix/etc/init.d/xray-transparent"
+
+  snapshot_source_package_init() {
+    services="$rollback/services"
+    source_path_file="$rollback/source-known-good-path"
+    source_manifest="$rollback/source-manifest.json"
+    [ -f "$services" ] && [ ! -L "$services" ] &&
+      grep -Eq '^xray-transparent (true|false) (true|false)$' "$services" || return 1
+    [ -f "$source_path_file" ] && [ ! -L "$source_path_file" ] &&
+      [ -f "$source_manifest" ] && [ ! -L "$source_manifest" ] || exit 1
+    source_dir="$(sed -n '1p' "$source_path_file")"
+    case "$source_dir" in
+      "$root_prefix/root/premier-router-updates/known-good/"*) ;;
+      *) exit 1 ;;
+    esac
+    [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || exit 1
+    source_filename=""
+    source_sha256=""
+    index=0
+    while [ "$index" -lt 16 ]; do
+      package="$(jsonfilter -i "$source_manifest" -e "@.packages[$index].name" 2>/dev/null || true)"
+      [ -n "$package" ] || break
+      if [ "$package" = premier-router-core ]; then
+        source_filename="$(jsonfilter -i "$source_manifest" \
+          -e "@.packages[$index].filename" 2>/dev/null || true)"
+        source_sha256="$(jsonfilter -i "$source_manifest" \
+          -e "@.packages[$index].sha256" 2>/dev/null || true)"
+        break
+      fi
+      index=$((index + 1))
+    done
+    case "$source_filename" in
+      ''|*/*|.*) exit 1 ;;
+    esac
+    printf '%s\n' "$source_sha256" | grep -Eq '^[0-9a-f]{64}$' || exit 1
+    source_ipk="$source_dir/$source_filename"
+    [ -f "$source_ipk" ] && [ ! -L "$source_ipk" ] || exit 1
+    [ "$(sha256sum "$source_ipk" | awk '{ print $1 }')" = "$source_sha256" ] || exit 1
+    extract="$tmp/source-package"
+    mkdir -p "$extract"
+    tar -xzOf "$source_ipk" ./data.tar.gz |
+      tar -xzf - -C "$extract" ./etc/init.d/xray-transparent || exit 1
+    source_init="$extract/etc/init.d/xray-transparent"
+    [ -f "$source_init" ] && [ ! -L "$source_init" ] &&
+      [ "$(wc -c < "$source_init" | tr -d ' ')" -le 1048576 ] || exit 1
+    sha="$(sha256sum "$source_init" | awk '{ print $1 }')"
+    tar -czf "$tmp/file.tar.gz" -C "$extract" etc/init.d/xray-transparent
+    [ "$(tar -tzf "$tmp/file.tar.gz")" = etc/init.d/xray-transparent ] &&
+      [ "$(tar -xzOf "$tmp/file.tar.gz" etc/init.d/xray-transparent |
+        sha256sum | awk '{ print $1 }')" = "$sha" ] || exit 1
+    printf 'file %s\n' "$sha" > "$tmp/state"
+  }
+
   if [ -e "$init" ] || [ -L "$init" ]; then
     [ -f "$init" ] && [ ! -L "$init" ] || exit 1
     [ "$(wc -c < "$init" | tr -d ' ')" -le 1048576 ] || exit 1
@@ -214,7 +266,7 @@ snapshot_transparent_init_prestate() {
     [ "$(tar -xzOf "$tmp/file.tar.gz" etc/init.d/xray-transparent |
       sha256sum | awk '{ print $1 }')" = "$sha" ] || exit 1
     printf 'file %s\n' "$sha" > "$tmp/state"
-  else
+  elif ! snapshot_source_package_init; then
     printf '%s\n' missing > "$tmp/state"
   fi
   chmod 600 "$tmp/state"

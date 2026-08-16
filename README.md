@@ -23,7 +23,7 @@ Premier Router — пакетный продуктовый слой поверх
 | Контур | Текущий статус |
 | --- | --- |
 | Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 | Stable source `0.7.11` / `0.7.11-1` is the identity-only promotion of the fully qualified RC15 code. RC13 and RC14 remain separate rejected NO-GO evidence. Publication still requires separate merge, tag, and release authorization. |
+| Router UI 0.7.11 | Active candidate source is `0.7.11-rc.16` / `0.7.11~rc16-1`. RC13, RC14, RC15, and the first stable build remain separate rejected evidence. Publication still requires qualification plus separate merge, tag, and release authorization. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
@@ -81,16 +81,15 @@ development-код в обещание stable-релиза.
 
 - **Stable 0.7.10:** интерфейс Premier Router в LuCI; управление профилями
   VPN/VLESS Reality и direct-routing; поверхности статуса Tailscale/Headscale.
-- **0.7.11 RC15 pre-build:** source-level package-first/updater protocol 2,
-  transaction journal, reboot recovery, exact rollback и runtime ownership
-  прошли guarded preflight и clean-0.7.10 three-IPK defect-discovery proof.
-  RC13 production bytes сохранены как NO-GO из-за stale update journal и
-  преждевременного Tailscale success. RC14 исправил эти дефекты, но был
-  отклонён, когда Stop достиг stopped/disabled postcondition, а блокирующее
-  чтение status превысило browser RPC window. Эти результаты не квалифицируют
-  RC15.
-  Production-signed RC15 artifacts, full qualification, image, hardware и
-  release gates остаются незавершёнными.
+- **0.7.11 RC16 pre-build:** RC15 прошёл candidate qualification, но первая
+  identity-only stable сборка выявила независимый rollback defect. Байты
+  исходных пакетов восстанавливались, однако удалённый `opkg` init-файл
+  `xray-transparent` не попадал в pre-state, а проверка service postcondition
+  выполнялась без bounded convergence. RC16 сохраняет exact source init до
+  мутации, восстанавливает его из подписанного known-good IPK при package-order
+  race и ждёт свежие service observations с ограниченным timeout. RC13, RC14,
+  RC15 и первая stable сборка остаются immutable rejected evidence; RC16 ещё
+  должен пройти production build и exact-byte qualification.
 - **0.7.11 RC / image workflow:** first-boot setup, owner preparation и
   installation/support metadata. Реальное RD23-прохождение остаётся отдельным
   аппаратным gate.
@@ -129,11 +128,11 @@ Package-first поставка состоит из трёх независимо
 ## Установка на существующий OpenWrt
 
 Текущий публичный stable 0.7.10 использует только свой опубликованный release
-workflow. Наличие RC15 identity в source не создаёт устанавливаемый или
+workflow. Наличие RC16 identity в source не создаёт устанавливаемый или
 распространяемый bundle: production build, immutable hashes и qualification
 остаются обязательными отдельными gates.
 
-Черновой package-first путь RC15 описан в
+Черновой package-first путь RC16 описан в
 [`docs/ordinary-user-ipk-installation.md`](docs/ordinary-user-ipk-installation.md).
 Не используйте его до появления подписанного canonical manifest и финального,
 сгенерированного из этого manifest collateral с точными filenames, sizes,

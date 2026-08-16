@@ -250,6 +250,7 @@ run_test updater-identity-contracts sh tests/test-vpn-hotfixes.sh || finish 1
 run_test updater-source-transactions sh tests/test-updater-source-contracts.sh || finish 1
 run_test updater-worker-locking sh tests/test-updater-worker-start.sh || finish 1
 run_test updater-operation-jobs sh tests/test-updater-operation-jobs.sh || finish 1
+run_test updater-service-convergence sh tests/test-updater-service-convergence.sh || finish 1
 run_test tailscale-registration sh tests/test-tailscale-registration.sh || finish 1
 run_test tailscale-convergence sh tests/test-tailscale-convergence.sh || finish 1
 run_test tailscale-stopped-status sh tests/test-tailscale-stopped-status.sh || finish 1

@@ -1,6 +1,6 @@
 # Installing Router UI 0.7.11 on an existing RD23
 
-> **Pre-publication stable guidance — not an installation authorization.** Use
+> **Pre-publication RC16 guidance — not an installation authorization.** Use
 > this document only after the separately authorized published release supplies
 > the exact signed manifest, filenames, sizes, hashes, and storage gates.
 
@@ -12,9 +12,10 @@ The signed bootstrap accepts OpenWrt `24.10.0` through `24.10.99` on
 `mediatek/filogic` (RD23) or `x86/64`. It refuses other releases and targets
 before changing packages.
 
-Router UI displays `0.7.11` on the stable channel. The OpenWrt packages use
-`0.7.11-1`. RC14 and RC15 protocol-2 installations can accept this stable
-target through the signed updater.
+The active candidate displays `0.7.11-rc.16` on the candidate channel. The
+OpenWrt packages use `0.7.11~rc16-1`. Supported RC14 and RC15 protocol-2
+installations can accept this candidate only after a canonical signed RC16
+artifact set exists. No such bytes are implied by this source document.
 
 Do this over Ethernet from the LAN side. Do not perform the installation over
 the VPN, Tailscale, or Wi-Fi path that you are changing.
@@ -73,7 +74,7 @@ ssh root@ROUTER_ADDRESS '
 Stay connected over wired LAN after this point. If stopping a service affects
 the management path, stop and reconnect locally before continuing.
 
-## 2. Copy the signed stable package set and first-install bootstrap
+## 2. Copy the signed RC16 package set and first-install bootstrap
 
 Place these ten release files in one directory on the workstation:
 
@@ -81,9 +82,9 @@ Place these ten release files in one directory on the workstation:
 production-2026-07.pub
 SHA256SUMS
 SHA256SUMS.sig
-premier-router-core_0.7.11-1_all.ipk
-luci-app-premier-router_0.7.11-1_all.ipk
-premier-router-setup_0.7.11-1_all.ipk
+premier-router-core_0.7.11~rc16-1_all.ipk
+luci-app-premier-router_0.7.11~rc16-1_all.ipk
+premier-router-setup_0.7.11~rc16-1_all.ipk
 installed-manifest.json
 installed-manifest.json.sig
 router-candidate-validator
@@ -95,9 +96,9 @@ Copy them using a method compatible with the router's Dropbear SSH server:
 ```sh
 for file in \
   production-2026-07.pub SHA256SUMS SHA256SUMS.sig \
-  premier-router-core_0.7.11-1_all.ipk \
-  luci-app-premier-router_0.7.11-1_all.ipk \
-  premier-router-setup_0.7.11-1_all.ipk \
+  premier-router-core_0.7.11~rc16-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc16-1_all.ipk \
+  premier-router-setup_0.7.11~rc16-1_all.ipk \
   installed-manifest.json installed-manifest.json.sig \
   router-candidate-validator bootstrap-router-ui-ipk-install.sh
 do
@@ -117,9 +118,9 @@ usign -q -V \
   -x /tmp/SHA256SUMS.sig
 
 for file in \
-  premier-router-core_0.7.11-1_all.ipk \
-  luci-app-premier-router_0.7.11-1_all.ipk \
-  premier-router-setup_0.7.11-1_all.ipk \
+  premier-router-core_0.7.11~rc16-1_all.ipk \
+  luci-app-premier-router_0.7.11~rc16-1_all.ipk \
+  premier-router-setup_0.7.11~rc16-1_all.ipk \
   installed-manifest.json installed-manifest.json.sig \
   router-candidate-validator bootstrap-router-ui-ipk-install.sh
 do
@@ -172,7 +173,7 @@ The bootstrap verifies the target and OpenWrt range, enforces persistent and
 an OpenWrt configuration backup, and places a verified recovery seed on
 persistent storage before asking `opkg` to change packages. It then installs
 all three IPKs, validates the result, and preserves the exact IPK bytes as the
-rollback source for the later stable update.
+rollback source for a later signed update.
 
 On an already configured OpenWrt router, the bootstrap seals the public
 first-boot endpoint before making its recovery backup, and the setup package
@@ -184,7 +185,7 @@ present its intended first-boot wizard.
 
 The bootstrap refuses an already managed installation or any Router UI package
 with a different version. If power loss or an `opkg` interruption leaves only a
-subset of the exact stable packages, rerunning the same verified bootstrap and
+subset of the exact RC16 packages, rerunning the same verified bootstrap and
 asset set resumes the installation. For any other failure, stop and send the
 preflight output for review; do not use `--force-depends`, `--force-overwrite`,
 a blanket `opkg upgrade`, or manual file deletion.
@@ -229,14 +230,14 @@ dmesg | tail -n 100
 
 Expected identity:
 
-- all three package versions: `0.7.11-1`;
-- displayed Router UI version: `0.7.11`;
-- release channel: `stable` in build metadata and in Update-page status;
+- all three package versions: `0.7.11~rc16-1`;
+- displayed Router UI version: `0.7.11-rc.16`;
+- release channel: `candidate` in build metadata and in Update-page status;
 - both Xray and Tailscale remain healthy if they were configured before the
   installation;
 - no out-of-memory kill, reboot loop, or loss of LAN management.
 
-Open LuCI from the LAN. The Update page must report stable `0.7.11` and must
+Open LuCI from the LAN. The Update page must report candidate `0.7.11-rc.16` and must
 not offer a same-version update with different bytes.
 
 If the router reboots unexpectedly or either daemon repeatedly dies, do not

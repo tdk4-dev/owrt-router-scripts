@@ -16,37 +16,39 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11" ]
-[ "$PACKAGE_VERSION" = "0.7.11-1" ]
+[ "$VERSION" = "0.7.11-rc.16" ]
+[ "$PACKAGE_VERSION" = "0.7.11~rc16-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
 pr_version_newer 0.7.11 0.7.10
 ! pr_version_newer 0.7.11 0.7.11
-pr_version_newer 0.7.11 0.7.11-rc.15
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.6
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.8
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.10
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.11
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.12
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.13
-pr_version_newer 0.7.11-rc.15 0.7.11-rc.5
-! pr_version_newer 0.7.11-rc.15 0.7.11
-! pr_version_newer 0.7.11-rc.6 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.8 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.10 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.11 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.12 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.13 0.7.11-rc.15
-! pr_version_newer 0.7.11-rc.15 0.7.11-rc.15
+pr_version_newer 0.7.11 0.7.11-rc.16
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.15
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.6
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.8
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.10
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.11
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.12
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.13
+pr_version_newer 0.7.11-rc.16 0.7.11-rc.5
+! pr_version_newer 0.7.11-rc.16 0.7.11
+! pr_version_newer 0.7.11-rc.15 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.6 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.8 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.10 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.11 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.12 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.13 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.16 0.7.11-rc.16
 pr_version_newer 0.8.0 0.8.0RC2
 ! pr_version_newer 0.8.0RC2 0.8.0
 pr_version_newer 0.8.0RC3 0.8.0RC2
 pr_version_valid 0.7.9.1
-pr_version_valid 0.7.11-rc.15
-pr_package_version_matches_app 0.7.11-rc.15 0.7.11~rc15-1
+pr_version_valid 0.7.11-rc.16
+pr_package_version_matches_app 0.7.11-rc.16 0.7.11~rc16-1
 pr_package_version_matches_app 0.7.11 0.7.11-1
-! pr_package_version_matches_app 0.7.11-rc.15 0.7.11-1
+! pr_package_version_matches_app 0.7.11-rc.16 0.7.11-1
 ! pr_version_valid 0.7
 ! pr_version_valid 0.8.0-RC2
 
@@ -62,12 +64,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11" and .current_channel == "stable" and
-  .latest == "0.7.11" and .available == false
+  .current == "0.7.11-rc.16" and .current_channel == "candidate" and
+  .latest == "0.7.11" and .available == true
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11" and .package_version == "0.7.11-1" and
+  .target == "0.7.11-rc.16" and .package_version == "0.7.11~rc16-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and
@@ -108,7 +110,7 @@ jq -e '
   any(.baselines[]; .version == "0.7.11-rc.15" and
     .tag_commit == "04b5c6028c4305be9d7493599825c70e9bc55198" and
     .support == "supported-through-protocol2" and
-    .evidence == "qualified-exact-byte-package-only")
+    .evidence == "rejected-stable-rollback-postcondition")
 ' "$ROOT_DIR/release/transition-matrix.json" >/dev/null
 
 grep -q 'flow_json=""' "$HELPER"
@@ -172,4 +174,4 @@ grep -q 'vpn-ui subscription-add' "$SETUP_CGI"
 grep -q "startsWith('https://')" "$SETUP_APP"
 grep -q "startsWith('https://')" "$SETUP_SERVER"
 
-printf 'VPN 0.7.11 stable identity and updater-version checks passed\n'
+printf 'VPN 0.7.11 RC16 identity and updater-version checks passed\n'

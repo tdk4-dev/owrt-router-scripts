@@ -1493,6 +1493,40 @@ restore_protected_state() {
   cmp -s "$rollback/protected-source.fingerprint" "$current"
 }
 
+snapshot_transparent_init_prestate() {
+  local snapshot="$TXN_DIR/rollback/xray-transparent-prestate"
+  local tmp="$TXN_DIR/rollback/.xray-transparent-prestate.new.$$"
+  local init="${ROOT_PREFIX}/etc/init.d/xray-transparent" sha
+  if [ -e "$snapshot" ] || [ -L "$snapshot" ]; then
+    [ -d "$snapshot" ] && [ ! -L "$snapshot" ] &&
+      regular_nonsymlink_file "$snapshot/state"
+    return $?
+  fi
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+  mkdir "$tmp" || return 1
+  if [ -e "$init" ] || [ -L "$init" ]; then
+    regular_nonsymlink_file "$init" &&
+      [ "$(wc -c < "$init" | tr -d ' ')" -le 1048576 ] || {
+        rm -rf "$tmp"
+        return 1
+      }
+    sha="$(pr_sha256 "$init")"
+    tar -czf "$tmp/file.tar.gz" -C "${ROOT_PREFIX:-/}" \
+      etc/init.d/xray-transparent &&
+      [ "$(tar -tzf "$tmp/file.tar.gz")" = etc/init.d/xray-transparent ] &&
+      [ "$(tar -xzOf "$tmp/file.tar.gz" etc/init.d/xray-transparent |
+        sha256sum | awk '{ print $1 }')" = "$sha" ] || {
+          rm -rf "$tmp"
+          return 1
+        }
+    printf 'file %s\n' "$sha" > "$tmp/state"
+  else
+    printf '%s\n' missing > "$tmp/state"
+  fi
+  chmod 600 "$tmp/state" || { rm -rf "$tmp"; return 1; }
+  mv "$tmp" "$snapshot"
+}
+
 restore_transparent_init_prestate() {
   local snapshot="$TXN_DIR/rollback/xray-transparent-prestate"
   local state init="${ROOT_PREFIX}/etc/init.d/xray-transparent"
@@ -1550,6 +1584,19 @@ services_match() {
     "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1 && actual_running=true
     [ "$enabled" = "$actual_enabled" ] && [ "$running" = "$actual_running" ] || return 1
   done < "$TXN_DIR/rollback/services"
+}
+
+services_match_wait() {
+  local attempts="${VPN_UI_SERVICE_MATCH_ATTEMPTS:-20}" observed=0
+  case "$attempts" in
+    ''|0|*[!0-9]*) attempts=20 ;;
+  esac
+  while [ "$observed" -lt "$attempts" ]; do
+    services_match && return 0
+    observed=$((observed + 1))
+    [ "$observed" -ge "$attempts" ] || sleep 1
+  done
+  return 1
 }
 
 restore_services() {
@@ -1808,6 +1855,7 @@ prepare_rollback() {
   cp "$LIB" "$TXN_DIR/rollback/update-lib.sh"
   chmod 700 "$TXN_DIR/rollback/source-supervisor" "$TXN_DIR/rollback/update-lib.sh"
   if [ "$J_SOURCE_TYPE" = ipk ]; then
+    snapshot_transparent_init_prestate || return 1
     snapshot_ipk_source || return 1
   else
     legacy_source_validate || return 1
@@ -2058,7 +2106,7 @@ rollback_transaction() {
   JOURNAL="$TXN_DIR/state.json"
   journal_load "$JOURNAL" || return 1
   if [ "$J_STATE" = rolled_back ]; then
-    services_match || return 1
+    services_match_wait || return 1
     if [ "$J_SOURCE_TYPE" = ipk ]; then validate_ipk_source; else validate_legacy_source; fi
     return $?
   fi
@@ -2097,7 +2145,7 @@ rollback_transaction() {
     set_state rollback_failed
     return 1
   }
-  services_match || {
+  services_match_wait || {
     J_ROLLBACK_STATUS=failed
     set_error rollback service_postcondition_failed "source service runtime or reboot state did not match the exact pre-state"
     set_state rollback_failed

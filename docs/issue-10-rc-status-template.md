@@ -1,8 +1,9 @@
-## Router UI 0.7.11 RC15 Phase 1 status
+## Router UI 0.7.11 RC16 qualification status
 
-Router UI `0.7.11-rc.15` (`0.7.11~rc15-1`, candidate channel) has reached the
-Phase 1 status recorded below. This template must not claim canonical package,
-image, signing, hardware, or release qualification. Issue #10 remains open.
+Router UI `0.7.11-rc.16` (`0.7.11~rc16-1`, candidate channel) has reached the
+qualification status recorded below. This template must not claim package,
+signing, browser, hardware, or release qualification beyond attached evidence.
+Issue #10 remains open.
 
 - Exact source commit: `@PHASE1_SOURCE_COMMIT@`
 - Exact source tree: `@PHASE1_SOURCE_TREE@`
