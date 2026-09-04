@@ -3112,17 +3112,21 @@ ensure_device_bypass_nft() {
       grep -q "ip saddr @$NFT_DEVICE_BYPASS_SET" || return 1
   done
 
-  nft flush set "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" 2>/dev/null || return 1
-
-  [ -f "$DHCP_LEASES_FILE" ] || return 0
-  while read -r expiry mac ip host rest; do
-    [ -n "${mac:-}" ] || continue
-    is_ipv4 "$ip" || continue
-    mac="$(normalize_mac "$mac")"
-    device_mac_disabled "$mac" || continue
-    nft add element "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" \
-      "{ $ip }" 2>/dev/null || return 1
-  done < "$DHCP_LEASES_FILE"
+  # nft applies the flush and replacement members as one kernel transaction.
+  # A rejected update must not leave a formerly bypassed device exposed.
+  {
+    printf 'flush set %s %s %s\n' "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET"
+    if [ -f "$DHCP_LEASES_FILE" ]; then
+      while read -r expiry mac ip host rest; do
+        [ -n "${mac:-}" ] || continue
+        is_ipv4 "$ip" || continue
+        mac="$(normalize_mac "$mac")"
+        device_mac_disabled "$mac" || continue
+        printf 'add element %s %s %s { %s }\n' \
+          "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" "$ip"
+      done < "$DHCP_LEASES_FILE"
+    fi
+  } | nft -f - 2>/dev/null || return 1
   nft list set "$NFT_FAMILY" "$NFT_TABLE" "$NFT_DEVICE_BYPASS_SET" >/dev/null 2>&1
 }
 
@@ -4605,6 +4609,10 @@ case "${1:-status}" in
     ;;
   check)
     cmd_check
+    ;;
+  device-bypass-sync)
+    [ "$#" -eq 1 ] || die_json "device-bypass-sync takes no arguments"
+    ensure_device_bypass_nft || exit 1
     ;;
   device)
     [ -n "${2:-}" ] || die_json "device requires enable or disable"

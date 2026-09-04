@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "release": {
-    "application_version": "0.7.11",
-    "package_version": "0.7.11-1",
-    "channel": "stable"
+    "application_version": "0.7.11-rc.17",
+    "package_version": "0.7.11~rc17-1",
+    "channel": "candidate"
   },
   "baseline": "clean Router UI 0.7.10 OpenWrt VM plus dependencies resolved from only the three canonical project IPKs",
   "canonical_project_packages": [
@@ -34,7 +34,7 @@
     "update-runtime": ["vpn-ui-update","update-lib","candidate-validator","update-recovery-init","update-config","build-info","release-public-key","release-key-id","trusted-keys-registry","installed-manifest","installed-manifest-signature","update-persist-root","update-cache","opkg","tar","gzip","sha256sum","usign","nohup","socat","jsonfilter","curl","ca-certificates","cron-init","rpcd-init","uhttpd-init"],
     "tailscale-runtime": ["tailscale","tailscale-init","tailscale-uci","jsonfilter","system-uci"],
     "xray-runtime": ["xray","xray-init","xray-uci","xray-overlay","ucode","sha256sum"],
-    "transparent-runtime": ["xray-transparent-init","nft","nft-tproxy-kmod","ip-full"],
+    "transparent-runtime": ["xray-transparent-init","transparent-lifecycle-guard","device-bypass-dhcp-hook","nft","nft-tproxy-kmod","ip-full"],
     "device-runtime": ["conntrack","dhcp-leases"],
     "network-probe-runtime": ["curl","ca-certificates","nslookup"],
     "https-runtime": ["curl","ca-certificates","base64"],
@@ -51,6 +51,8 @@
     {"id":"candidate-validator","kind":"executable","path":"/usr/libexec/premier-router/candidate-validator","owner":"premier-router-core","availability":"installed"},
     {"id":"xray-overlay","kind":"executable","path":"/usr/libexec/premier-router/xray-overlay.uc","owner":"premier-router-core","availability":"installed"},
     {"id":"update-recovery-init","kind":"init-service","path":"/etc/init.d/premier-router-update-recovery","owner":"premier-router-core","availability":"installed"},
+    {"id":"transparent-lifecycle-guard","kind":"executable","path":"/usr/libexec/premier-router/transparent-routing.sh","owner":"premier-router-core","availability":"installed"},
+    {"id":"device-bypass-dhcp-hook","kind":"executable","path":"/etc/hotplug.d/dhcp/90-vpn-ui-device-bypass","owner":"premier-router-core","availability":"installed"},
     {"id":"xray-transparent-init","kind":"init-service","path":"/etc/init.d/xray-transparent","owner":"premier-router-core","availability":"installed"},
     {"id":"update-config","kind":"configuration","path":"/etc/vpn-ui-update.conf","owner":"premier-router-core","availability":"installed"},
     {"id":"premier-router-uci","kind":"uci-object","uci":"premier_router.router","path":"/etc/config/premier_router","owner":"premier-router-core","availability":"installed"},

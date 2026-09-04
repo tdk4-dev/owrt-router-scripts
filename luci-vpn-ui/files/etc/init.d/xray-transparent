@@ -83,7 +83,8 @@ start() {
 		return 1
 	}
 
-	kernel_state_present || {
+	"${VPN_UI_ROOT_PREFIX:-}/usr/sbin/vpn-ui" device-bypass-sync &&
+		kernel_state_present || {
 		stop >/dev/null 2>&1 || true
 		return 1
 	}

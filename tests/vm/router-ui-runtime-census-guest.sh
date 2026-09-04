@@ -135,6 +135,8 @@ executable|/usr/libexec/premier-router/candidate-validator|premier-router-core
 executable|/usr/libexec/premier-router/xray-overlay.uc|premier-router-core
 init-service|/etc/init.d/premier-router-update-recovery|premier-router-core
 init-service|/etc/init.d/xray-transparent|premier-router-core
+executable|/usr/libexec/premier-router/transparent-routing.sh|premier-router-core
+executable|/etc/hotplug.d/dhcp/90-vpn-ui-device-bypass|premier-router-core
 configuration|/etc/vpn-ui-update.conf|premier-router-core
 configuration|/etc/config/premier_router|premier-router-core
 configuration|/usr/share/vpn-ui/version|premier-router-core

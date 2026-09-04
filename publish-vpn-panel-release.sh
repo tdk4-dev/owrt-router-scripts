@@ -54,7 +54,7 @@ if "$GH_BIN" release view "$TAG" >/dev/null 2>&1; then
 fi
 
 if (( release_exists == 0 )); then
-  create_args=(release create "$TAG" "${ASSETS[@]}" --draft --verify-tag
+  create_args=(release create "$TAG" "${ASSETS[@]}" --draft --verify-tag --latest=false
     --title "$TITLE" --notes-file "$ROOT_DIR/luci-vpn-ui/RELEASE_NOTES.md")
   (( RELEASE_IS_PRERELEASE == 0 )) || create_args+=(--prerelease)
   "$GH_BIN" "${create_args[@]}"
@@ -87,9 +87,9 @@ fi
 
 if [[ "$PUBLISH_VERIFIED_RELEASE" == 1 ]]; then
   if (( RELEASE_IS_PRERELEASE == 1 )); then
-    "$GH_BIN" release edit "$TAG" --draft=false --prerelease
+    "$GH_BIN" release edit "$TAG" --draft=false --prerelease --latest=false
   else
-    "$GH_BIN" release edit "$TAG" --draft=false --latest
+    "$GH_BIN" release edit "$TAG" --draft=false --latest=false
   fi
   printf 'Published verified release %s after exact draft round-trip.\n' "$TAG"
 else

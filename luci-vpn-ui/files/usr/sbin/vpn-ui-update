@@ -1560,6 +1560,22 @@ restore_transparent_init_prestate() {
   esac
 }
 
+service_is_running() {
+  local service="$1"
+  if [ "$service" = xray-transparent ]; then
+    # Legacy rc.common scripts without running() print help and return zero.
+    # Snapshot and rollback verification must observe the kernel, including
+    # before the candidate lifecycle guard has been installed.
+    nft list table inet xray_transparent >/dev/null 2>&1 &&
+      ip -4 rule show 2>/dev/null |
+        grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100' &&
+      ip -4 route show table 100 2>/dev/null |
+        grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
+  else
+    "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1
+  fi
+}
+
 record_services() {
   local out="$1" service enabled running
   : > "$out"
@@ -1568,7 +1584,7 @@ record_services() {
     running=false
     [ -x "${ROOT_PREFIX}/etc/init.d/$service" ] || continue
     "${ROOT_PREFIX}/etc/init.d/$service" enabled >/dev/null 2>&1 && enabled=true
-    "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1 && running=true
+    service_is_running "$service" && running=true
     printf '%s %s %s\n' "$service" "$enabled" "$running" >> "$out"
   done
 }
@@ -1581,7 +1597,7 @@ services_match() {
     actual_enabled=false
     actual_running=false
     "${ROOT_PREFIX}/etc/init.d/$service" enabled >/dev/null 2>&1 && actual_enabled=true
-    "${ROOT_PREFIX}/etc/init.d/$service" running >/dev/null 2>&1 && actual_running=true
+    service_is_running "$service" && actual_running=true
     [ "$enabled" = "$actual_enabled" ] && [ "$running" = "$actual_running" ] || return 1
   done < "$TXN_DIR/rollback/services"
 }

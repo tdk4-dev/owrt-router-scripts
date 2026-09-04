@@ -183,10 +183,25 @@ case "${1:-}" in
       "$FAKE_ROOT/usr/lib/opkg/info/$pkg.postrm"
     keep="$FAKE_ROOT/tmp/conffile.keep"
     metadata_keep="$FAKE_ROOT/tmp/premier-router-metadata.keep"
+    transparent_keep="$FAKE_ROOT/tmp/transparent-init.keep"
+    if [ "$pkg" = premier-router-core ] &&
+      [ -f "$FAKE_ROOT/etc/init.d/xray-transparent" ] &&
+      tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - ./conffiles |
+        grep -Fqx /etc/init.d/xray-transparent; then
+      cp -p "$FAKE_ROOT/etc/init.d/xray-transparent" "$transparent_keep"
+    fi
     [ ! -f "$FAKE_ROOT/etc/vpn-ui-update.conf" ] || cp -p "$FAKE_ROOT/etc/vpn-ui-update.conf" "$keep"
     [ ! -f "$FAKE_ROOT/etc/config/premier_router" ] ||
       cp -p "$FAKE_ROOT/etc/config/premier_router" "$metadata_keep"
     tar -xzOf "$ipk" ./data.tar.gz | tar -xzf - -C "$FAKE_ROOT"
+    if [ -f "$transparent_keep" ]; then
+      if ! cmp -s "$transparent_keep" "$FAKE_ROOT/etc/init.d/xray-transparent"; then
+        cp -p "$FAKE_ROOT/etc/init.d/xray-transparent" \
+          "$FAKE_ROOT/etc/init.d/xray-transparent-opkg"
+        cp -p "$transparent_keep" "$FAKE_ROOT/etc/init.d/xray-transparent"
+      fi
+      rm -f "$transparent_keep"
+    fi
     if [ -f "$keep" ]; then
       [ "$pkg" != premier-router-core ] ||
         cp -p "$FAKE_ROOT/etc/vpn-ui-update.conf" "$FAKE_ROOT/etc/vpn-ui-update.conf-opkg"
@@ -303,6 +318,14 @@ chmod 755 "$FAKE_OPKG" "$FAKE_SYSUPGRADE"
 
 make_service() {
   service="$1"
+  if [ "$service" = xray-transparent ]; then
+    # Keep a real rc.common init for package preflight. Its kernel execution
+    # belongs to the OpenWrt VM gate, not this host's service stubs.
+    cp "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" \
+      "$FAKE_ROOT/etc/init.d/$service"
+    chmod 755 "$FAKE_ROOT/etc/init.d/$service"
+    return 0
+  fi
   cat > "$FAKE_ROOT/etc/init.d/$service" <<'EOF'
 #!/bin/sh
 case "${1:-}" in enabled|running|enable|disable|restart|stop) exit 0 ;; *) exit 1 ;; esac
@@ -585,8 +608,9 @@ EOF
   }
 
   reset_package_root
-  printf '%s\n' 'source transparent init bytes' > \
+  cp "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" \
     "$package_root/etc/init.d/xray-transparent"
+  printf '%s\n' '# source customized init' >> "$package_root/etc/init.d/xray-transparent"
   chmod 711 "$package_root/etc/init.d/xray-transparent"
   transparent_sha="$(sha256sum "$package_root/etc/init.d/xray-transparent" | awk '{ print $1 }')"
   transparent_metadata="$(LC_ALL=C ls -ldn \
@@ -645,8 +669,9 @@ EOF
     "$source_transparent_sha" ]
 
   reset_package_root
-  printf '%s\n' 'source transparent init bytes' > \
+  cp "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" \
     "$package_root/etc/init.d/xray-transparent"
+  printf '%s\n' '# source customized init' >> "$package_root/etc/init.d/xray-transparent"
   prepare_package_transaction applying
   run_package_script preinst 1 1
   printf '%s\n' 'tampered prestate' > \

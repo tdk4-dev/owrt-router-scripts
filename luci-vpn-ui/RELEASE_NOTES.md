@@ -1,4 +1,15 @@
-Router UI 0.7.11
+# Router UI 0.7.11 RC17 — blocker fixes
+
+This unpublished package-only candidate repairs the legacy routing-init migration,
+restores Device VPN bypasses after routing restarts and DHCP lease changes, and
+keeps first publication out of GitHub Latest discovery. Legacy routing conffiles
+retain their existing rules; package hooks add a shared lifecycle guard and
+reject unsupported layouts before installation. No firmware or hardware
+qualification is included. Previous stable and RC artifact sets remain immutable.
+
+Validation results for the new candidate are recorded separately after testing.
+
+## Earlier stable promotion (historical, unpublished)
 
 Router UI `0.7.11` is the identity-only stable promotion of fully qualified
 RC16 code. Its OpenWrt package version is `0.7.11-1`, its channel is `stable`,

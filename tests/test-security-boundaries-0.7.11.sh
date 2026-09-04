@@ -50,7 +50,7 @@ sh "$TMP_ROOT/vpn-ui-readonly" update-job-status malformed check | grep -Fq '"ok
 after="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
 [ "$before" = "$after" ]
 
-for command in init refresh-pings add select delete adoption-confirm overlay-recover apply-rules check device xray \
+for command in init refresh-pings add select delete adoption-confirm overlay-recover apply-rules check device device-bypass-sync xray \
   subscription-add subscription-sync subscription-delete subscription-preview \
   validate-vless auto-config auto-tick tailscale-up tailscale-logout \
   tailscale-restart tailscale-stop update-check-start update-apply-start update-auto

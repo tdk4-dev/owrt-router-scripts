@@ -71,7 +71,7 @@ done
 
 defaults="$(run_vpn_ui footer-info)"
 printf '%s\n' "$defaults" | grep -q '"ok":true'
-printf '%s\n' "$defaults" | grep -q '"version":"0.7.11"'
+printf '%s\n' "$defaults" | grep -q '"version":"0.7.11-rc.17"'
 printf '%s\n' "$defaults" | grep -q '"install_method":"manual-ipk-install"'
 printf '%s\n' "$defaults" | grep -q '"install_source":"package-first-local-ipk"'
 printf '%s\n' "$defaults" | grep -q '"support_level":"self-managed"'
