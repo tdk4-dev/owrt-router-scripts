@@ -107,7 +107,8 @@ for (const testCase of cases) {
 		state => state.running === true && state.backend_state === 'Running',
 		'Tailscale restarted.'
 	);
-	assert.equal(calls.length, 1, 'backend failure must not begin browser success polling');
+	assert.equal(calls.length, 2, 'backend failure makes one fresh read without success polling');
+	assert.deepEqual(calls[1], { command: '/usr/sbin/vpn-ui-readonly', args: ['tailscale-status'] });
 	assert.doesNotMatch(events.at(-1), /Tailscale restarted\./);
 	assert.match(events.at(-1), /restart failed and state restored/);
 }
@@ -124,9 +125,23 @@ for (const testCase of cases) {
 		state => state.running === true && state.backend_state === 'Running',
 		'Tailscale restarted.'
 	);
-	assert.equal(calls.length, 61, 'browser convergence timeout must be bounded');
+	assert.equal(calls.length, 62, 'browser convergence timeout and final status refresh must be bounded');
 	assert.doesNotMatch(events.at(-1), /Tailscale restarted\./);
 	assert.match(events.at(-1), /did not converge/);
+}
+
+{
+	const observed = { running: true, boot_enabled: false, backend_state: 'NeedsLogin', connected: false };
+	const { page, calls, events } = makePage(async (_command, args) => {
+		if (args[0] !== 'tailscale-status') throw new Error('XHR request timed out');
+		return { ok: true, tailscale: observed };
+	});
+	page.refresh = data => { page.data = data; };
+	await page.handleRestart();
+	assert.equal(calls.length, 2);
+	assert.deepEqual(page.data.tailscale, observed, 'an error must not retain stale stopped state');
+	assert.match(events.at(-1), /XHR request timed out/);
+	assert.doesNotMatch(events.at(-1), /Tailscale restarted\./);
 }
 
 console.log('Tailscale browser postcondition polling, specific success, failure, and timeout checks passed');

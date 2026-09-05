@@ -95,10 +95,16 @@ return view.extend({
 			ui.hideModal();
 			this.refresh(data);
 			ui.addNotification(null, E('p', {}, successMessage));
-		}, this)).catch(function(err) {
+		}, this)).catch(L.bind(function(err) {
 			ui.hideModal();
-			ui.addNotification(null, E('p', {}, err.message || err));
-		});
+			// A timed-out request may still have changed the daemon. Refresh the
+			// observed state while retaining the original operation error.
+			return this.callHelper(['tailscale-status']).then(L.bind(function(data) {
+				this.refresh(data);
+			}, this)).catch(function() {}).then(function() {
+				ui.addNotification(null, E('p', {}, err.message || err));
+			});
+		}, this));
 	},
 
 	handleApply: function() {

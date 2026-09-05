@@ -4443,6 +4443,7 @@ cmd_tailscale_logout() {
 
 cmd_tailscale_restart() {
   local transaction before after enabled backend expected_backend ip old_pid old_start require_new=false key
+  local invariant_mode=restart
   transaction="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-action.$$"
   before="$transaction/before.txt"
   after="$transaction/after.txt"
@@ -4453,6 +4454,10 @@ cmd_tailscale_restart() {
   old_pid="$(tailscale_snapshot_value "$before" pid)"
   old_start="$(tailscale_snapshot_value "$before" process_start_id)"
   [ -n "$old_pid" ] && require_new=true
+  # Starting a stopped daemon legitimately creates Tailscale-owned rules and
+  # restores its saved identity. Keep the management path invariant; a restart
+  # of an already running daemon still requires the complete route/identity set.
+  [ -n "$old_pid" ] || invariant_mode=management
   expected_backend="$backend"
   tailscale_backend_stable "$expected_backend" || expected_backend=any-stable
   "${ROOT_PREFIX}/etc/init.d/tailscale" restart >/tmp/vpn-ui-tailscale-restart.log 2>&1 ||
@@ -4461,7 +4466,7 @@ cmd_tailscale_restart() {
     "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" "$old_pid" "$old_start" "$require_new" ||
     tailscale_action_failed "Tailscale restart" "$before" "$transaction" \
       "new healthy process state did not converge before timeout"
-  tailscale_wait_invariants "$before" "$after" restart "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
+  tailscale_wait_invariants "$before" "$after" "$invariant_mode" "${VPN_UI_TAILSCALE_ACTION_TIMEOUT:-30}" ||
     tailscale_action_failed "Tailscale restart" "$before" "$transaction" \
       "registered identity or routing invariant changed"
   rm -rf "$transaction"

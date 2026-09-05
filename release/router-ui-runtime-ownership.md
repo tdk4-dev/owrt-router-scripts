@@ -1,6 +1,6 @@
 # Router UI runtime ownership census
 
-Stable source: `0.7.11-rc.17` (`0.7.11~rc17-1`) is the identity-only promotion of the
+Stable source: `0.7.11-rc.18` (`0.7.11~rc18-1`) is the identity-only promotion of the
 qualified RC16 rollback and service-convergence repair. The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 

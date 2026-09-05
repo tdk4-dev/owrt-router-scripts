@@ -164,7 +164,12 @@ tailscale_invariant_snapshot() {
     printf 'pid=%s\nprocess_start_id=%s\nenabled=%s\nbackend=%s\nip4=%s\n' \
       "$pid" "$start" "$enabled" "$backend" "$ip"
     printf 'control_url=%s\ntailnet=%s\n' "$control" "$tailnet"
-    printf 'route_hash=route\nrule_hash=rule\n'
+    printf 'route_hash=route\n'
+    if [ "${FIXTURE_RULES_FOLLOW_DAEMON:-0}" = 1 ] && [ -n "$pid" ]; then
+      printf 'rule_hash=with-tailscale-rules\n'
+    else
+      printf 'rule_hash=rule\n'
+    fi
     printf 'management_route_hash=management-route\nmanagement_rule_hash=management-rule\n'
     printf 'state_hash=%s\n' "$state_hash"
   } > "$output"
@@ -286,6 +291,28 @@ for key in enabled backend ip4 control_url tailnet route_hash rule_hash manageme
   [ "$(tailscale_snapshot_value "$TMP_ROOT/restart-preserve-before" "$key")" = \
     "$(tailscale_snapshot_value "$TMP_ROOT/restart-preserve-after" "$key")" ]
 done
+
+# A cold restart may add Tailscale-owned rules while leaving management intact.
+reset_registered
+rm -f "$STATE_DIR/running" "$STATE_DIR/pid" "$STATE_DIR/start" "$STATE_DIR/enabled"
+printf '%s\n' NeedsLogin > "$STATE_DIR/backend"
+: > "$STATE_DIR/ip"
+: > "$STATE_DIR/control"
+: > "$STATE_DIR/tailnet"
+printf '%s\n' 'backend=NeedsLogin' 'ip=' 'control=' 'tailnet=' > \
+  "$FAKE_ROOT/var/lib/tailscale/tailscaled.state"
+FIXTURE_RULES_FOLLOW_DAEMON=1
+tailscale_invariant_snapshot "$TMP_ROOT/cold-before"
+( cmd_tailscale_restart ) > "$TMP_ROOT/cold-restart.json"
+jq -e '.ok and .tailscale.running and .tailscale.boot_enabled == false and
+  .tailscale.backend_state == "NeedsLogin"' "$TMP_ROOT/cold-restart.json" >/dev/null
+# The same own-rule change remains forbidden for an already-running restart.
+! tailscale_wait_invariants "$TMP_ROOT/cold-before" "$TMP_ROOT/cold-after" restart 1
+tailscale_wait_invariants "$TMP_ROOT/cold-before" "$TMP_ROOT/cold-after" management 1
+sed 's/^management_rule_hash=.*/management_rule_hash=changed/' \
+  "$TMP_ROOT/cold-before" > "$TMP_ROOT/cold-management-drift"
+! tailscale_wait_invariants "$TMP_ROOT/cold-management-drift" "$TMP_ROOT/cold-after" management 1
+FIXTURE_RULES_FOLLOW_DAEMON=0
 
 # Restart timeout restores the exact semantic pre-state.
 reset_registered

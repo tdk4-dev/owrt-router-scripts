@@ -64,7 +64,7 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.17" and .package_version == "0.7.11~rc17-1" and
+  .app_version == "0.7.11-rc.18" and .package_version == "0.7.11~rc18-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.6" and

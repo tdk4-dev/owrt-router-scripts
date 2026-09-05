@@ -16,14 +16,14 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.17" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc17-1" ]
+[ "$VERSION" = "0.7.11-rc.18" ]
+[ "$PACKAGE_VERSION" = "0.7.11~rc18-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
-pr_version_newer 0.7.11-rc.17 0.7.11-rc.16
-! pr_version_newer 0.7.11-rc.17 0.7.11
-pr_package_version_matches_app 0.7.11-rc.17 0.7.11~rc17-1
+pr_version_newer 0.7.11-rc.18 0.7.11-rc.16
+! pr_version_newer 0.7.11-rc.18 0.7.11
+pr_package_version_matches_app 0.7.11-rc.18 0.7.11~rc18-1
 pr_version_newer 0.7.11 0.7.10
 ! pr_version_newer 0.7.11 0.7.11
 pr_version_newer 0.7.11 0.7.11-rc.16
@@ -67,12 +67,12 @@ STATUS_JSON="$(PREMIER_ROUTER_HOST_TEST=1 VPN_UI_ROOT_PREFIX="$STATUS_ROOT" \
   VPN_UI_UPDATE_LIB="$UPDATE_LIB" VPN_UI_UPDATE_SOURCE_ONLY=1 \
   sh -c '. "$1"; status_json' sh "$UPDATER")"
 printf '%s\n' "$STATUS_JSON" | jq -e '
-  .current == "0.7.11-rc.17" and .current_channel == "candidate" and
+  .current == "0.7.11-rc.18" and .current_channel == "candidate" and
   .latest == "0.7.11" and .available == true
 ' >/dev/null
 
 jq -e '
-  .target == "0.7.11-rc.17" and .package_version == "0.7.11~rc17-1" and
+  .target == "0.7.11-rc.18" and .package_version == "0.7.11~rc18-1" and
   any(.baselines[]; .version == "0.7.11-rc.5" and
     .tag_commit == "d02b3bcd187a44d366469ed1f37bb1b273e60529") and
   any(.baselines[]; .version == "0.7.11-rc.6" and

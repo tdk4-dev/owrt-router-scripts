@@ -262,7 +262,7 @@ else
   IMAGES_JSON='[]'
 fi
 
-if [ "$RELEASE_CHANNEL" = candidate ] && [ "$APP_VERSION" != 0.7.11-rc.17 ]; then
+if [ "$RELEASE_CHANNEL" = candidate ] && [ "$APP_VERSION" != 0.7.11-rc.18 ]; then
   PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.6","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.7","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.14","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.15","source_protocol":2,"mode":"package-v2-rc"}]'
 else
   PROTOCOL2_TRANSITIONS='[{"source_version":"0.7.11-rc.5","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.6","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.7","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.14","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.15","source_protocol":2,"mode":"package-v2-rc"},{"source_version":"0.7.11-rc.16","source_protocol":2,"mode":"package-v2-rc"}]'

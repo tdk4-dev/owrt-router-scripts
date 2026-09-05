@@ -1,4 +1,4 @@
-> Current repair candidate: 0.7.11-rc.17 / 0.7.11~rc17-1 (unpublished).
+> Current repair candidate: 0.7.11-rc.18 / 0.7.11~rc18-1 (unpublished).
 > Install only explicitly selected candidate assets. First publication does not
 > change GitHub Latest; normal automatic discovery remains a separate rollout.
 > An unsupported custom transparent-routing init is rejected before migration.
