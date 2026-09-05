@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "audited_at": "2026-08-16",
-  "target": "0.7.11",
-  "package_version": "0.7.11-1",
-  "release_channel": "stable",
+  "audited_at": "2026-09-05",
+  "target": "0.7.11-rc.18",
+  "package_version": "0.7.11~rc18-1",
+  "release_channel": "candidate",
   "baselines": [
     {"version":"0.7.0","tag_commit":"067b4eb8a399e96a8bd071f802cdbcd066a4ba61","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
     {"version":"0.7.1","tag_commit":"fc839b3288f91414b183f66e9d5d0761dae3b15d","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},
@@ -28,6 +28,7 @@
     {"version":"0.7.11-rc.13","tag_commit":"2a5fcb2a37a6697f8c83a48610ce456a158d8cab","tree":"9031cebf3f7dd7d02a12692011a28cdf9162a006","published_release":false,"support":"unsupported","adapter":"none","evidence":"rejected-browser-async-state","reason":"production-signed RC13 passed exact source, lifecycle, ownership, and runtime gates but was rejected because Update Check could accept stale transaction state and Tailscale Stop/Restart could report before displayed state converged; its artifacts and NO-GO evidence remain preserved and no tag or release was created"},
     {"version":"0.7.11-rc.14","tag_commit":"7fb0ecb35c54e34e1c8eedf47bbe0848cf3e9866","tree":"8330ab9dbda0663344f4d8d5e2bd11aadbf6b762","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"rejected-browser-tailscale-stop-timeout","reason":"production-signed RC14 remains rejected release evidence, but its valid protocol-2 installation is an explicitly supported source for the stable repair"},
     {"version":"0.7.11-rc.15","tag_commit":"04b5c6028c4305be9d7493599825c70e9bc55198","tree":"8856806c1245c17ab18147d07fc82ded72c64444","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"rejected-stable-rollback-postcondition","reason":"production-signed RC15 passed its candidate gates, but the functionally identical stable promotion exposed a rollback defect: package bytes restored while the exact source init/service postcondition was not proven; RC15 and the stable build remain rejected evidence"},
-    {"version":"0.7.11-rc.16","tag_commit":"44fb942a878cf5fbf8d1d06d1897b02973871204","tree":"b29ab379744242a842fb74337f48d673cdb78829","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"qualified-exact-byte-package-only","reason":"production-signed RC16 passed exact 0.7.10 and RC15 transitions, reboot commit, controlled rollback and reapply, updater operation correlation, lifecycle, Tailscale convergence, ownership, and full browser qualification; it is the functional source of stable 0.7.11"}
+    {"version":"0.7.11-rc.16","tag_commit":"44fb942a878cf5fbf8d1d06d1897b02973871204","tree":"b29ab379744242a842fb74337f48d673cdb78829","published_release":false,"support":"supported-through-protocol2","adapter":"none","evidence":"qualified-exact-byte-package-only","reason":"production-signed RC16 passed exact 0.7.10 and RC15 transitions, reboot commit, controlled rollback and reapply, updater operation correlation, lifecycle, Tailscale convergence, ownership, and full browser qualification; it is the functional source of stable 0.7.11"},
+    {"version":"0.7.11-rc.17","tag_commit":"ac683b6375967f64eb977e6cdeff5896ace2554b","tree":"3cde01afc1dafbb5d937e9e6738d156c9264dd47","published_release":false,"support":"unsupported","adapter":"none","evidence":"rejected-disposable-vm-tailscale-cold-start","reason":"The non-production RC17 functional set passed legacy-init migration, device bypass restart and DHCP renewal, reboot commit, ownership, native and adopted panel tests, but failed Tailscale restart from stopped because its own newly created policy rules were rejected. Its disposable VM was deleted after evidence capture; these bytes do not qualify RC18."}
   ]
 }

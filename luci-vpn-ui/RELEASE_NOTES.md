@@ -1,4 +1,20 @@
-Router UI 0.7.11
+# Router UI 0.7.11 RC18 — blocker fixes
+
+This unpublished package-only candidate repairs the legacy routing-init migration,
+restores Device VPN bypasses after routing restarts and DHCP lease changes, and
+keeps first publication out of GitHub Latest discovery. Legacy routing conffiles
+retain their existing rules; package hooks add a shared lifecycle guard and
+reject unsupported layouts before installation. No firmware or hardware
+qualification is included. Previous stable and RC artifact sets remain immutable.
+
+RC18 also repairs Tailscale restart from a stopped daemon: startup may create
+Tailscale-owned rules while management routes stay invariant. A restart of an
+already running daemon still verifies the complete routing and identity state.
+After an operation error, LuCI refreshes the actual daemon state. RC17 was
+rejected on its disposable VM for this cold-start defect; its earlier passing
+checks do not qualify RC18. Validation results are recorded separately.
+
+## Earlier stable promotion (historical, unpublished)
 
 Router UI `0.7.11` is the identity-only stable promotion of fully qualified
 RC16 code. Its OpenWrt package version is `0.7.11-1`, its channel is `stable`,

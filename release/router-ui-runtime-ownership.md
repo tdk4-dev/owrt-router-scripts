@@ -1,6 +1,6 @@
 # Router UI runtime ownership census
 
-Stable source: `0.7.11` (`0.7.11-1`) is the identity-only promotion of the
+Stable source: `0.7.11-rc.18` (`0.7.11~rc18-1`) is the identity-only promotion of the
 qualified RC16 rollback and service-convergence repair. The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 
@@ -49,3 +49,5 @@ later creation.
 Baseline UCI files created at runtime retain explicit subsystem ownership
 (`base-files:runtime`, `netifd:runtime`, and `dnsmasq-full:runtime`) even when
 they are intentionally absent from every package file list.
+
+The core package also owns the retained-init lifecycle guard and DHCP device-bypass hook.

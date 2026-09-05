@@ -275,6 +275,13 @@ snapshot_transparent_init_prestate() {
   trap - EXIT HUP INT TERM
 }
 
+EOF
+  cat "$ROOT_DIR/scripts/transparent-init-migration.sh" >> "$control_dir/preinst"
+  cat >> "$control_dir/preinst" <<'EOF'
+transparent_init_check "$root_prefix/etc/init.d/xray-transparent" || {
+  printf '%s\n' 'unsupported or unsafe transparent-proxy init; refusing migration' >&2
+  exit 1
+}
 snapshot_transparent_init_prestate
 
 marker_dir="$root_prefix/tmp"
@@ -311,7 +318,9 @@ set -eu
 
 METADATA_DEFAULT_SHA256='$metadata_default_sha256'
 UPDATE_DEFAULT_SHA256='$update_default_sha256'
+TRANSPARENT_DEFAULT_SHA256='$(sha256sum "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" | awk '{print $1}')'
 EOF
+  cat "$ROOT_DIR/scripts/transparent-init-migration.sh" >> "$control_dir/postinst"
   cat >> "$control_dir/postinst" <<'EOF'
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
@@ -357,6 +366,7 @@ cleanup_candidate_conffile_artifact \
   /etc/config/premier_router-opkg "$METADATA_DEFAULT_SHA256"
 cleanup_candidate_conffile_artifact \
   /etc/vpn-ui-update.conf-opkg "$UPDATE_DEFAULT_SHA256"
+transparent_init_migrate "$root_prefix/etc/init.d/xray-transparent" "$TRANSPARENT_DEFAULT_SHA256"
 cleanup_conffile_marker
 trap - EXIT HUP INT TERM
 
@@ -629,6 +639,10 @@ copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/premier-router-update-recovery
   "$CORE_ROOT/etc/init.d/premier-router-update-recovery" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/init.d/xray-transparent" \
   "$CORE_ROOT/etc/init.d/xray-transparent" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/transparent-routing.sh" \
+  "$CORE_ROOT/usr/libexec/premier-router/transparent-routing.sh" 755
+copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/hotplug.d/dhcp/90-vpn-ui-device-bypass" \
+  "$CORE_ROOT/etc/hotplug.d/dhcp/90-vpn-ui-device-bypass" 755
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version" "$CORE_ROOT/usr/share/vpn-ui/version" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/etc/config/premier_router" "$CORE_ROOT/etc/config/premier_router" 600
 copy_file "$RELEASE_PUBLIC_KEY" "$CORE_ROOT/usr/share/premier-router/keys/release.pub" 644

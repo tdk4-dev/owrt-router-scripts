@@ -74,6 +74,39 @@ export PREMIER_ROUTER_HOST_TEST VPN_UI_ROOT_PREFIX VPN_UI_UPDATE_LIB
 export VPN_UI_UPDATE_SOURCE_ONLY VPN_UI_BOOT_ID_FILE VPN_UI_TEST_PROCESS_START_ID
 . "$UPDATER"
 
+# A legacy rc.common help response exits zero even when routing is stopped.
+# Both the preimage and rollback comparison must inspect actual kernel state.
+(
+  mkdir -p "$ROOT_PREFIX/etc/init.d" "$TMP_ROOT/service-state/rollback"
+  cat > "$ROOT_PREFIX/etc/init.d/xray-transparent" <<'EOF'
+#!/bin/sh
+case "$1" in enabled) exit 1 ;; running) printf 'Usage: start stop restart\n'; exit 0 ;; esac
+EOF
+  chmod 755 "$ROOT_PREFIX/etc/init.d/xray-transparent"
+  TXN_DIR="$TMP_ROOT/service-state"
+  kernel_present=0
+  nft() { [ "$kernel_present" = 1 ]; }
+  ip() {
+    [ "$kernel_present" = 1 ] || return 1
+    case "$*" in
+      '-4 rule show') printf '100: from all fwmark 0x1 lookup 100\n' ;;
+      '-4 route show table 100') printf 'local default dev lo scope host\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  record_services "$TXN_DIR/rollback/services"
+  grep -Fqx 'xray-transparent false false' "$TXN_DIR/rollback/services"
+  services_match
+  kernel_present=1
+  ! services_match
+  record_services "$TXN_DIR/rollback/services"
+  grep -Fqx 'xray-transparent false true' "$TXN_DIR/rollback/services"
+  services_match
+  kernel_present=0
+  ! services_match
+  rm "$ROOT_PREFIX/etc/init.d/xray-transparent"
+)
+
 # Exact protected-state restoration is tested with ordinary temporary files only.
 TXN_DIR="$PERSIST_ROOT/source-rollback-fixture"
 mkdir -p "$TXN_DIR/rollback"

@@ -67,7 +67,7 @@ run_publisher() {
 : > "$LOG_FILE"
 run_publisher | grep -q 'publication remains gated'
 grep -q '^release create vpn-panel-v0.7.11 ' "$LOG_FILE"
-grep -q -- '--draft --verify-tag' "$LOG_FILE"
+grep -q -- '--draft --verify-tag --latest=false' "$LOG_FILE"
 ! grep -q '^release edit ' "$LOG_FILE"
 
 : > "$LOG_FILE"
@@ -87,7 +87,7 @@ grep -q 'draft asset differs: example.bin' "$TMP_ROOT/mismatch.err"
 cp "$RELEASE_DIR/example.bin" "$PUBLISHED_DIR/example.bin"
 : > "$LOG_FILE"
 PUBLISH_VERIFIED_RELEASE=1 run_publisher | grep -q 'Published verified release'
-grep -q '^release edit vpn-panel-v0.7.11 --draft=false --latest' "$LOG_FILE"
+grep -q '^release edit vpn-panel-v0.7.11 --draft=false --latest=false' "$LOG_FILE"
 
 git -C "$FIXTURE_ROOT" tag -d vpn-panel-v0.7.11 >/dev/null
 git -C "$FIXTURE_ROOT" tag vpn-panel-v0.7.11

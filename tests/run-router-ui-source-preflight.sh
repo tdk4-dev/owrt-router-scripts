@@ -242,6 +242,7 @@ run_test adopted-luci-rpc-rollback node tests/test-vpn-luci-adopted-apply.mjs ||
 run_test adopted-source-contracts node tests/test-xray-adopted-source-contracts.mjs || finish 1
 run_test xray-service-toggle sh tests/test-xray-service-toggle.sh || finish 1
 run_test xray-native-apply sh tests/test-xray-native-apply.sh || finish 1
+run_test transparent-init-migration sh tests/test-transparent-init-migration.sh || finish 1
 run_test xray-transparent-init sh tests/test-xray-transparent-init.sh || finish 1
 run_test xray-mutation-callpaths sh tests/test-xray-mutation-callpaths.sh || finish 1
 run_test security-acl-boundaries sh tests/test-security-boundaries-0.7.11.sh || finish 1
