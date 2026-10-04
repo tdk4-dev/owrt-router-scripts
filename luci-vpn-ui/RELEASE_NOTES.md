@@ -1,16 +1,17 @@
-# Router UI 0.7.11 RC20 — transition-contract correction
+# Router UI 0.7.11 RC21 — signed dependency-feed recovery
 
-Application identity is `0.7.11-rc.20`, package identity is `0.7.11~rc20-1`,
-and channel is `candidate`. RC20 preserves PR #27 RC18 runtime functionality.
-The [RC20 amendment](../docs/decisions/2026-10-04-router-ui-0.7.11-rc20-rc7-contract.md)
-removes the unrealized RC7 upgrade authorization: that historical source never
-had canonical production-signed packages. No historical RC7 artifact is recreated.
-All real supported published and protocol-2 installation paths remain required.
+Application identity is `0.7.11-rc.21`, package identity is `0.7.11~rc21-1`,
+and channel is `candidate`. The rescue path now establishes signed dependency
+feeds even when `nohup` survives rollback. It retains and re-verifies the initial
+feed indexes and trust/configuration contract across reboot, using the same
+isolated opkg context for prerequisite and project installation. Missing or
+invalid feeds/dependencies refuse before package installation.
 
-Signing custody and recipient-key protection have passed current verification.
-The RC19 exact-source checks, independent reproducible builds and signed package
-set remain immutable historical evidence. They do not qualify this new source
-or its bytes. RC20 requires fresh exact-source CI and full exact-byte gates.
+The [RC21 decision](../docs/decisions/2026-10-05-router-ui-0.7.11-rc21-reapply-feeds.md)
+records the reproduced RC20 failure and its evidence boundary. RC20 remains
+immutable rejected evidence. All RC21 source, build, signing, browser and VM
+gates must be completed anew. Installed routing, backend, ACL and UI functionality
+is otherwise preserved. The prior RC7 historical correction remains unchanged.
 
 The future stable target remains app `0.7.11`, packages `0.7.11-1`, and `stable`.
 A later metadata-only promotion requires fresh source/CI, independent builds,

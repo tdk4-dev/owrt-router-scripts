@@ -3,7 +3,7 @@ set -eu
 umask 077
 
 REPO="${ROUTER_UI_REPO:-tdk4-dev/owrt-router-scripts}"
-TARGET_VERSION=0.7.11-rc.20
+TARGET_VERSION=0.7.11-rc.21
 TARGET_TAG="vpn-panel-v$TARGET_VERSION"
 RELEASE_BASE="${ROUTER_UI_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TARGET_TAG}"
 VERSION_FILE="${ROUTER_UI_VERSION_FILE:-/usr/share/vpn-ui/version}"
@@ -18,6 +18,7 @@ OPKG_BIN="${ROUTER_UI_OPKG_BIN:-opkg}"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 cleanup() {
+  if [ -n "${FEED_STAGE:-}" ] && [ -d "$FEED_STAGE" ]; then rm -rf "$FEED_STAGE"; fi
   case "$WORK_DIR" in /tmp/router-ui-rescue.*) rm -rf "$WORK_DIR" ;; esac
 }
 trap cleanup EXIT INT TERM
@@ -51,11 +52,88 @@ bridge_state_kib() {
     [ ! -e "$path" ] || du -sk "$path" 2>/dev/null || return 1
   done | awk '{ total += $1 } END { print total + 0 }'
 }
+prepare_dependency_feeds() {
+  local root="${ROUTER_UI_ROOT_PREFIX:-}" file name url kind extra cache digest
+  local inputs="$WORK_DIR/feed-inputs" config="$WORK_DIR/feed-config"
+  local parent="$root/root/premier-router-updates/dependency-feeds"
+
+  # Pin the operator-configured, signed feeds on the first attempt. Reapply
+  # reuses those exact indexes, even after rollback restores the old opkg DB
+  # and reboot removes /var/opkg-lists. Never substitute a public feed URL.
+  : > "$inputs"
+  : > "$config"
+  for file in "$OPENWRT_RELEASE_FILE" "$root/etc/opkg.conf" \
+    "$root/etc/opkg/"*.conf "$root/etc/opkg/keys/"*; do
+    [ -e "$file" ] || continue
+    [ -f "$file" ] && [ ! -L "$file" ] || die "unsafe dependency feed input"
+    sha256sum "$file" >> "$inputs"
+    case "$file" in *.conf) cat "$file" >> "$config"; printf '\n' >> "$config" ;; esac
+  done
+  [ -s "$inputs" ] && [ -s "$config" ] || die "dependency feed configuration is missing"
+  awk '
+    $1 == "src/gz" || $1 == "src" {
+      if (NF != 3 || $1 != "src/gz" || $2 !~ /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/ ||
+          $3 !~ /^https:\/\// || $3 ~ /[\047\\@]/ || seen[$2]++) exit 1
+      print $1, $2, $3; count++
+    }
+    END { if (!count) exit 1 }
+  ' "$config" > "$WORK_DIR/feed-sources" || die "dependency feeds require unique names and explicit HTTPS signed-feed URLs"
+  digest="$(sha256sum "$MANIFEST" | awk '{print $1}')"
+  cache="$parent/$digest"
+  [ ! -L "$parent" ] && [ ! -L "$cache" ] || die "unsafe dependency feed cache"
+  if [ ! -e "$cache" ]; then
+    mkdir -p "$parent"
+    chmod 700 "$parent"
+    FEED_STAGE="$(mktemp -d "$parent/.prepare.XXXXXX")"
+    mkdir "$FEED_STAGE/lists" "$FEED_STAGE/empty" "$FEED_STAGE/packages"
+    cp "$inputs" "$FEED_STAGE/inputs"
+    cp "$WORK_DIR/feed-sources" "$FEED_STAGE/sources"
+    {
+      printf 'dest root /\noption overlay_root /overlay\noption check_signature\n'
+      awk '$1 == "arch" && NF == 3 { print }' "$config"
+      # Signature verification uses uncompressed indexes; tell opkg the retained
+      # list format while preserving each original package-download URL.
+      awk '{ print "src", $2, $3 }' "$FEED_STAGE/sources"
+    } > "$FEED_STAGE/opkg.conf"
+    while read -r kind name url extra; do
+      fetch "$url/Packages.gz" "$WORK_DIR/Packages.gz" &&
+        gzip -dc "$WORK_DIR/Packages.gz" > "$FEED_STAGE/lists/$name" &&
+        fetch "$url/Packages.sig" "$FEED_STAGE/lists/$name.sig" ||
+        die "signed dependency feed download failed: $name"
+      usign -q -V -P "$root/etc/opkg/keys" -m "$FEED_STAGE/lists/$name" \
+        -x "$FEED_STAGE/lists/$name.sig" || die "dependency feed signature failed: $name"
+    done < "$FEED_STAGE/sources"
+    (cd "$FEED_STAGE" && sha256sum inputs sources opkg.conf lists/* > hashes)
+    mv "$FEED_STAGE" "$cache"
+    FEED_STAGE=
+  fi
+  cmp -s "$inputs" "$cache/inputs" || die "dependency feed configuration or trust changed; reapply refused"
+  (cd "$cache" && sha256sum -c hashes >/dev/null) || die "pinned dependency feed integrity failed"
+  while read -r kind name url extra; do
+    usign -q -V -P "$root/etc/opkg/keys" -m "$cache/lists/$name" \
+      -x "$cache/lists/$name.sig" || die "pinned dependency feed signature failed: $name"
+  done < "$cache/sources"
+
+  # -f alone still loads /etc/opkg/*.conf. Isolate both configuration and lists;
+  # opkg checks dependency package hashes against the pinned signed indexes.
+  # Keep the same wrapper for prerequisite and project-package installation.
+  case "$cache:$OPKG_BIN" in *\'*) die "unsafe dependency command path" ;; esac
+  cat > "$WORK_DIR/pinned-opkg" <<EOF
+#!/bin/sh
+export OPKG_CONF_DIR='$cache/empty'
+exec '$OPKG_BIN' -f '$cache/opkg.conf' -l '$cache/lists' --cache '$cache/packages' "\$@"
+EOF
+  chmod 700 "$WORK_DIR/pinned-opkg"
+  OPKG_BIN="$WORK_DIR/pinned-opkg"
+  "$OPKG_BIN" --download-only install coreutils-nohup ip-full conntrack ||
+    die "required signed dependency packages are unavailable; installation refused"
+  VPN_UI_OPKG_BIN="$OPKG_BIN"
+  export VPN_UI_OPKG_BIN
+}
 ensure_worker_prerequisite() {
   local index=0 size package_bytes=0 package_kib state_kib
   local persistent_probe persistent_free temporary_free persistent_required temporary_required
 
-  command -v nohup >/dev/null 2>&1 && return 0
   while [ "$index" -lt 3 ]; do
     size="$(jget "$MANIFEST" "@.packages[$index].size")"
     printf '%s' "$size" | grep -Eq '^[1-9][0-9]*$' ||
@@ -82,9 +160,10 @@ ensure_worker_prerequisite() {
   [ "$temporary_free" -ge "$temporary_required" ] ||
     die "insufficient /tmp space before prerequisite repair: need ${temporary_required} KiB, have ${temporary_free} KiB"
 
+  prepare_dependency_feeds
+  command -v nohup >/dev/null 2>&1 && return 0
   printf 'Installing the signed-feed coreutils-nohup prerequisite for legacy Router UI %s.\n' \
     "$SOURCE_VERSION"
-  "$OPKG_BIN" update || die "signed OpenWrt package index update failed"
   "$OPKG_BIN" install coreutils-nohup || die "coreutils-nohup prerequisite installation failed"
   command -v nohup >/dev/null 2>&1 || die "coreutils-nohup did not provide nohup"
 }

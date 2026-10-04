@@ -261,6 +261,7 @@ run_test package-source-contracts sh tests/test-package-source-contracts.sh || f
 run_test rd23-package-boundary sh tests/test-rd23-profile.sh || finish 1
 run_test version-variable-boundary sh tests/test-version-variable-names.sh || finish 1
 run_test stable-luci-assets sh tests/test-luci-stable-assets.sh || finish 1
+run_test rescue-dependency-feeds python3 tests/test-rescue-dependency-feeds.py || finish 1
 run_test rescue-support-matrix sh tests/test-rescue-support-matrix.sh || finish 1
 run_test workflow-dependencies node tests/test-phase1-workflow-dependencies.mjs || finish 1
 run_test package-candidate-contracts python3 tests/test-package-candidate-contracts.py || finish 1

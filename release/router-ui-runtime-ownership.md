@@ -1,10 +1,11 @@
 # Router UI runtime ownership census
 
-Current source: `0.7.11-rc.20` (`0.7.11~rc20-1`, candidate) preserves the RC18
-implementation during release-tooling correction, including legacy-init migration,
-persistent device bypass, Tailscale cold start, and error-state refresh. Signing
-custody is NOT SATISFIED; this continuation is limited to source/tooling checks.
-No canonical build, production signing, or exact-byte qualification is claimed.
+Current source: `0.7.11-rc.21` (`0.7.11~rc21-1`, candidate) preserves RC18
+installed functionality, including legacy-init migration, persistent device
+bypass, Tailscale cold start and error-state refresh. The RC21 rescue correction
+retains signed dependency feeds for reapply after rollback/reboot. Earlier
+custody verification and RC20 qualification are historical; current private
+assertions must pass before signing, and RC21 requires fresh exact-byte gates.
 The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 
