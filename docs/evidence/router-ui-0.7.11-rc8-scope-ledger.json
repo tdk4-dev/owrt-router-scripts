@@ -1,0 +1,2732 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "origin_main_commit": "18562f49bcac914acf3b07749f5b8863d8016e00",
+    "origin_main_tree": "3ee316a845f3d1dff1835ab0f35660b7d8a456ef",
+    "failed_rc7_pr_number": 24,
+    "failed_rc7_head": "97da893062ebed1e27e9b35dbf0b68f248c12dd7",
+    "failed_rc7_tree": "db5e610c25eeda74f0ec0c931145249669eced69",
+    "historical_pr20_head": "f1c8bf0eb81a663340351276f3cafd3fdeab53f5",
+    "historical_pr20_tree": "c976abd2e4c47853f330dda500400d2f17bbacc7"
+  },
+  "summary": {
+    "inherited_path_count": 158,
+    "pr20_byte_identical_final_state_count": 104,
+    "pr20_different_final_state_count": 54,
+    "classification_counts": {
+      "1": 83,
+      "2": 11,
+      "3": 28,
+      "4": 26,
+      "5": 10,
+      "6": 0
+    },
+    "unexplained_or_scope_conflicting_count": 0,
+    "decision_counts": {
+      "preserve": 96,
+      "exclude": 25,
+      "reimplement": 37
+    }
+  },
+  "audit_rules": {
+    "allowed_classifications": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "stop_if_classification_6_present": true,
+    "historical_evidence_files_are_immutable": true,
+    "scope_document_sha256": "795065bc4a9555ef283903ee757b9076d7cbfff6261d24bd1eda8258e1b8ff82"
+  },
+  "entries": [
+    {
+      "path": ".github/workflows/build-router-ui-legacy-baselines.yml",
+      "pr24_change_status": "M",
+      "base_blob": "66466c3ce07b65779db15ddd8c772fe3f05e8deb",
+      "pr24_blob": "421d3112c3a74e07cf861b17803c33c9b070d6ab",
+      "pr20_blob": "421d3112c3a74e07cf861b17803c33c9b070d6ab",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "pr24_change_status": "M",
+      "base_blob": "fee6a0b5729a8e3805f972a25b0a40631f83bcc9",
+      "pr24_blob": "ccb361ab0b582107f64717a648b1202afef42151",
+      "pr20_blob": "1006dbde48f982b126708b978c77a3d653ca740f",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/diagnose-router-ui-vm.yml",
+      "pr24_change_status": "M",
+      "base_blob": "0b77980324a0e3a36efbd6def75a358a53cced8c",
+      "pr24_blob": "258f621d75d6768f27d89b4e4a10751e93d3cef9",
+      "pr20_blob": "258f621d75d6768f27d89b4e4a10751e93d3cef9",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/publish-router-ui-rc7-virtualbox-evidence.yml",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "6bb432697646f8aef7a68b47e00f25326d8524a6",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/release-vpn-panel.yml",
+      "pr24_change_status": "M",
+      "base_blob": "642cd977485b8effa5e57545d7a76c84bc0b5955",
+      "pr24_blob": "9c8f4f4681fd71e3bce69f8fd0a710293f5a2f01",
+      "pr20_blob": "37e394c920ca84cddcb45e235c08bd3d3d1ff129",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/router-ui-source-preflight.yml",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "703e70cf92d5184fe3d0d31bd8ed6c5234a5c7cb",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".github/workflows/validate-router-ui-candidate.yml",
+      "pr24_change_status": "M",
+      "base_blob": "fc6ce006bbe99201dde69a71c27259db6016299c",
+      "pr24_blob": "297b1ca69339742b194cbd0e1f745208669d6be5",
+      "pr20_blob": "589eb6048893c27c52024a60d1d1da478d313ff2",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": ".gitignore",
+      "pr24_change_status": "M",
+      "base_blob": "28e910c40639b98204f0d5808ce5ddd69ce6cad1",
+      "pr24_blob": "9baaab8a3c308ecccc0a7c1aeb9f1bdc6e135583",
+      "pr20_blob": "c47b6a0bf57e64a6019eb4e8424ac485e7361c1a",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "README.md",
+      "pr24_change_status": "M",
+      "base_blob": "d258ddd8a1f91de75c8cd9f1dc9366fa259ccaa3",
+      "pr24_blob": "1bc81f478fbdfce67a6aa970771b0c32d4231628",
+      "pr20_blob": "4ae99d28af2d2f0c1679e52648c461e94fe69992",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve current-main product, registry, ownership, and release-state documentation; apply only truthful RC8 Phase 1 deltas.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "bootstrap-router-ui-ipk-install.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "fde4e017fa828994b7360e8e2236b086d90d4562",
+      "pr20_blob": "fde4e017fa828994b7360e8e2236b086d90d4562",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "build-openwrt-custom-image-linux.sh",
+      "pr24_change_status": "M",
+      "base_blob": "4b33e44ab55e7143b3a5152e8558e4ea414b1def",
+      "pr24_blob": "caec30e172d5b66be8e3253dda9857f0f1daaa67",
+      "pr20_blob": "caec30e172d5b66be8e3253dda9857f0f1daaa67",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "build-openwrt-x86-fin0-image-linux.sh",
+      "pr24_change_status": "M",
+      "base_blob": "b390e1384c80342528b01702b7866900872e52cd",
+      "pr24_blob": "efaccc23b11936d4b30c6eb58da014672ac3e5be",
+      "pr20_blob": "efaccc23b11936d4b30c6eb58da014672ac3e5be",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/custom-image-release-guide.md",
+      "pr24_change_status": "M",
+      "base_blob": "e8a0b1fe584e4e7cbbdc950a6d77568599f46406",
+      "pr24_blob": "eb78a15f7f3f7cc837c2a7cd24589fc161ab475b",
+      "pr20_blob": "eb78a15f7f3f7cc837c2a7cd24589fc161ab475b",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/evidence/router-ui-0.7.11-phase-1-independent-review.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "ad59ac4474bd1bbd2ce2c51508e5ade0253e6200",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/evidence/router-ui-0.7.11-phase-1-source-record.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a259d6d75a95e8b187a3bce72260a41a1987b1c8",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/historical-rescue-support-matrix.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "78b8f8ceb578f2129efce82e6511a79086489065",
+      "pr20_blob": "78b8f8ceb578f2129efce82e6511a79086489065",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/issue-10-rc-status-template.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "ae470f9ab18338ebfe3244017225ae48a023e626",
+      "pr20_blob": "8693129be885a44d3fd646db042f1f0f6c769be5",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/legacy-router-ui-recovery.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "33f5b7c376e3cdf58bbf5b0954addf0bf9e6b171",
+      "pr20_blob": "33f5b7c376e3cdf58bbf5b0954addf0bf9e6b171",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/local-rc-publication-checklist.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "dabc8c091d8870e1b7e69ebcdadb0c4f319c7b88",
+      "pr20_blob": "dabc8c091d8870e1b7e69ebcdadb0c4f319c7b88",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/local-signing-key-lifecycle.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a6292256b13b4f43cbebd809352f7474733702da",
+      "pr20_blob": "a6292256b13b4f43cbebd809352f7474733702da",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/ordinary-user-ipk-installation.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "6088ce4c1e586fd9c9399d4c84d2ba7607d537cf",
+      "pr20_blob": "fcaebaadd5e77782a162fe5c0815d9899d070d32",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/package-first-release-architecture.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "9f2bdd3d925ff2ea245f3793bedc7e22d2f4ee45",
+      "pr20_blob": "9f2bdd3d925ff2ea245f3793bedc7e22d2f4ee45",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/release-checklist.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "63a09f148702066476a97b925c86dcaba27aff52",
+      "pr20_blob": "63a09f148702066476a97b925c86dcaba27aff52",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/router-ui-0.7.11-transition.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "4a39e79ea1dc66b2c652c565a5b99917cea86b8a",
+      "pr20_blob": "4a39e79ea1dc66b2c652c565a5b99917cea86b8a",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/router-ui-update-transition-matrix.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "264135fa4e5c0d300073bb3ff764b23b1aee1ea7",
+      "pr20_blob": "264135fa4e5c0d300073bb3ff764b23b1aee1ea7",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/templates/router-ui-install-guide-template.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "0a2f150d225f39c68cae4d41c415cbca158332f9",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/update-protocol-v2.md",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "59cdf61f3852c9c1e2527aaa26206a456f790ad9",
+      "pr20_blob": "59cdf61f3852c9c1e2527aaa26206a456f790ad9",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "docs/vm-release-testing-methodology.md",
+      "pr24_change_status": "M",
+      "base_blob": "5ec01ef90365c91c02502bacb564c19685af584e",
+      "pr24_blob": "0dbf8d5f2a37d4fe7c849f57c30ac8bdd1414293",
+      "pr20_blob": "b99a12024a61ac12774f26f12857a670b9374a59",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "firstboot-wizard/README.md",
+      "pr24_change_status": "M",
+      "base_blob": "7edf0538572da98ffd085c2aa64d85f6f42da7d7",
+      "pr24_blob": "606edea154ecbf37bb7947cc8d2de0e0a4d8d72d",
+      "pr20_blob": "606edea154ecbf37bb7947cc8d2de0e0a4d8d72d",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "firstboot-wizard/server.mjs",
+      "pr24_change_status": "M",
+      "base_blob": "503e1be0329c3ae5f04f0251657533d1f262da25",
+      "pr24_blob": "282b2f19ce269b252fc93bfc24e0aa924e7245da",
+      "pr20_blob": "282b2f19ce269b252fc93bfc24e0aa924e7245da",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "firstboot-wizard/www/app.js",
+      "pr24_change_status": "M",
+      "base_blob": "f633699dda87b331babd98937bf53bb86ce31a5c",
+      "pr24_blob": "73f3ef746a2772ab7a3110d308c05d6b1e2d9ddc",
+      "pr20_blob": "73f3ef746a2772ab7a3110d308c05d6b1e2d9ddc",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "firstboot-wizard/www/index.html",
+      "pr24_change_status": "M",
+      "base_blob": "2911d21b81c624c3a3ac0c185c36a180bc95da1c",
+      "pr24_blob": "844f3f5eff06b857953ea3d7769b27939778f1a4",
+      "pr20_blob": "844f3f5eff06b857953ea3d7769b27939778f1a4",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "firstboot-wizard/www/styles.css",
+      "pr24_change_status": "M",
+      "base_blob": "a9f571443737bab1017a3d0f5fed751f85c732d3",
+      "pr24_blob": "b59b28618960b1e5d4e07770a8ed0480c0a2b91f",
+      "pr20_blob": "b59b28618960b1e5d4e07770a8ed0480c0a2b91f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/etc/uci-defaults/99-openwrt-fin0-firstboot",
+      "pr24_change_status": "M",
+      "base_blob": "f3a9b38912a1c0219482527ae94c1a44a3f1d831",
+      "pr24_blob": "49be87a3eb0cce9a0007027a6fd52030fb243ff3",
+      "pr20_blob": "49be87a3eb0cce9a0007027a6fd52030fb243ff3",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/usr/sbin/router-prep",
+      "pr24_change_status": "D",
+      "base_blob": "6e1a0a1410de569b4f68d2bd96a98c5cc918c495",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/cgi-bin/firstboot-setup",
+      "pr24_change_status": "M",
+      "base_blob": "ac82085c48aac3fd808413328f465c88cb8a8d72",
+      "pr24_blob": "0eb3dab4db14947132cf05694a5006f6ed909ab7",
+      "pr20_blob": "0eb3dab4db14947132cf05694a5006f6ed909ab7",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/cgi-bin/router-prep",
+      "pr24_change_status": "D",
+      "base_blob": "f4ce7de3ca7381557a4191ec0b925cfb48dabe34",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/index.html",
+      "pr24_change_status": "M",
+      "base_blob": "5a4049f02dc555e2acb4fa1f41278d9ffe577350",
+      "pr24_blob": "1811f5ad114ecb9745e0191bc0a8bbdce847e385",
+      "pr20_blob": "1811f5ad114ecb9745e0191bc0a8bbdce847e385",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/premier-router-index.html",
+      "pr24_change_status": "D",
+      "base_blob": "44af967d93051aa2e49152410c684ff4cc1450e6",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/prepare/app.js",
+      "pr24_change_status": "D",
+      "base_blob": "5729557f7e839ee02f61443c957e08e82b0dc9ec",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/prepare/index.html",
+      "pr24_change_status": "D",
+      "base_blob": "8c119ee570c3dd98238965be654ce61c89432c2a",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image-overlay/www/prepare/styles.css",
+      "pr24_change_status": "D",
+      "base_blob": "2a286d52f95d17d802dea794d4c5562673408397",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image/openwrt-fin0-packages.txt",
+      "pr24_change_status": "M",
+      "base_blob": "01fd0ba90e32a1dab24dfa860af345c9ed545c24",
+      "pr24_blob": "2b3f4d5572b133f21879e5f19ed5e6e41ad07b97",
+      "pr20_blob": "2b3f4d5572b133f21879e5f19ed5e6e41ad07b97",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "image/openwrt-rd23-packages.txt",
+      "pr24_change_status": "M",
+      "base_blob": "1b26311f13c2f8e2024d10084429f1a452176b1c",
+      "pr24_blob": "1d81ab63ec54629a11e67d284e84b95db8563ee6",
+      "pr20_blob": "1d81ab63ec54629a11e67d284e84b95db8563ee6",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve the lean RD23 profile and AdGuard exclusion while retaining only dependencies required by the 0.7.11 trust/update bridge.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "install-friend-vpn-panel.sh",
+      "pr24_change_status": "M",
+      "base_blob": "a6fdf556550ba5096bb9e76d9c1c478b540a46a9",
+      "pr24_blob": "2e56c41e8b05a862e887bdcb5e9550ebbb58a6dd",
+      "pr20_blob": "2e56c41e8b05a862e887bdcb5e9550ebbb58a6dd",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "install-openwrt-vpn-ui.sh",
+      "pr24_change_status": "M",
+      "base_blob": "31da0352f8d75088ec204109f625b15628d5645d",
+      "pr24_blob": "06c669bf5e7cd6853925452d59d7fecfe548bc00",
+      "pr20_blob": "06c669bf5e7cd6853925452d59d7fecfe548bc00",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "install-router-ui-release.sh",
+      "pr24_change_status": "M",
+      "base_blob": "01112e23fc2a9ed5793b5c4f5ae95455dfcf4a7e",
+      "pr24_blob": "0dd969b87f68ebefa3976d246cb701479f833d65",
+      "pr20_blob": "0dd969b87f68ebefa3976d246cb701479f833d65",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/PACKAGE_VERSION",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "8a77b44e4cc466dcdc1d7584bbe2099b72d97c23",
+      "pr20_blob": "0bdd1f3a0af1893193c98311224b49c9e95e4680",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/README.md",
+      "pr24_change_status": "M",
+      "base_blob": "52f3f6719fb99b63566475ba3794db1d026c3bb3",
+      "pr24_blob": "6bc07fc8409787bae5c5a528b4cf1d2f4302ee97",
+      "pr20_blob": "6bc07fc8409787bae5c5a528b4cf1d2f4302ee97",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/RELEASE_NOTES.md",
+      "pr24_change_status": "M",
+      "base_blob": "47a803e879318868d5061228bc449611cf500575",
+      "pr24_blob": "a8119489c1f08ddca266a7166a8429c1aa2f93fa",
+      "pr20_blob": "dd7e662aaf99ce7592e41fdaff36daef426512f1",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/VERSION",
+      "pr24_change_status": "M",
+      "base_blob": "12ae675e1ff68f7750892ae3e94c096de02051e9",
+      "pr24_blob": "4a95fd4c1a5ae28ff8d1f93697ee4a53ac88054d",
+      "pr20_blob": "5fefe4a655dd64d77610844768a9f161aee30f41",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/etc/config/premier_router",
+      "pr24_change_status": "D",
+      "base_blob": "3fe2c29f284f43191ad10f8a58116ce7a69c333c",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve non-secret Router UI installation, ownership, support, and registration metadata defaults.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/etc/init.d/premier-router-update-recovery",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "b7b5f64ca68b8c9fb368a5744f6ed6c36bd659a2",
+      "pr20_blob": "b7b5f64ca68b8c9fb368a5744f6ed6c36bd659a2",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/libexec/premier-router/candidate-validator",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d3ec5482fa32c57733b8e4fc4ed079a6075bd9b1",
+      "pr20_blob": "d3ec5482fa32c57733b8e4fc4ed079a6075bd9b1",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "abd5a6b36586603c221f780d7731c5e06b0de100",
+      "pr20_blob": "abd5a6b36586603c221f780d7731c5e06b0de100",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/libexec/premier-router/xray-overlay.uc",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "24f32c3f57ee6254bc66bef6d4fc8cfa0e2a840f",
+      "pr20_blob": "24f32c3f57ee6254bc66bef6d4fc8cfa0e2a840f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/sbin/vpn-ui",
+      "pr24_change_status": "M",
+      "base_blob": "559846019185dea839177f7e83783433f4777416",
+      "pr24_blob": "9a7718d915fe13b7a53fc59d2bf2dac29132732b",
+      "pr20_blob": "9a7718d915fe13b7a53fc59d2bf2dac29132732b",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/sbin/vpn-ui-readonly",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "60ad7bde458a1b05b7a9af69f1258faa85a7800c",
+      "pr20_blob": "60ad7bde458a1b05b7a9af69f1258faa85a7800c",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/sbin/vpn-ui-update",
+      "pr24_change_status": "M",
+      "base_blob": "5756dc210898306e56a9edb37dfc0138537aa125",
+      "pr24_blob": "5bd38570748c06bc608b521ccba652e456ff6109",
+      "pr20_blob": "5bd38570748c06bc608b521ccba652e456ff6109",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json",
+      "pr24_change_status": "M",
+      "base_blob": "9572b40abf3b870ea060d53f3d3206055b3a1bb0",
+      "pr24_blob": "8ac737427ce0379b452b5c28b77aab27cfce9ba9",
+      "pr20_blob": "8ac737427ce0379b452b5c28b77aab27cfce9ba9",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Keeps the established VPN, Tailscale, and Update routes while excluding the new AdGuard and Reset product-page routes.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json",
+      "pr24_change_status": "M",
+      "base_blob": "d2f6941ca7980d5807011ca6b5a7d283006dd4b5",
+      "pr24_blob": "7c03f460007d2ad2498ae36d3a72863701c6aa45",
+      "pr20_blob": "7c03f460007d2ad2498ae36d3a72863701c6aa45",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/usr/share/vpn-ui/version",
+      "pr24_change_status": "M",
+      "base_blob": "12ae675e1ff68f7750892ae3e94c096de02051e9",
+      "pr24_blob": "4a95fd4c1a5ae28ff8d1f93697ee4a53ac88054d",
+      "pr20_blob": "5fefe4a655dd64d77610844768a9f161aee30f41",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js",
+      "pr24_change_status": "D",
+      "base_blob": "ae1e632136804b6a1d53ab422364f2136ba79322",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 shared footer/navigation presentation while underlying non-secret ownership metadata is preserved separately.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/network/adguard.js",
+      "pr24_change_status": "D",
+      "base_blob": "63e0b8b5318b39ca9fab6c965a7cc7438b6a508c",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 AdGuard product page or dynamic installation behavior; existing installed-service compatibility is not removed.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js",
+      "pr24_change_status": "M",
+      "base_blob": "2b4bac1fc2018316a781ac0964cbf5360b2f24a7",
+      "pr24_blob": "29eecfa745c1d108f3a1d82ce07c562b729cdfe7",
+      "pr20_blob": "a25f0e855397c45969df06c57d6f24c4c9c930b3",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js",
+      "pr24_change_status": "M",
+      "base_blob": "4fb4e42c62eb06e1a14fc94f9ba22c4b26c59a2f",
+      "pr24_blob": "76a1e2ea9a8e3b655d9dacbfaf760f4d2cb549ac",
+      "pr20_blob": "9094ca2a4568aa9538034c509574de1ef766a1e0",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js",
+      "pr24_change_status": "M",
+      "base_blob": "c572bb0dbfc24bbe384a58c67548854c787da89a",
+      "pr24_blob": "e36f5f0f602c17d9664355b6f4491d8ce5221c39",
+      "pr20_blob": "e36f5f0f602c17d9664355b6f4491d8ce5221c39",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve the stable VPN status include and avoid restoring the excluded 0.8 footer coupling.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js",
+      "pr24_change_status": "D",
+      "base_blob": "96d13e3a13d01e5eccc3f3d23b3e579b8e30d3fb",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 Reset-to-setup product page and its new onboarding handoff.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/files/www/luci-static/resources/view/system/update.js",
+      "pr24_change_status": "M",
+      "base_blob": "3ef7f032f9cebca5fce813dd2a88150bc6ddab97",
+      "pr24_blob": "8514d2f1554b74946b913d5b589b08c293308352",
+      "pr20_blob": "6c67422b51f6f00edaeb6c83b56c755e08a01597",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "luci-vpn-ui/install.sh",
+      "pr24_change_status": "M",
+      "base_blob": "9eef29c6ff43314e212a623a89e3a70a9cad3a50",
+      "pr24_blob": "22a01a787c3b1b5f066f163ff2d729530d46e067",
+      "pr20_blob": "22a01a787c3b1b5f066f163ff2d729530d46e067",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "make-vpn-ui-release-bundle.sh",
+      "pr24_change_status": "M",
+      "base_blob": "d25be2c238e70849539c981c43ad278df1c8dbac",
+      "pr24_blob": "720ab569553b5129a6ecc99e37ef91c701eda01a",
+      "pr20_blob": "720ab569553b5129a6ecc99e37ef91c701eda01a",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "publish-vpn-panel-release.sh",
+      "pr24_change_status": "M",
+      "base_blob": "ce6a5b79cd539ea49b4c5fa87c6c6cb18296b078",
+      "pr24_blob": "3c16f61b7eeab5fe8470e67894902c949c4deade",
+      "pr20_blob": "3c16f61b7eeab5fe8470e67894902c949c4deade",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/compat/0.7.9/_35_vpn.js",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "318fd2598c9a1eb888086fd0198f008c1ae7db7f",
+      "pr20_blob": "318fd2598c9a1eb888086fd0198f008c1ae7db7f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/keys/production-2026-07.fingerprint",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d5b3c42d2c6caf0509b9611f3343e5759f389ced",
+      "pr20_blob": "d5b3c42d2c6caf0509b9611f3343e5759f389ced",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/keys/production-2026-07.pub",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "cd5fbe51def65027e8c5fce5c91d6d8d81258510",
+      "pr20_blob": "cd5fbe51def65027e8c5fce5c91d6d8d81258510",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/keys/trusted-keys.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "c43bdbaa0e4b9356b76c709595ab67015f1effa5",
+      "pr20_blob": "c43bdbaa0e4b9356b76c709595ab67015f1effa5",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/router-ui-control-census.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "918880d2d481a8b0384b96527c64a58d9d143033",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/router-ui-release-rules.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "e4daef39638c9611968d8038da56932456e4b073",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "release/transition-matrix.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "0915f7a46a952c6161f8e8e047ede55b177decc8",
+      "pr20_blob": "f40b3577806285d957a7afc9deee3534f3c4de1b",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "rescue-router-ui.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "3b669dc9e03651fc74ff4306e4a8693127fb4e0e",
+      "pr20_blob": "009d464303426950f5732335c52b6c429d794e0c",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/build-openwrt-ipks.sh",
+      "pr24_change_status": "M",
+      "base_blob": "1e4dee278b7f9e9415373ecad78fc2057bb1e623",
+      "pr24_blob": "681b5afa93656065fc2ae1fd270933f5ea2524c1",
+      "pr20_blob": "681b5afa93656065fc2ae1fd270933f5ea2524c1",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/create-local-rc-bundle.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "18ce7f0f22111bcd17f002f3ec378601d8c666f1",
+      "pr20_blob": "18ce7f0f22111bcd17f002f3ec378601d8c666f1",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/install-ci-ucode.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a99e92333b216576cdee597d6f1d5cb120605346",
+      "pr20_blob": "a99e92333b216576cdee597d6f1d5cb120605346",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/release-key-lib.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "57be6d2700362cfe671194e4b6870d3fc9ebec8f",
+      "pr20_blob": "57be6d2700362cfe671194e4b6870d3fc9ebec8f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/render-router-ui-install-guide.py",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "2c86b71e0764b15b2e646cf0447e7fc174b5d362",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/sign-in-linux-build-vm.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "6c2fb2b61f3600e7d6391b4cc46df32c9c94ed66",
+      "pr20_blob": "6c2fb2b61f3600e7d6391b4cc46df32c9c94ed66",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/sign-opkg-feed.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a0975e46bd692b29175907d4d42ba7e647e1297c",
+      "pr20_blob": "a0975e46bd692b29175907d4d42ba7e647e1297c",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/sign-release-inputs.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d6a637b0cbf2734ccf84f6566ece1ecea2eb327d",
+      "pr20_blob": "d6a637b0cbf2734ccf84f6566ece1ecea2eb327d",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/stage-factory-schema2-contract.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "df6d046f362ac7c765ee3e4eb3a0a607038a7568",
+      "pr20_blob": "df6d046f362ac7c765ee3e4eb3a0a607038a7568",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/stage-installed-package-set.sh",
+      "pr24_change_status": "M",
+      "base_blob": "8bce5837689a1c9a195c558bfc729e4f543c38fb",
+      "pr24_blob": "106f099323fce55ad9e6a2c3eb7128f0a44a215f",
+      "pr20_blob": "106f099323fce55ad9e6a2c3eb7128f0a44a215f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/stage-router-release.sh",
+      "pr24_change_status": "M",
+      "base_blob": "44ec93370d3c780d0038b8647f0273560c02f9a5",
+      "pr24_blob": "dfdbacd1a07ab0aaf82f725f91f528f0a7dcc76d",
+      "pr20_blob": "413015594ada6d235258d77c24e6413e2247e329",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/validate-staged-release.sh",
+      "pr24_change_status": "M",
+      "base_blob": "9d94d243f724c3d0a80c51e6b90062caa322297e",
+      "pr24_blob": "d674dcada0a65449e7cebf5b29db755c503890d2",
+      "pr20_blob": "4577c159ba7c8fdc470609d6683882dc38235606",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "scripts/verify-release-signature.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d6a35dd31ef17b526864d99934b8d84ad1fa418e",
+      "pr20_blob": "d6a35dd31ef17b526864d99934b8d84ad1fa418e",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/fixtures/keys/router-ui-test.pub",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d167f7ac4a84922c35c42b826483a5894fe42523",
+      "pr20_blob": "d167f7ac4a84922c35c42b826483a5894fe42523",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/fixtures/release/router-ui-0.7.11-rc7-provisional-manifest.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "53c28b1bf1e5d53c809f8f56835d152b02c759de",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/fixtures/xray/adopted-overlay.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "bf0c2cbc03d8826c5b62fc6a84674e243186269b",
+      "pr20_blob": "bf0c2cbc03d8826c5b62fc6a84674e243186269b",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/fixtures/xray/valera-manual-config.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "e3dcf0fd7e6b6dd3a2ee522602a3158fcb9d98a0",
+      "pr20_blob": "e3dcf0fd7e6b6dd3a2ee522602a3158fcb9d98a0",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/https-artifact-server.rb",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "8fa88840d80d0693267e62e929d05e2d15986631",
+      "pr20_blob": "8fa88840d80d0693267e62e929d05e2d15986631",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/repro-recovery-lock-mac-pro.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "3af1b86703e6e46a9f58a8667e233a1c95d81754",
+      "pr20_blob": "9c4321f0b003e0ee8f8480c0a2f6579b0d62952e",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/repro-recovery-lock.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "effdfea95429faad91c7dc768df61732500e750a",
+      "pr20_blob": "91390aa141c3162f4064863e762bae7111d968eb",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/run-router-ui-virtualbox-matrix-mac-pro.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "6a1e88bf92dbd8bc3f4cd09251526f5246236fc1",
+      "pr20_blob": "528f081a296bfce4a7a1d5d8e5373dd9e8cc34d9",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/run-vanilla-ipk-install-mac-pro.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "6226299d7c6b935f9939738a4dccf7514be40c71",
+      "pr20_blob": "9f18575faefe3e783eb5e95df8b165dcf47c641c",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/integration/validate-rc7-virtualbox-evidence.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "124af2c14b9ea77d4407a5f0000a2fa4397c25ae",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/run-router-ui-source-preflight.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "d7c7026355856b2bc6957821f4605c9a52bf6de4",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-adguard-panel.sh",
+      "pr24_change_status": "D",
+      "base_blob": "f12fffb2d9a76c55c65e98fb2ff28f12b2d9c562",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 AdGuard product page or dynamic installation behavior; existing installed-service compatibility is not removed.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-candidate-evidence-aggregation.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "757c51145549a83b383164d6eec44391260318ea",
+      "pr20_blob": "39cdcf3a9dc8e2f22f5b1765d4d985f7db3b9585",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-factory-schema2-staging.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "46725df580bbb8af21f287be64b49d4b99063a24",
+      "pr20_blob": "46725df580bbb8af21f287be64b49d4b99063a24",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-firstboot-install-options.sh",
+      "pr24_change_status": "D",
+      "base_blob": "88722d915d4b3370f322342bcadac09b5d0aadf4",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-firstboot-root-only.sh",
+      "pr24_change_status": "D",
+      "base_blob": "8f07e56f80decaf1103536fc18bd1479ff08d079",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-firstboot-vless-import.sh",
+      "pr24_change_status": "D",
+      "base_blob": "08e7f73cbe77b070718455173557984c7ef79740",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-firstboot-wifi.sh",
+      "pr24_change_status": "D",
+      "base_blob": "5f57ce3b701b18176e346c4cb3a37ac832f4060b",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 first-boot, progress, recovery, or onboarding UX while retaining the earlier 0.7.11 setup baseline needed by the setup IPK.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-image-package-identity.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "3f17b908978236043cb5ba6cf6f4ff6f8d571aea",
+      "pr20_blob": "3f17b908978236043cb5ba6cf6f4ff6f8d571aea",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-local-signing-key-lifecycle.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "99583bb3ecc2d139328ce65aa88e4195adba4d8b",
+      "pr20_blob": "99583bb3ecc2d139328ce65aa88e4195adba4d8b",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-luci-stable-assets.sh",
+      "pr24_change_status": "M",
+      "base_blob": "7dbefbc6486e395f532f93a19abe89878eb9f0fd",
+      "pr24_blob": "8a3394c26948f71d4368447f3743c5e3849eed25",
+      "pr20_blob": "8a3394c26948f71d4368447f3743c5e3849eed25",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve stable, unversioned LuCI asset routing and legacy cleanup guards.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-luci-status-include.sh",
+      "pr24_change_status": "D",
+      "base_blob": "7615779b8fc8bbbf54eae5d09769151f8d163a68",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 shared footer/navigation presentation while underlying non-secret ownership metadata is preserved separately.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-openwrt-ipk-packages.sh",
+      "pr24_change_status": "D",
+      "base_blob": "0f113018ee0b329cf59fe3c29e58d0af7fa36e7b",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve package-content and metadata safety assertions, but move real package construction out of Tier 0 and into the sole Tier 1 checkpoint.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-phase1-workflow-dependencies.mjs",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "40f73b0090ca877b6a3233dfa67752adfbb3181d",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-rc7-virtualbox-evidence.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "7f7fa9b003e625a7dacef48b3f0a7fef79a26d96",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-rd23-profile.sh",
+      "pr24_change_status": "D",
+      "base_blob": "a7fb226f0c4a8495c8d68e440e8f37760bdea789",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve the lean RD23 and no-AdGuard policy without depending on deferred 0.8 onboarding files.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-recovery-lock-reproducer.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "aa69939aa6a310ba02a0970d2003dea4dfa2b94b",
+      "pr20_blob": "aa69939aa6a310ba02a0970d2003dea4dfa2b94b",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-release-publisher.sh",
+      "pr24_change_status": "M",
+      "base_blob": "74e7c72e60262086c5e8847e0936a7693c520831",
+      "pr24_blob": "94b8ee7acfcb970cfc417943338df8670bd66ae5",
+      "pr20_blob": "94b8ee7acfcb970cfc417943338df8670bd66ae5",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-release-staging.sh",
+      "pr24_change_status": "D",
+      "base_blob": "f3683091cc9d2902ec4d652940b967ba593476e8",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-rescue-support-matrix.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "ec694355f13e59e47513061fe63dd72ec06de73f",
+      "pr20_blob": "e29de72da038ccbdc8dbb528315944ec8afa4e91",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-metadata.sh",
+      "pr24_change_status": "D",
+      "base_blob": "94b90a013d174beb312b658b82cf018f16b80c85",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve ownership metadata behavior with RC8 identity and without restoring deferred owner-preparation UI.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-prep-policy.sh",
+      "pr24_change_status": "D",
+      "base_blob": "9d3d975b7755d685aa9fb74c7d3cbeb128af9e04",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 owner-preparation and seal workflow as a new onboarding/product surface.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-reset-ui.sh",
+      "pr24_change_status": "D",
+      "base_blob": "ff2a8004cf5ea75c018b4f5d3c6466b9971d535e",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 4,
+      "classification_name": "explicitly deferred Router UI 0.8-only surface",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:195-207; docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:183-198",
+        "rule": "0.7.11 must exclude Router UI 0.8 navigation/page architecture, new product pages, dynamic AdGuard installation, and new onboarding/setup flows."
+      },
+      "user_visible_or_operational_effect": "Excludes the 0.8 Reset-to-setup product page and its new onboarding handoff.",
+      "rc8_decision": "exclude",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-ui-collateral.py",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "9b129f95f6d70172bb5106b8c376acf6a0af1a47",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-ui-control-census.mjs",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a566196efff64070a854a45fbf366e06396a8628",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-ui-release-v2.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "12c09959fb79feccdb65b8c9317eeee1ce4c502d",
+      "pr20_blob": "dea2d8c703321f4a30a7dd6daed916007b037b2f",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-router-ui-state-rendering.mjs",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "3715b42b06534baa6486aaf87b86b41c045dd81d",
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 3,
+      "classification_name": "RC identity, tests, workflow, documentation, or evidence required by Phase 1",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:16-20,62-98,209-220",
+        "rule": "Candidate identity, evidence, source tests, workflow gates, and immutable-byte rules are required for the current RC."
+      },
+      "user_visible_or_operational_effect": "Defines RC identity, Phase 1 source tests, control-census contracts, workflow gating, documentation, or evidence without authorizing release work.",
+      "rc8_decision": "reimplement",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-security-boundaries-0.7.11.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "a2edacdf0bd768e61f5b725b9d82ff961f95a9f5",
+      "pr20_blob": "a2edacdf0bd768e61f5b725b9d82ff961f95a9f5",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-tailscale-ping-ui.mjs",
+      "pr24_change_status": "M",
+      "base_blob": "904af7f7ee536e144591b963701ff9783de3681f",
+      "pr24_blob": "f1dc650bee8387bd675ff606b926cc8f5940d7f0",
+      "pr20_blob": "f1dc650bee8387bd675ff606b926cc8f5940d7f0",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-tailscale-registration.sh",
+      "pr24_change_status": "D",
+      "base_blob": "d5e7504711c46e390c3326ecc308e73fa41617f6",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve registered-running verification and secret-safe temporary-log behavior for Tailscale setup.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-update-release-compat.sh",
+      "pr24_change_status": "D",
+      "base_blob": "76a732ddb715dfb7f42772ca5beecf913c58bbc4",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-updater-transaction-v2.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "5786d258a5af1c28511fd780f9274affc21f2d68",
+      "pr20_blob": "aee91c367d62ee7479a4ac51d16b2ecd82e7f9bc",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-updater-worker-start.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "17cec82fd97e92dd51c1cf4bffe03c154b05fa01",
+      "pr20_blob": "1d7994277f2699486ebc91f5a60a5cb61fc0d328",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-version-variable-names.sh",
+      "pr24_change_status": "D",
+      "base_blob": "65403f15bcf1154e1e6f5119c5b50a0a939938b3",
+      "pr24_blob": null,
+      "pr20_blob": null,
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 5,
+      "classification_name": "current-main functionality or infrastructure that must be preserved",
+      "governing_scope_citation": {
+        "source": "owner continuation decision Product rollback; docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:62-117",
+        "rule": "Unrelated current-main safety, metadata, registry, relay, and generic infrastructure must be preserved unless an explicit 0.8-only non-goal applies."
+      },
+      "user_visible_or_operational_effect": "Preserve generic APP_VERSION and OPENWRT_VERSION naming guards.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vm-architecture.sh",
+      "pr24_change_status": "M",
+      "base_blob": "b41f144b127db365c4d17709e63a9e2441316cf9",
+      "pr24_blob": "47a4bfd3ba42b4a2faacc45cf5622b38d46c29e8",
+      "pr20_blob": "b9d349d7d0eee94c6714e2e8e5a7200694b577db",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vm-controller-contract.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "2fe14a8cc3b89170e2196cce46fcdc9dfec583cb",
+      "pr20_blob": "2fe14a8cc3b89170e2196cce46fcdc9dfec583cb",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vm-listener-normalization.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "e869ef14c4d23b52794579865d6b55677ffd90d5",
+      "pr20_blob": "e869ef14c4d23b52794579865d6b55677ffd90d5",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vm-recovery-readiness.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "7c7c655720a9c9946ad0413bd33358f0f509f948",
+      "pr20_blob": "7c7c655720a9c9946ad0413bd33358f0f509f948",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vpn-hotfixes.sh",
+      "pr24_change_status": "M",
+      "base_blob": "b2beed7183865d646d23c257ae47a2105ec0ecd3",
+      "pr24_blob": "20ced2d27b6cacdfe477e273d1f69a9e400e1d36",
+      "pr20_blob": "9c3f223738e14660d3ccdca505b5fd7062c1924d",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-vpn-luci-adopted-apply.mjs",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "e07a90393b8556ca7453de8bd33e8d7dc15ad44a",
+      "pr20_blob": "390c6c93a924a21f22da71a8052f1e99619d72e5",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/test-xray-adopted-overlay.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "8ef45fc79de3b699a6827855fc5364fa30d0a4cf",
+      "pr20_blob": "b9c99465c6084fa42ec48d2f74e9a6574ebc89e1",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 2,
+      "classification_name": "approved adopted-overlay regression repair",
+      "governing_scope_citation": {
+        "source": "docs/decisions/2026-08-11-router-ui-0.7.11-phase-0.md:123-161",
+        "rule": "The adopted-overlay work is an approved narrow regression repair with fail-closed state and exact restoration requirements."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the approved healthy-adopted control surface, fail-closed states, ACL boundary, mutation transaction, and exact restoration.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/README.md",
+      "pr24_change_status": "M",
+      "base_blob": "d055c33f30721553f58016777f880080af1428c1",
+      "pr24_blob": "1d6b0e23e092aef5738ec68d7d728ae4c576855c",
+      "pr20_blob": "d94f8ae89ddc176ef9d32a950274add0e6586e19",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/aggregate-candidate-evidence.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "dce080cf24b84b115e62c7f93a2bf39ae835fac1",
+      "pr20_blob": "55a9ee323d5c9b6cd041dda614c745e62ec31795",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/baseline-contract-digest.sh",
+      "pr24_change_status": "M",
+      "base_blob": "32af5a5937df749f13fe7435b9ad51e0a3b6efcc",
+      "pr24_blob": "e5909cca9cbb72d02035e793392a6770c20f33a6",
+      "pr20_blob": "e5909cca9cbb72d02035e793392a6770c20f33a6",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/build-synthetic-next.sh",
+      "pr24_change_status": "M",
+      "base_blob": "e15e06e7660e0a11d0f750f8dc38e09fda8f8ab2",
+      "pr24_blob": "6219e12df9479ee09c857006e8549bafbd26ca56",
+      "pr20_blob": "6219e12df9479ee09c857006e8549bafbd26ca56",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/download-immutable-actions-artifact.sh",
+      "pr24_change_status": "M",
+      "base_blob": "5c8eb3fffb5dbbc3a9144a19943b28baba87a3c3",
+      "pr24_blob": "26be4585d1daef4604f52233d83c6c2a9002f5ac",
+      "pr20_blob": "4c6924c4b01c32a15dd6f776e75c5a54900f8838",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/fail-closed-runner.sh",
+      "pr24_change_status": "M",
+      "base_blob": "555eb3e51643fdfe9aa6218b5afac9185f21f123",
+      "pr24_blob": "dc7758732f5ea6dd2fdc901a98b35be4cefdad3a",
+      "pr20_blob": "dc7758732f5ea6dd2fdc901a98b35be4cefdad3a",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/legacy-baseline-lock.json",
+      "pr24_change_status": "M",
+      "base_blob": "8a00309337976d9f498f403648d58f664d8ee25f",
+      "pr24_blob": "16edd322adb685d02fd82c52d4f0adfe422c6634",
+      "pr20_blob": "16edd322adb685d02fd82c52d4f0adfe422c6634",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/legacy-diagnostic-candidates.json",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "45d6c66a0853aea1ccf5b1d026a6f284479591c7",
+      "pr20_blob": "45d6c66a0853aea1ccf5b1d026a6f284479591c7",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/normalize-listeners.awk",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "9b00c347f870fb95266277220bb89db59acf022f",
+      "pr20_blob": "9b00c347f870fb95266277220bb89db59acf022f",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/recovery-readiness.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "c12c12e18937a338d434f2585aa09f40d46e62f9",
+      "pr20_blob": "c12c12e18937a338d434f2585aa09f40d46e62f9",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/router-ui-vm-gate.sh",
+      "pr24_change_status": "M",
+      "base_blob": "f56c133107aa8db5e0aea4bd99d0699b3fe60762",
+      "pr24_blob": "5612e4f77aaa870baac6bfba1d0c4ce90aca08de",
+      "pr20_blob": "92621124e21e11607e0cda4b098581dd940433f7",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/router-ui-vm-guest.sh",
+      "pr24_change_status": "M",
+      "base_blob": "3f9e6799027bfeeabd2b65657b537bbc508d42e7",
+      "pr24_blob": "98ad2de8c7f654703f1327a58a44be22aba0e4c7",
+      "pr20_blob": "98ad2de8c7f654703f1327a58a44be22aba0e4c7",
+      "pr24_final_state_byte_identical_to_pr20": true,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/run-preimage-rescue-smoke.sh",
+      "pr24_change_status": "A",
+      "base_blob": null,
+      "pr24_blob": "951889c5f7ff65d10315319975d33bbe56aad50f",
+      "pr20_blob": "7d403619e9838dc3a9fb485c84a224b69fa71678",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    },
+    {
+      "path": "tests/vm/write-candidate-content-descriptor.sh",
+      "pr24_change_status": "M",
+      "base_blob": "00b40d2e7ea587bead24eeea3a05e40b4b52dc5e",
+      "pr24_blob": "5ee68e3b3f735669f6122463f625f208a1f4eb53",
+      "pr20_blob": "f68a196eaae3c8535ecb06a0213a6d0ce3c64346",
+      "pr24_final_state_byte_identical_to_pr20": false,
+      "classification": 1,
+      "classification_name": "approved 0.7.11 trust/update bridge",
+      "governing_scope_citation": {
+        "source": "docs/RELEASE_SCOPE_0.7.11_TO_0.8.0.md:123-161",
+        "rule": "0.7.11 is the trust/update bridge; protocol 2, transactions, rollback, trust root, security, and three package deliverables are required."
+      },
+      "user_visible_or_operational_effect": "Implements or verifies the 0.7.11 trust/update bridge, package boundary, release-safety contract, updater recovery, or diagnostic infrastructure.",
+      "rc8_decision": "preserve",
+      "review_status": "reviewed-no-unexplained-scope"
+    }
+  ]
+}

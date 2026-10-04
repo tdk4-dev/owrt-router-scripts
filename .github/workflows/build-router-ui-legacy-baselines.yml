@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: router-ui-legacy-baselines-${{ github.sha }}-${{ inputs.selector }}
+  group: router-ui-project-vm-global
   cancel-in-progress: false
 
 jobs:
@@ -67,3 +67,4 @@ jobs:
           path: ${{ runner.temp }}/baseline-artifact/
           if-no-files-found: error
           retention-days: 30
+          include-hidden-files: true

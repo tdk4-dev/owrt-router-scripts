@@ -7,10 +7,10 @@
       fetch('/cgi-bin/firstboot-setup?action=status', { cache: 'no-store' })
         .then(function(res) { return res.json(); })
         .then(function(data) {
-          window.location.replace(data.complete ? '/cgi-bin/luci/' : '/setup/?v=0.8.0RC2-ux-health-4');
+          window.location.replace(data.complete ? '/cgi-bin/luci/' : '/setup/');
         })
         .catch(function() {
-          window.location.replace('/setup/?v=0.8.0RC2-ux-health-4');
+          window.location.replace('/setup/');
         });
     </script>
   </head>
