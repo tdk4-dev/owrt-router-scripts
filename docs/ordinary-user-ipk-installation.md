@@ -1,4 +1,4 @@
-> Current source: 0.7.11-rc.19 / 0.7.11~rc19-1 (release-tooling correction).
+> Current source: 0.7.11-rc.20 / 0.7.11~rc20-1 (release-tooling correction).
 > Signing custody is NOT SATISFIED. The stable guidance below is prospective;
 > no canonical signed stable package set is ready for installation.
 > Install only explicitly selected candidate assets. First publication does not

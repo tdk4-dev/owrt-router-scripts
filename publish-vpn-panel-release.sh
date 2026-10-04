@@ -34,7 +34,7 @@ git -C "$ROOT_DIR" merge-base --is-ancestor "$TAG_COMMIT" origin/main ||
 validate_release() {
   local directory="$1" channel package signer
   case "$VERSION" in
-    0.7.11-rc.19|0.7.11)
+    0.7.11-rc.20|0.7.11)
       channel=stable
       [[ "$VERSION" != *-rc.* ]] || channel=candidate
       package="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION" | tr -d '\r\n')"

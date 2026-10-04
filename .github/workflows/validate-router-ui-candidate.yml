@@ -8,14 +8,14 @@ on:
         required: true
         type: string
       app_version:
-        description: Expected application version (RC19 or future stable)
+        description: Expected application version (RC20 or future stable)
         required: true
-        default: 0.7.11-rc.19
+        default: 0.7.11-rc.20
         type: string
       package_version:
         description: Expected opkg version
         required: true
-        default: 0.7.11~rc19-1
+        default: 0.7.11~rc20-1
         type: string
       channel:
         description: Expected channel
@@ -63,7 +63,7 @@ jobs:
           printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'
           test "$SOURCE_SHA" = "$WORKFLOW_SHA"
           case "$APP_VERSION:$PACKAGE_VERSION:$RELEASE_CHANNEL" in
-            0.7.11-rc.19:0.7.11~rc19-1:candidate|0.7.11:0.7.11-1:stable) ;;
+            0.7.11-rc.20:0.7.11~rc20-1:candidate|0.7.11:0.7.11-1:stable) ;;
             *) echo 'Unsupported expected package-candidate identity' >&2; exit 1 ;;
           esac
           test "$CUSTODY_CONFIRMED" = true

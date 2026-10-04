@@ -1,8 +1,8 @@
 # Router UI 0.7.11 package-only release checklist
 
 Authority: [package-only amendment](decisions/2026-10-04-router-ui-0.7.11-package-only-amendment.md)
-and [RC19 tooling continuation](decisions/2026-10-04-router-ui-0.7.11-rc19-tooling-continuation.md).
-Current source is RC19; the future stable tuple is app `0.7.11`, package
+and [RC20 transition amendment](decisions/2026-10-04-router-ui-0.7.11-rc20-rc7-contract.md).
+Current source is RC20; the future stable tuple is app `0.7.11`, package
 `0.7.11-1`, channel `stable`. Production key ID is `production-2026-07`,
 derived public fingerprint `d055711acf1d9a5b`.
 
@@ -21,9 +21,9 @@ and Factory assets must be absent, not merely optional, in this package set.
 - Verify the operator-private custody record under
   [local-signing-key-lifecycle.md](local-signing-key-lifecycle.md): two separately
   checksum-verified encrypted copies, at least one off-host, and successful
-  recovery yielding the expected fingerprint. The operator's current state is
-  **NOT SATISFIED**. Follow [the exact operator procedure](operator-signing-custody.md);
-  do not invent evidence or perform the backup on the operator's behalf.
+  recovery yielding the expected fingerprint. Custody and recipient-key
+  protection passed the current operator-authorized procedure. Recheck the private record before signing; a historical pass alone
+  cannot establish its current assertions. Follow [the operator procedure](operator-signing-custody.md).
 - Record only a non-secret pass/fail attestation and opaque private-record
   digest in public evidence. Never include private key bytes or backup paths.
 
@@ -79,6 +79,9 @@ EXPECTED_SOURCE_SHA="$SOURCE_SHA" EXPECTED_SOURCE_TREE="$SOURCE_TREE" \
   compatibility failure, ownership/configuration/init restoration, legacy init
   migration and effective bypass restart/DHCP/reboot matrix on those exact
   signed bytes. RC18 is unsupported: verify pre-mutation refusal unchanged.
+  RC7 is also unsupported under the RC20 amendment: no canonical signed RC7
+  bundle exists, so its real-package transition is non-applicable. Verify
+  manifest exclusion and fail-closed authorization without fabricating RC7 bytes.
 - Preserve immutable source/tree/package/manifest hashes and all test results.
   Write `READY_FOR_HARDWARE.md` outside the qualified source tree. Report NO-GO
   if any mandatory gate is incomplete. Changing source, tooling or bytes

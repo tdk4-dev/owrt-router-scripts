@@ -1,31 +1,29 @@
-# Router UI 0.7.11 RC19 — release-tooling continuation
+# Router UI 0.7.11 RC20 — transition-contract correction
 
-Application identity is `0.7.11-rc.19`, package identity is `0.7.11~rc19-1`,
-and channel is `candidate`. RC19 preserves PR #27 RC18 runtime functionality
-while correcting release tooling that was hard-coded to RC15. The continuation
-is governed by the [RC19 decision](../docs/decisions/2026-10-04-router-ui-0.7.11-rc19-tooling-continuation.md).
+Application identity is `0.7.11-rc.20`, package identity is `0.7.11~rc20-1`,
+and channel is `candidate`. RC20 preserves PR #27 RC18 runtime functionality.
+The [RC20 amendment](../docs/decisions/2026-10-04-router-ui-0.7.11-rc20-rc7-contract.md)
+removes the unrealized RC7 upgrade authorization: that historical source never
+had canonical production-signed packages. No historical RC7 artifact is recreated.
+All real supported published and protocol-2 installation paths remain required.
 
-Signing custody is **NOT SATISFIED**. Current work is limited to source/tooling
-checks and the operator custody procedure; canonical builds and production
-signing are blocked. No qualified signed RC19 or stable package set is claimed.
-The prior `9d313dca35d8478fef56e3dbfd376838bf54946c` unsigned stable provisional
-packages and disposable-VM observations remain immutable test-only evidence.
-They do not qualify RC19 or any future stable bytes.
+Signing custody and recipient-key protection have passed current verification.
+The RC19 exact-source checks, independent reproducible builds and signed package
+set remain immutable historical evidence. They do not qualify this new source
+or its bytes. RC20 requires fresh exact-source CI and full exact-byte gates.
 
-The future stable target remains application `0.7.11`, packages `0.7.11-1`, and
-channel `stable`. A later metadata-only promotion requires fresh exact-head CI,
-independent reproducible builds, signatures, and complete exact-byte browser/VM
-qualification after custody and the remaining gates are satisfied. The canonical
-deliverable remains exactly three project IPKs plus signed feed, manifests,
-checksums, provenance, and installation/update/rollback guidance. Firmware image
-publication and Factory production qualification remain deferred to `0.8.0`.
+The future stable target remains app `0.7.11`, packages `0.7.11-1`, and `stable`.
+A later metadata-only promotion requires fresh source/CI, independent builds,
+signatures, and complete exact-byte browser/VM qualification. The deliverable
+remains exactly three project IPKs plus signed feed/manifests/checksums,
+provenance and installation/update/rollback guidance. Firmware publication and
+Factory production qualification remain deferred to `0.8.0`.
 
-The existing transition contract supports `0.7.10` rescue and its listed
-protocol-2 sources. RC18 remains unsupported as an updater source; version
-ordering does not grant transition support. Physical-router contact, final tag,
-GitHub Release, GitHub Latest, and normal discovery remain prohibited in this
-continuation. An owner-controlled canary on the exact future frozen stable bytes
-remains mandatory before separately authorized public publication.
+RC18 remains unsupported as an updater source; require unchanged pre-mutation
+refusal. Version ordering does not authorize a transition. Physical-router
+contact, final tags, GitHub Releases, Latest and normal discovery remain prohibited.
+One owner-controlled canary using the exact frozen stable bytes remains mandatory
+before separately authorized public publication.
 
 ## Historical RC18 blocker fixes
 

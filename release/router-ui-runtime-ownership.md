@@ -1,6 +1,6 @@
 # Router UI runtime ownership census
 
-Current source: `0.7.11-rc.19` (`0.7.11~rc19-1`, candidate) preserves the RC18
+Current source: `0.7.11-rc.20` (`0.7.11~rc20-1`, candidate) preserves the RC18
 implementation during release-tooling correction, including legacy-init migration,
 persistent device bypass, Tailscale cold start, and error-state refresh. Signing
 custody is NOT SATISFIED; this continuation is limited to source/tooling checks.

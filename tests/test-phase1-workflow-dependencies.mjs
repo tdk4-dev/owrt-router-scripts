@@ -95,7 +95,7 @@ for (const [source, label] of [[candidate, 'prepare'], [release, 'verify']]) {
 	assert.match(source, /contents: read/);
 	assert.doesNotMatch(source, /contents: write|gh release|publish-vpn-panel-release\.sh|git tag|git push/);
 	assert.doesNotMatch(source, /build-openwrt-custom-image|stage-factory|build-synthetic-next|validate-rc15|router-ui-vm-gate|REQUIRE_IMAGES: ['"]1['"]/);
-	assert.match(source, /0\.7\.11-rc\.19:0\.7\.11~rc19-1:candidate\|0\.7\.11:0\.7\.11-1:stable/);
+	assert.match(source, /0\.7\.11-rc\.20:0\.7\.11~rc20-1:candidate\|0\.7\.11:0\.7\.11-1:stable/);
 	assert.match(source, /verify-router-ui-package-candidate\.py artifacts/);
 	assert.match(source, /--source-sha "\$SOURCE_SHA" --source-tree "\$SOURCE_TREE"/);
 	assertDangerousJobsGated(source, label);
@@ -132,7 +132,7 @@ assert.match(release, /python3 -I - <<'PY'/);
 assert.match(release, /build_inputs_sha256\[\$side\] == \$digest/);
 assert.match(release, /\.run_attempt == \(\$run\[0\]\.run_attempt \| tostring\)/);
 assert.doesNotMatch(release, /ROUTER_UI_USIGN_SECRET_KEY|environment: router-ui-production-signing|build-openwrt-ipks|sign-opkg-feed|stage-router-release/);
-assert.match(publisher, /0\.7\.11-rc\.19\|0\.7\.11\)/);
+assert.match(publisher, /0\.7\.11-rc\.20\|0\.7\.11\)/);
 assert.match(publisher, /verify-router-ui-package-candidate\.py" artifacts/);
 assert.match(publisher, /--source-sha "\$TAG_COMMIT" --source-tree/);
 assert.match(publisher, /validate_release "\$RELEASE_DIR"/);
@@ -150,7 +150,7 @@ assert.ok(gateMatch, 'preparation input gate must be extractable');
 const gate = gateMatch[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
 const gateEnvironment = {
 	PATH: process.env.PATH,
-	APP_VERSION: '0.7.11-rc.19', PACKAGE_VERSION: '0.7.11~rc19-1', RELEASE_CHANNEL: 'candidate',
+	APP_VERSION: '0.7.11-rc.20', PACKAGE_VERSION: '0.7.11~rc20-1', RELEASE_CHANNEL: 'candidate',
 	SOURCE_SHA: 'a'.repeat(40), WORKFLOW_SHA: 'a'.repeat(40),
 	CUSTODY_CONFIRMED: 'true', CUSTODY_RECORD_SHA256: 'b'.repeat(64)
 };

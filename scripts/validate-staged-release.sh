@@ -191,9 +191,7 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
     any(.transitions[];
       .source_version == "0.7.11-rc.6" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
-    any(.transitions[];
-      .source_version == "0.7.11-rc.7" and .source_protocol == 2 and
-      .mode == "package-v2-rc") and
+    (any(.transitions[]; .source_version == "0.7.11-rc.7") | not) and
     any(.transitions[];
       .source_version == "0.7.11-rc.14" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
@@ -203,10 +201,10 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
     any(.transitions[];
       .source_version == "0.7.11-rc.16" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC5, RC6, RC7, RC14, RC15, and RC16 protocol-2 transitions"
+  ' "$MANIFEST" >/dev/null || fail "stable release must authorize RC5, RC6, RC14, RC15, and RC16 and refuse RC7"
 else
   case "$EXPECTED_CANDIDATE_APP_VERSION:$EXPECTED_CANDIDATE_PACKAGE_VERSION" in
-    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.19:0.7.11~rc19-1) ;;
+    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.20:0.7.11~rc20-1) ;;
     *) fail "unsupported expected candidate identity" ;;
   esac
   [ "$APP_VERSION" = "$EXPECTED_CANDIDATE_APP_VERSION" ] &&
@@ -221,16 +219,14 @@ else
     any(.transitions[];
       .source_version == "0.7.11-rc.6" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
-    any(.transitions[];
-      .source_version == "0.7.11-rc.7" and .source_protocol == 2 and
-      .mode == "package-v2-rc") and
+    (any(.transitions[]; .source_version == "0.7.11-rc.7") | not) and
     any(.transitions[];
       .source_version == "0.7.11-rc.14" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
     any(.transitions[];
       .source_version == "0.7.11-rc.15" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "candidate release does not authorize the required protocol-2 transitions"
+  ' "$MANIFEST" >/dev/null || fail "candidate release must authorize the required protocol-2 transitions and refuse RC7"
   jq -e 'any(.transitions[]; .source_version == "0.7.11-rc.16" and
     .source_protocol == 2 and .mode == "package-v2-rc")' "$MANIFEST" >/dev/null ||
     fail "candidate release does not authorize the RC16 protocol-2 transition"

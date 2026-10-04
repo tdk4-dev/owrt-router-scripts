@@ -45,8 +45,8 @@ const sources = Object.fromEntries(await Promise.all(Object.entries(viewPaths).m
 
 assert.equal(census.schema, 1);
 assert.deepEqual(census.release, {
-	application_version: '0.7.11-rc.19',
-	package_version: '0.7.11~rc19-1',
+	application_version: '0.7.11-rc.20',
+	package_version: '0.7.11~rc20-1',
 	channel: 'candidate'
 });
 assert.equal(new Set(census.states).size, 7, 'all seven UI states must be unique');

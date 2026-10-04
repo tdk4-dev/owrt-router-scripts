@@ -13,7 +13,7 @@ PACKAGES = ("premier-router-core", "luci-app-premier-router", "premier-router-se
 KEY_ID = "production-2026-07"
 FINGERPRINT = "d055711acf1d9a5b"
 TUPLES = {
-    ("0.7.11-rc.19", "0.7.11~rc19-1", "candidate"),
+    ("0.7.11-rc.20", "0.7.11~rc20-1", "candidate"),
     ("0.7.11", "0.7.11-1", "stable"),
 }
 PACKAGE_ONLY_ASSETS = frozenset("""

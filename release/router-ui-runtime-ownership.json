@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "release": {
-    "application_version": "0.7.11-rc.19",
-    "package_version": "0.7.11~rc19-1",
+    "application_version": "0.7.11-rc.20",
+    "package_version": "0.7.11~rc20-1",
     "channel": "candidate"
   },
   "baseline": "clean Router UI 0.7.10 OpenWrt VM plus dependencies resolved from only the three canonical project IPKs",
