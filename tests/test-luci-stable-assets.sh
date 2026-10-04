@@ -28,9 +28,14 @@ grep -q '"path":[[:space:]]*"network/tailscale"' "$MENU"
 grep -q '"path":[[:space:]]*"system/update"' "$MENU"
 ! grep -Eq '"path":[[:space:]]*"[^"]*[0-9]+-[0-9]+' "$MENU"
 
-grep -q 'canonical-router-ui-ipks' "$WORKFLOW"
-grep -q 'build-openwrt-custom-image-linux.sh' "$WORKFLOW"
-grep -q 'validate-staged-release.sh' "$WORKFLOW"
+grep -q 'prepared-router-ui-package-candidate-' "$WORKFLOW"
+grep -q 'verify-router-ui-package-candidate.py artifacts' "$WORKFLOW"
+! grep -Eq 'build-openwrt-custom-image-linux.sh|gh release|publish-vpn-panel-release.sh' "$WORKFLOW"
+# Keep historical image-pipeline assertions attached to their original contract.
+HISTORICAL_WORKFLOW="$ROOT_DIR/docs/historical-workflows/release-vpn-panel-rc15.yml"
+grep -q 'canonical-router-ui-ipks' "$HISTORICAL_WORKFLOW"
+grep -q 'build-openwrt-custom-image-linux.sh' "$HISTORICAL_WORKFLOW"
+grep -q 'validate-staged-release.sh' "$HISTORICAL_WORKFLOW"
 ! grep -q 'resources/view/status/include/_35_vpn.js' "$WORKFLOW"
 
 grep -q '0.7.9|0.7.10' "$INSTALLER"
