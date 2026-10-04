@@ -2,15 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => fs.readFile(path.join(root, file), 'utf8');
-const [ci, preflight, candidate, release, runner] = await Promise.all([
+const [ci, preflight, candidate, release, runner, historicalCandidate, historicalRelease, publisher] = await Promise.all([
 	read('.github/workflows/ci.yml'),
 	read('.github/workflows/router-ui-source-preflight.yml'),
 	read('.github/workflows/validate-router-ui-candidate.yml'),
 	read('.github/workflows/release-vpn-panel.yml'),
-	read('tests/run-router-ui-source-preflight.sh')
+	read('tests/run-router-ui-source-preflight.sh'),
+	read('docs/historical-workflows/validate-router-ui-candidate-rc15.yml'),
+	read('docs/historical-workflows/release-vpn-panel-rc15.yml'),
+	read('publish-vpn-panel-release.sh')
 ]);
 
 const jobBlocks = source => {
@@ -85,10 +89,84 @@ assert.match(candidate, /needs: \[validate-inputs, source-preflight\]/);
 assert.match(candidate, /needs\.source-preflight\.outputs\.verified_sha == inputs\.source_sha/);
 assertDangerousJobsGated(candidate, 'candidate');
 
-assert.match(release, /resolve-source:[\s\S]*source-preflight:/);
-assert.match(release, /source_sha: \$\{\{ needs\.resolve-source\.outputs\.source_sha \}\}/);
-assert.match(release, /needs: \[resolve-source, source-preflight\]/);
-assert.match(release, /needs\.source-preflight\.outputs\.verified_sha == needs\.resolve-source\.outputs\.source_sha/);
-assertDangerousJobsGated(release, 'release');
+for (const [source, label] of [[candidate, 'prepare'], [release, 'verify']]) {
+	assert.match(source, /^  workflow_dispatch:/m);
+	assert.doesNotMatch(source, /^  (push|pull_request|workflow_call):/m);
+	assert.match(source, /contents: read/);
+	assert.doesNotMatch(source, /contents: write|gh release|publish-vpn-panel-release\.sh|git tag|git push/);
+	assert.doesNotMatch(source, /build-openwrt-custom-image|stage-factory|build-synthetic-next|validate-rc15|router-ui-vm-gate|REQUIRE_IMAGES: ['"]1['"]/);
+	assert.match(source, /0\.7\.11-rc\.19:0\.7\.11~rc19-1:candidate\|0\.7\.11:0\.7\.11-1:stable/);
+	assert.match(source, /verify-router-ui-package-candidate\.py artifacts/);
+	assert.match(source, /--source-sha "\$SOURCE_SHA" --source-tree "\$SOURCE_TREE"/);
+	assertDangerousJobsGated(source, label);
+}
+assert.match(candidate, /test "\$SOURCE_SHA" = "\$WORKFLOW_SHA"/);
+assert.match(candidate, /test "\$CUSTODY_CONFIRMED" = true/);
+assert.match(candidate, /custody_record_sha256:/);
+assert.match(candidate, /"\$CUSTODY_RECORD_SHA256" \| grep -Eq '\^\[0-9a-f\]\{64\}\$'/);
+assert.match(candidate, /matrix:\n        side: \[a, b\]/);
+assert.match(candidate, /diff -ur "\$RUNNER_TEMP\/a\/ipk" "\$RUNNER_TEMP\/b\/ipk"/);
+assert.match(candidate, /diff -ur "\$RUNNER_TEMP\/a\/feed" "\$RUNNER_TEMP\/b\/feed"/);
+assert.match(candidate, /environment: router-ui-production-signing/);
+assert.match(candidate, /inputs\.custody_confirmed && inputs\.custody_record_sha256 != ''/);
+assert.match(candidate, /mktemp -d \/dev\/shm\/router-ui-signing/);
+assert.match(candidate, /unset FACTORY_PRODUCT_VERSION/);
+assert.match(candidate, /trap cleanup_secret EXIT\n/);
+for (const [signal, code] of [['HUP', 129], ['INT', 130], ['TERM', 143]])
+	assert.ok(candidate.includes(`trap 'exit ${code}' ${signal}`));
+assert.match(candidate, /test ! -e "\$ROUTER_UI_SIGNING_KEY" && test ! -e "\$signing_dir"/);
+assert.match(candidate, /cp -R "\$RUNNER_TEMP\/canonical\/build-provenance" "\$RUNNER_TEMP\/prepared\/"/);
+for (const evidence of ['build-environment.txt', 'usign-binary.sha256', 'build-inputs.json',
+	'dpkg-query -W', 'ImageOS', 'ImageVersion', 'workflow-provenance.json',
+	'GITHUB_WORKFLOW_REF', 'GITHUB_RUN_ATTEMPT', 'no external feed or SDK'])
+	assert.ok(candidate.includes(evidence), `preparation must retain ${evidence}`);
+assert.equal((candidate.match(/\.\/scripts\/build-openwrt-ipks\.sh/g) || []).length, 1);
+assert.match(release, /source_sha: \$\{\{ inputs\.source_sha \}\}/);
+assert.match(release, /needs: \[validate-inputs, source-preflight\]/);
+assert.match(release, /prepared-router-ui-package-candidate-/);
+assert.match(release, /artifact_zip_sha256:/);
+assert.match(release, /sha256sum -c -/);
+assert.match(release, /\.path == "\.github\/workflows\/validate-router-ui-candidate\.yml"/);
+assert.match(release, /\.conclusion == "success" and \.head_sha == \$source/);
+assert.match(release, /python3 -I - <<'PY'/);
+assert.match(release, /build_inputs_sha256\[\$side\] == \$digest/);
+assert.match(release, /\.run_attempt == \(\$run\[0\]\.run_attempt \| tostring\)/);
+assert.doesNotMatch(release, /ROUTER_UI_USIGN_SECRET_KEY|environment: router-ui-production-signing|build-openwrt-ipks|sign-opkg-feed|stage-router-release/);
+assert.match(publisher, /0\.7\.11-rc\.19\|0\.7\.11\)/);
+assert.match(publisher, /verify-router-ui-package-candidate\.py" artifacts/);
+assert.match(publisher, /--source-sha "\$TAG_COMMIT" --source-tree/);
+assert.match(publisher, /validate_release "\$RELEASE_DIR"/);
+assert.match(publisher, /validate_release "\$VERIFY_DIR"/);
+assert.match(publisher, /--latest=false/);
+assert.match(historicalCandidate, /APP_VERSION: 0\.7\.11-rc\.15/);
+assert.match(historicalRelease, /APP_VERSION: 0\.7\.11-rc\.15/);
+assertDangerousJobsGated(historicalCandidate, 'historical candidate');
+assertDangerousJobsGated(historicalRelease, 'historical release');
 
-console.log('Exact-SHA Tier 0 gating, feature-CI de-duplication, and downstream dependency tests passed');
+// Execute the real no-output input gate, without invoking builds, signing or hosts.
+const inputBlock = jobBlocks(candidate)['validate-inputs'];
+const gateMatch = inputBlock.match(/        run: \|\n((?:          .*\n|\n)+)/);
+assert.ok(gateMatch, 'preparation input gate must be extractable');
+const gate = gateMatch[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
+const gateEnvironment = {
+	PATH: process.env.PATH,
+	APP_VERSION: '0.7.11-rc.19', PACKAGE_VERSION: '0.7.11~rc19-1', RELEASE_CHANNEL: 'candidate',
+	SOURCE_SHA: 'a'.repeat(40), WORKFLOW_SHA: 'a'.repeat(40),
+	CUSTODY_CONFIRMED: 'true', CUSTODY_RECORD_SHA256: 'b'.repeat(64)
+};
+const checkGate = (overrides, success) => {
+	const result = spawnSync('sh', ['-eu', '-c', gate], {
+		encoding: 'utf8', env: { ...gateEnvironment, ...overrides }
+	});
+	assert.equal(result.error, undefined);
+	assert.equal(result.status === 0, success, `gate result for ${JSON.stringify(overrides)}: ${result.stderr}`);
+};
+checkGate({}, true);
+checkGate({APP_VERSION: '0.7.11', PACKAGE_VERSION: '0.7.11-1', RELEASE_CHANNEL: 'stable'}, true);
+for (const overrides of [
+	{CUSTODY_CONFIRMED: 'false'}, {CUSTODY_RECORD_SHA256: ''}, {CUSTODY_RECORD_SHA256: 'b'.repeat(63)},
+	{CUSTODY_RECORD_SHA256: 'g'.repeat(64)}, {WORKFLOW_SHA: 'c'.repeat(40)}, {SOURCE_SHA: 'main'},
+	{APP_VERSION: '0.7.11-rc.15', PACKAGE_VERSION: '0.7.11~rc15-1'},
+	{APP_VERSION: '0.7.11'}, {RELEASE_CHANNEL: 'stable'}
+]) checkGate(overrides, false);
+console.log('Exact-SHA preflight, custody-gated package preparation, retained verification and historical separation passed');

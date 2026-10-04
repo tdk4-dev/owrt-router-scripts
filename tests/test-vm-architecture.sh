@@ -3,11 +3,13 @@ set -eu
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+# The image/RC15 DAG assertions below preserve the archived historical contract.
+# Active package-only workflow boundaries are tested by test-phase1-workflow-dependencies.mjs.
 CI="$ROOT_DIR/.github/workflows/ci.yml"
 DIAGNOSTIC="$ROOT_DIR/.github/workflows/diagnose-router-ui-vm.yml"
 BASELINES="$ROOT_DIR/.github/workflows/build-router-ui-legacy-baselines.yml"
-CANDIDATE="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
-RELEASE="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
+CANDIDATE="$ROOT_DIR/docs/historical-workflows/validate-router-ui-candidate-rc15.yml"
+RELEASE="$ROOT_DIR/docs/historical-workflows/release-vpn-panel-rc15.yml"
 VIRTUALBOX_PUBLISH="$ROOT_DIR/.github/workflows/publish-router-ui-rc15-virtualbox-evidence.yml"
 VIRTUALBOX_VALIDATOR="$ROOT_DIR/tests/integration/validate-rc15-virtualbox-evidence.sh"
 GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"

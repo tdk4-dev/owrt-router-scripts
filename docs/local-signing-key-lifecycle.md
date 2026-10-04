@@ -161,7 +161,7 @@ ssh BUILD_VM_SSH_TARGET \
   < "$SIGNING_DIR/$KEY_ID.sec"
 ```
 
-The other allowed tool is `stage-router-release.sh`. Set its documented
+The other allowed tools are `sign-opkg-feed.sh` and `stage-router-release.sh`. Set its documented
 `IPK_DIR`, `OUT_ROOT`, `RELEASE_DIR`, source, and strict-release variables in
 the remote environment. After either command, require the final
 `ephemeral signing key removed` line and confirm that `/dev/shm` has no
@@ -233,7 +233,7 @@ immediately:
 ```sh
 RECIPIENT_CERT=/absolute/path/to/offline-backup-recipient-cert.pem
 RECIPIENT_KEY=/absolute/path/to/offline-backup-recipient-private-key.pem
-RECOVERY_FILE="$(mktemp "$SIGNING_DIR/.recovery-test.XXXXXX.sec")"
+RECOVERY_FILE="$(mktemp "$SIGNING_DIR/.recovery-test.sec.XXXXXX")"
 trap 'rm -f "$RECOVERY_FILE"' EXIT HUP INT TERM
 /usr/bin/openssl smime -decrypt -binary -inform DER \
   -in "$ENCRYPTED_BACKUP" -recip "$RECIPIENT_CERT" \
@@ -248,3 +248,10 @@ test ! -e "$RECOVERY_FILE"
 
 An encrypted copy is not accepted as a backup until its checksum and this
 fingerprint recovery test both pass.
+
+For the complete operator-run sequence, required destination choices, checksums,
+recovery tests, and private custody record, use
+[operator-signing-custody.md](operator-signing-custody.md). This procedure is not
+evidence of completion. Canonical package preparation requires a separately
+verified private record and an explicit custody attestation; never supply
+private backup locations to a workflow or repository evidence.

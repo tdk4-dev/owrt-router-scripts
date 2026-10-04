@@ -1,8 +1,10 @@
 # Router UI runtime ownership census
 
-Private stable source: `0.7.11` (`0.7.11-1`) promotes the RC18 implementation,
-including legacy-init migration, persistent device bypass, Tailscale cold start,
-and error-state refresh. Its qualification must be repeated on the exact new bytes.
+Current source: `0.7.11-rc.19` (`0.7.11~rc19-1`, candidate) preserves the RC18
+implementation during release-tooling correction, including legacy-init migration,
+persistent device bypass, Tailscale cold start, and error-state refresh. Signing
+custody is NOT SATISFIED; this continuation is limited to source/tooling checks.
+No canonical build, production signing, or exact-byte qualification is claimed.
 The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 

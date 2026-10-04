@@ -1,4 +1,4 @@
-name: Diagnostic Router UI VM gate using immutable artifacts
+name: Historical Router UI RC15 VM diagnostic using immutable artifacts
 
 on:
   workflow_dispatch:

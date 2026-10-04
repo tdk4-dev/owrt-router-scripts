@@ -4,6 +4,14 @@ set -euo pipefail
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+# Historical image-inclusive RC archive format. Current package-only candidates
+# use the explicit package-candidate contract and immutable Actions artifacts.
+APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
+if [[ ! "$APP_VERSION" =~ ^0\.7\.11-rc\.([1-9][0-9]*)$ ]] ||
+   (( BASH_REMATCH[1] > 18 )); then
+  printf 'RC-BUNDLE-ERROR: historical image-inclusive bundler does not accept the current package-only release path\n' >&2
+  exit 1
+fi
 SOURCE_COMMIT="${SOURCE_COMMIT:?SOURCE_COMMIT is required}"
 CANDIDATE_DIR="${CANDIDATE_DIR:?CANDIDATE_DIR is required}"
 REPORT_DIR="${REPORT_DIR:?REPORT_DIR is required}"
@@ -11,7 +19,6 @@ OUTPUT_ROOT="${OUTPUT_ROOT:?OUTPUT_ROOT is required}"
 USIGN_BIN="${USIGN_BIN:?USIGN_BIN is required}"
 EXPECTED_KEY_ID="${ROUTER_UI_SIGNING_KEY_ID:?ROUTER_UI_SIGNING_KEY_ID is required}"
 RC_NUMBER="${RC_NUMBER:?RC_NUMBER is required}"
-APP_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION" | tr -d '\r\n')"
 SHORT_SHA="${SOURCE_COMMIT:0:8}"
 UTC_TIMESTAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
 [[ "$RC_NUMBER" =~ ^[1-9][0-9]*$ ]] || {

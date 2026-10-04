@@ -1,4 +1,5 @@
-name: Publish supervised Mac Pro VirtualBox RC15 evidence
+# Historical evidence only; not consumed by the current package-only workflow.
+name: Historical - publish supervised Mac Pro VirtualBox RC15 evidence
 
 on:
   workflow_dispatch:

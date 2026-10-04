@@ -2,9 +2,11 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+# The image/RC15 DAG assertions below preserve the archived historical contract.
+# Active package-only workflow boundaries are tested by test-phase1-workflow-dependencies.mjs.
 BUILDER="$ROOT_DIR/build-openwrt-custom-image-linux.sh"
-WORKFLOW="$ROOT_DIR/.github/workflows/release-vpn-panel.yml"
-CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/validate-router-ui-candidate.yml"
+WORKFLOW="$ROOT_DIR/docs/historical-workflows/release-vpn-panel-rc15.yml"
+CANDIDATE_WORKFLOW="$ROOT_DIR/docs/historical-workflows/validate-router-ui-candidate-rc15.yml"
 DIAGNOSTIC_WORKFLOW="$ROOT_DIR/.github/workflows/diagnose-router-ui-vm.yml"
 BASELINE_WORKFLOW="$ROOT_DIR/.github/workflows/build-router-ui-legacy-baselines.yml"
 VM_GATE="$ROOT_DIR/tests/vm/router-ui-vm-gate.sh"

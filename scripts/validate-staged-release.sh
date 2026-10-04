@@ -16,6 +16,8 @@ STRICT_RELEASE="${STRICT_RELEASE:-0}"
 REQUIRE_IMAGES="${REQUIRE_IMAGES:-0}"
 REQUIRE_MAIN_ANCESTRY="${REQUIRE_MAIN_ANCESTRY:-$STRICT_RELEASE}"
 EXPECTED_SOURCE_COMMIT="${EXPECTED_SOURCE_COMMIT:-}"
+EXPECTED_CANDIDATE_APP_VERSION="${EXPECTED_CANDIDATE_APP_VERSION:-$APP_VERSION}"
+EXPECTED_CANDIDATE_PACKAGE_VERSION="${EXPECTED_CANDIDATE_PACKAGE_VERSION:-$PKG_VERSION}"
 PROJECT_PACKAGES="premier-router-core luci-app-premier-router premier-router-setup"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/router-release-validate.XXXXXX")"
 ROUTER_UI_RELEASE_ROOT="$ROOT_DIR"
@@ -203,8 +205,16 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
       .mode == "package-v2-rc")
   ' "$MANIFEST" >/dev/null || fail "stable release does not authorize the RC5, RC6, RC7, RC14, RC15, and RC16 protocol-2 transitions"
 else
-  jq -e '
-    .app_version == "0.7.11-rc.18" and .package_version == "0.7.11~rc18-1" and
+  case "$EXPECTED_CANDIDATE_APP_VERSION:$EXPECTED_CANDIDATE_PACKAGE_VERSION" in
+    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.19:0.7.11~rc19-1) ;;
+    *) fail "unsupported expected candidate identity" ;;
+  esac
+  [ "$APP_VERSION" = "$EXPECTED_CANDIDATE_APP_VERSION" ] &&
+    [ "$PKG_VERSION" = "$EXPECTED_CANDIDATE_PACKAGE_VERSION" ] ||
+    fail "source and expected candidate identity differ"
+  jq -e --arg version "$EXPECTED_CANDIDATE_APP_VERSION" \
+    --arg package "$EXPECTED_CANDIDATE_PACKAGE_VERSION" '
+    .app_version == $version and .package_version == $package and
     any(.transitions[];
       .source_version == "0.7.11-rc.5" and .source_protocol == 2 and
       .mode == "package-v2-rc") and
@@ -220,10 +230,10 @@ else
     any(.transitions[];
       .source_version == "0.7.11-rc.15" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "RC18 release does not authorize the required protocol-2 transitions"
+  ' "$MANIFEST" >/dev/null || fail "candidate release does not authorize the required protocol-2 transitions"
   jq -e 'any(.transitions[]; .source_version == "0.7.11-rc.16" and
     .source_protocol == 2 and .mode == "package-v2-rc")' "$MANIFEST" >/dev/null ||
-    fail "RC18 release does not authorize the RC16 protocol-2 transition"
+    fail "candidate release does not authorize the RC16 protocol-2 transition"
 fi
 [ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
   "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||

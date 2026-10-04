@@ -263,6 +263,7 @@ run_test version-variable-boundary sh tests/test-version-variable-names.sh || fi
 run_test stable-luci-assets sh tests/test-luci-stable-assets.sh || finish 1
 run_test rescue-support-matrix sh tests/test-rescue-support-matrix.sh || finish 1
 run_test workflow-dependencies node tests/test-phase1-workflow-dependencies.mjs || finish 1
+run_test package-candidate-contracts python3 tests/test-package-candidate-contracts.py || finish 1
 run_test collateral-contracts python3 tests/test-router-ui-collateral.py || finish 1
 run_test vm-methodology-contracts sh tests/test-vm-architecture.sh || finish 1
 run_test tracked-secret-scan sh tests/test-source-secret-boundaries.sh || finish 1

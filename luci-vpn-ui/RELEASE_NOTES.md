@@ -1,20 +1,31 @@
-# Router UI 0.7.11 — private package-only stable candidate
+# Router UI 0.7.11 RC19 — release-tooling continuation
 
-This identity-only promotion preserves PR #27 RC18 functionality. Application
-version is `0.7.11`, package version is `0.7.11-1`, and channel is `stable`.
-The canonical deliverable is the three project IPKs and signed feed, manifests,
+Application identity is `0.7.11-rc.19`, package identity is `0.7.11~rc19-1`,
+and channel is `candidate`. RC19 preserves PR #27 RC18 runtime functionality
+while correcting release tooling that was hard-coded to RC15. The continuation
+is governed by the [RC19 decision](../docs/decisions/2026-10-04-router-ui-0.7.11-rc19-tooling-continuation.md).
+
+Signing custody is **NOT SATISFIED**. Current work is limited to source/tooling
+checks and the operator custody procedure; canonical builds and production
+signing are blocked. No qualified signed RC19 or stable package set is claimed.
+The prior `9d313dca35d8478fef56e3dbfd376838bf54946c` unsigned stable provisional
+packages and disposable-VM observations remain immutable test-only evidence.
+They do not qualify RC19 or any future stable bytes.
+
+The future stable target remains application `0.7.11`, packages `0.7.11-1`, and
+channel `stable`. A later metadata-only promotion requires fresh exact-head CI,
+independent reproducible builds, signatures, and complete exact-byte browser/VM
+qualification after custody and the remaining gates are satisfied. The canonical
+deliverable remains exactly three project IPKs plus signed feed, manifests,
 checksums, provenance, and installation/update/rollback guidance. Firmware image
-publication and Factory production qualification are deferred to `0.8.0` by the
-2026-10-04 owner amendment. A physical owner-controlled canary on the exact frozen
-stable bytes remains mandatory before public publication. No release, tag,
-GitHub Latest, or normal discovery is enabled by this promotion.
+publication and Factory production qualification remain deferred to `0.8.0`.
 
-Old RC18 and earlier stable evidence is historical only. This candidate requires
-new source, CI, reproducibility, signing, VM, and browser evidence. The existing
-transition contract supports `0.7.10` rescue and the listed protocol-2 sources;
-it does not authorize RC18 as a protocol-2 update source. RC18-to-stable automatic
-Apply is therefore unsupported, not a passed transition. Do not infer support
-from version ordering or use raw opkg as evidence for that updater path.
+The existing transition contract supports `0.7.10` rescue and its listed
+protocol-2 sources. RC18 remains unsupported as an updater source; version
+ordering does not grant transition support. Physical-router contact, final tag,
+GitHub Release, GitHub Latest, and normal discovery remain prohibited in this
+continuation. An owner-controlled canary on the exact future frozen stable bytes
+remains mandatory before separately authorized public publication.
 
 ## Historical RC18 blocker fixes
 

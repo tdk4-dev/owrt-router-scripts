@@ -31,9 +31,27 @@ MANIFEST_COMMIT="$(jq -r .source_commit "$RELEASE_DIR/router-release-manifest.js
 git -C "$ROOT_DIR" merge-base --is-ancestor "$TAG_COMMIT" origin/main ||
   fail "tag commit is not contained in origin/main"
 
+validate_release() {
+  local directory="$1" channel package signer
+  case "$VERSION" in
+    0.7.11-rc.19|0.7.11)
+      channel=stable
+      [[ "$VERSION" != *-rc.* ]] || channel=candidate
+      package="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION" | tr -d '\r\n')"
+      signer="$(command -v "${USIGN_BIN:-usign}")" || fail "usign is required"
+      python3 "$ROOT_DIR/scripts/verify-router-ui-package-candidate.py" artifacts \
+        --source-sha "$TAG_COMMIT" --source-tree "$(git -C "$ROOT_DIR" rev-parse "$TAG_COMMIT^{tree}")" \
+        --app-version "$VERSION" --package-version "$package" --channel "$channel" \
+        --release-dir "$directory" --usign-bin "$signer" >/dev/null
+      ;;
+    *)
+      RELEASE_DIR="$directory" STRICT_RELEASE=1 EXPECTED_SOURCE_COMMIT="$TAG_COMMIT" \
+        "$ROOT_DIR/scripts/validate-staged-release.sh"
+      ;;
+  esac
+}
 if [[ "$VALIDATE_STAGED_RELEASE" == 1 ]]; then
-  RELEASE_DIR="$RELEASE_DIR" STRICT_RELEASE=1 EXPECTED_SOURCE_COMMIT="$TAG_COMMIT" \
-    "$ROOT_DIR/scripts/validate-staged-release.sh"
+  validate_release "$RELEASE_DIR"
 fi
 
 ASSETS=()
@@ -81,8 +99,7 @@ cmp -s "${TMPDIR:-/tmp}/router-ui-asset-names.$$" "$downloaded_names" ||
 rm -f "${TMPDIR:-/tmp}/router-ui-asset-names.$$" "$downloaded_names"
 
 if [[ "$VALIDATE_STAGED_RELEASE" == 1 ]]; then
-  RELEASE_DIR="$VERIFY_DIR" STRICT_RELEASE=1 EXPECTED_SOURCE_COMMIT="$TAG_COMMIT" \
-    "$ROOT_DIR/scripts/validate-staged-release.sh"
+  validate_release "$VERIFY_DIR"
 fi
 
 if [[ "$PUBLISH_VERIFIED_RELEASE" == 1 ]]; then
