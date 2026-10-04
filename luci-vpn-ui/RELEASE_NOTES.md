@@ -1,4 +1,22 @@
-# Router UI 0.7.11 RC18 — blocker fixes
+# Router UI 0.7.11 — private package-only stable candidate
+
+This identity-only promotion preserves PR #27 RC18 functionality. Application
+version is `0.7.11`, package version is `0.7.11-1`, and channel is `stable`.
+The canonical deliverable is the three project IPKs and signed feed, manifests,
+checksums, provenance, and installation/update/rollback guidance. Firmware image
+publication and Factory production qualification are deferred to `0.8.0` by the
+2026-10-04 owner amendment. A physical owner-controlled canary on the exact frozen
+stable bytes remains mandatory before public publication. No release, tag,
+GitHub Latest, or normal discovery is enabled by this promotion.
+
+Old RC18 and earlier stable evidence is historical only. This candidate requires
+new source, CI, reproducibility, signing, VM, and browser evidence. The existing
+transition contract supports `0.7.10` rescue and the listed protocol-2 sources;
+it does not authorize RC18 as a protocol-2 update source. RC18-to-stable automatic
+Apply is therefore unsupported, not a passed transition. Do not infer support
+from version ordering or use raw opkg as evidence for that updater path.
+
+## Historical RC18 blocker fixes
 
 This unpublished package-only candidate repairs the legacy routing-init migration,
 restores Device VPN bypasses after routing restarts and DHCP lease changes, and

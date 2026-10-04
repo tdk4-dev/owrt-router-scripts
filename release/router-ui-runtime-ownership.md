@@ -1,7 +1,9 @@
 # Router UI runtime ownership census
 
-Stable source: `0.7.11-rc.18` (`0.7.11~rc18-1`) is the identity-only promotion of the
-qualified RC16 rollback and service-convergence repair. The machine-readable source of truth is
+Private stable source: `0.7.11` (`0.7.11-1`) promotes the RC18 implementation,
+including legacy-init migration, persistent device bypass, Tailscale cold start,
+and error-state refresh. Its qualification must be repeated on the exact new bytes.
+The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 
 The install boundary is exactly three project IPKs:
