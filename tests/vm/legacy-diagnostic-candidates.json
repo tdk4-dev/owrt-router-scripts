@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "candidates": [
+    {
+      "artifact_id": 8473240890,
+      "artifact_name": "pretag-router-ui-candidate-373d88c3636340d1610187992ec256ecdf65e123",
+      "artifact_zip_sha256": "1fea2b2e49d95ee544c70ff95db5698c51d7cc0cf3b8362e8c03281c0d64c6bb",
+      "workflow_run_id": 29770661240,
+      "workflow_run_number": 107,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_conclusion": "failure",
+      "product_source_sha": "373d88c3636340d1610187992ec256ecdf65e123",
+      "diagnostic_only": true,
+      "release_evidence_eligible": false,
+      "superseded": true,
+      "superseded_reason": "standalone installer left the downloaded candidate validator mode 0600, causing direct execution to fail before validation",
+      "content_contract": {
+        "production_key_id": "router-ui-prod-5b001ed1f9e63c96",
+        "production_key_fingerprint": "5b001ed1f9e63c96",
+        "committed_public_key_path": "release/keys/router-ui-production.pub",
+        "candidate": {
+          "app_version": "0.7.11",
+          "package_version": "0.7.11-1",
+          "release_tag": "vpn-panel-v0.7.11",
+          "channel": "stable",
+          "channel_filename": "stable-channel.json"
+        },
+        "successor": {
+          "app_version": "0.7.12",
+          "package_version": "0.7.12-1",
+          "release_tag": "vpn-panel-v0.7.12",
+          "channel": "stable",
+          "channel_filename": "stable-channel.json"
+        }
+      },
+      "required_success_job_names": [
+        "production-candidate / canonical-ipks",
+        "production-candidate / sign-installed-package-set",
+        "production-candidate / x86-image",
+        "production-candidate / assemble-and-sign"
+      ],
+      "required_success_job_prefixes": [
+        "production-candidate / images (rd23-stock,",
+        "production-candidate / images (rd23-ubootmod,"
+      ],
+      "required_failure_job_names": [
+        "production-candidate / constrained-vm-gate"
+      ]
+    }
+  ]
+}

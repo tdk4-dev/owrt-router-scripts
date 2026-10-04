@@ -6,6 +6,7 @@ blkid
 bnx2-firmware
 cgi-io
 coreutils-base64
+coreutils-nohup
 curl
 dnsmasq-full
 grub2
@@ -41,5 +42,7 @@ rpcd-mod-file
 socat
 tailscale
 tcpdump
+ucode
+ucode-mod-fs
 unzip
 xray-core

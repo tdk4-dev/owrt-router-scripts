@@ -3,9 +3,10 @@
 'require fs';
 'require ui';
 'require dom';
-'require tools.router_footer as routerFooter';
 
 var helper = '/usr/sbin/vpn-ui';
+var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
+var isReadonlyView = !L.hasViewPermission() || null;
 var css = '\
 .router-update .update-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; }\
 .router-update .update-subtitle { opacity:.7; max-width:48rem; margin:.25rem 0 0; }\
@@ -13,16 +14,13 @@ var css = '\
 .router-update .update-card { border:1px solid #444; border-radius:.75rem; padding:1.15rem; background:rgba(255,255,255,.025); min-height:6rem; }\
 .router-update .update-card-label { display:block; opacity:.65; font-size:.88em; margin-bottom:.45rem; }\
 .router-update .update-card-value { display:block; font-size:1.45em; font-weight:700; }\
+.router-update .release-badge { display:inline-block; margin-top:.45rem; padding:.2rem .5rem; border:1px solid #d98b00; border-radius:999px; color:#ffb52e; font-size:.78em; font-weight:700; letter-spacing:.02em; text-transform:uppercase; }\
 .router-update .update-card-note { display:block; opacity:.7; margin-top:.35rem; overflow-wrap:anywhere; }\
 .router-update .update-notes { white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; line-height:1.55; border:1px solid #444; border-radius:.5rem; padding:1rem; background:rgba(255,255,255,.018); }\
 .router-update .update-actions { display:flex; gap:.5rem; flex-wrap:wrap; }\
 .router-update .update-setting { display:flex; align-items:flex-start; gap:.65rem; padding:.9rem 0; }\
 .router-update .update-setting input { margin-top:.25rem; }\
 .router-update .update-job { border-left:3px solid #09c; padding:.65rem .9rem; margin:1rem 0; background:rgba(0,153,204,.08); }\
-.router-update .build-table { display:grid; grid-template-columns:minmax(11rem,15rem) 1fr; max-width:58rem; border-top:1px solid #444; margin-top:.75rem; }\
-.router-update .build-table dt,.router-update .build-table dd { margin:0; padding:.55rem .7rem; border-bottom:1px solid #444; overflow-wrap:anywhere; }\
-.router-update .build-table dt { opacity:.68; }\
-@media (max-width:600px) { .router-update .build-table { grid-template-columns:1fr; } .router-update .build-table dt { padding-bottom:.1rem; } .router-update .build-table dd { padding-top:.1rem; } }\
 ';
 
 function parseResponse(res) {
@@ -35,72 +33,63 @@ function parseResponse(res) {
 		throw new Error(output || _('The update helper returned an unreadable response.'));
 	}
 
-	if (!data.ok)
-		throw new Error(data.error || _('The update helper rejected the request.'));
+	if (!data.ok) {
+		var error = new Error(data.error || _('The update helper rejected the request.'));
+		error.code = data.error_code || '';
+		throw error;
+	}
 
 	return data;
 }
 
-function shown(value) {
-	return value === undefined || value === null || value === '' ? _('Unknown') : String(value);
-}
-
-function shownDate(value) {
-	return value ? String(value).replace('T', ' ').replace('Z', ' UTC') : _('Unknown');
-}
-
 return view.extend({
 	callHelper: function(args) {
-		return fs.exec(helper, args).then(parseResponse);
+		var command = args && args[0];
+		return fs.exec(command === 'update-status' || command === 'update-job-status' ? readonlyHelper : helper, args).then(parseResponse);
 	},
 
 	load: function() {
-		return Promise.all([
-			this.callHelper(['update-status']),
-			this.callHelper(['footer-info']),
-			this.callHelper(['installed-build'])
-		]).then(function(result) {
-			result[0].metadata = result[1];
-			result[0].installedBuild = result[2];
-			return result[0];
-		});
+		return this.callHelper(['update-status']);
 	},
 
 	updateView: function(data) {
-		data.metadata = data.metadata || this.metadata || {};
-		data.installedBuild = data.installedBuild || this.installedBuild || {};
-		this.metadata = data.metadata;
-		this.installedBuild = data.installedBuild;
 		this.data = data;
 		var root = document.querySelector('#router-update-root');
 		if (root)
 			dom.content(root, this.renderBody(data));
-		routerFooter.apply(data.metadata);
 	},
 
-	pollJob: function(kind, failures) {
+	pollJob: function(jobId, kind, failures) {
 		failures = failures || 0;
 		return new Promise(L.bind(function(resolve, reject) {
 			window.setTimeout(L.bind(function() {
-				this.callHelper(['update-status']).then(L.bind(function(data) {
+				this.callHelper(['update-job-status', jobId, kind]).then(L.bind(function(data) {
 					var job = data.job || {};
-					this.updateView(data);
+					if (job.id !== jobId || job.kind !== kind) {
+						reject(new Error(_('The update helper returned the wrong operation identity.')));
+						return;
+					}
 					if (job.status === 'starting' || job.status === 'running') {
-						this.pollJob(kind, 0).then(resolve, reject);
+						this.pollJob(jobId, kind, 0).then(resolve, reject);
 						return;
 					}
 					if (job.status === 'failed') {
 						reject(new Error(job.message || _('The update task failed safely.')));
 						return;
 					}
-					resolve(data);
-				}, this)).catch(L.bind(function(err) {
-					if (kind === 'apply' && failures >= 8) {
-						window.setTimeout(function() { window.location.reload(); }, 2500);
+					if (job.status === 'succeeded' || (kind === 'apply' && job.status === 'pending_reboot')) {
+						resolve(job);
 						return;
 					}
-					if (failures < 150) {
-						this.pollJob(kind, failures + 1).then(resolve, reject);
+					reject(new Error(_('The update helper returned an invalid operation state.')));
+				}, this)).catch(L.bind(function(err) {
+					if (err.code === 'malformed_job_id' || err.code === 'invalid_job_kind' ||
+						err.code === 'unknown_job_id' || err.code === 'wrong_job_kind') {
+						reject(err);
+						return;
+					}
+					if (failures < 300) {
+						this.pollJob(jobId, kind, failures + 1).then(resolve, reject);
 						return;
 					}
 					reject(err);
@@ -117,23 +106,35 @@ return view.extend({
 				: _('Contacting the release server…'))
 		]);
 		return this.callHelper([isInstall ? 'update-apply-start' : 'update-check-start'])
-			.then(L.bind(function() { return this.pollJob(kind, 0); }, this))
 			.then(L.bind(function(data) {
+				var job = data.job || {};
+				if (!/^[0-9a-f]{64}$/.test(job.id || '') || job.kind !== kind ||
+					(job.status !== 'starting' && job.status !== 'running' &&
+					 job.status !== 'succeeded' && job.status !== 'failed' &&
+					 job.status !== 'pending_reboot'))
+					throw new Error(_('The update helper did not return a valid operation identity.'));
+				return this.pollJob(job.id, kind, 0);
+			}, this))
+			.then(L.bind(function(job) {
+				return this.callHelper(['update-status']).then(function(data) {
+					return { job: job, data: data };
+				});
+			}, this))
+			.then(L.bind(function(result) {
 				ui.hideModal();
-				this.updateView(data);
-				if (isInstall) {
+				this.updateView(result.data);
+				if (isInstall && result.job.status === 'succeeded') {
 					ui.addNotification(null, E('p', {}, _('Update installed and validated. Reloading…')));
 					window.setTimeout(function() { window.location.reload(); }, 1500);
 				}
+				else if (isInstall && result.job.status === 'pending_reboot')
+					ui.addNotification(null, E('p', {}, _('Update installed. Reboot is required before it is committed.')));
 			}, this))
 			.catch(function(err) {
 				ui.hideModal();
-				if (isInstall) {
-					ui.addNotification(null, E('p', {}, _('LuCI restarted during the update. Reloading this page…')));
-					window.setTimeout(function() { window.location.reload(); }, 2500);
-					return;
-				}
-				ui.addNotification(null, E('p', {}, err.message || err));
+				ui.addNotification(null, E('p', {}, isInstall
+					? _('Update failed safely: %s').format(err.message || err)
+					: (err.message || err)));
 			});
 	},
 
@@ -160,17 +161,8 @@ return view.extend({
 
 	renderBody: function(data) {
 		var job = data.job || {};
-		var build = data.installedBuild || this.installedBuild || {};
-		var packages = build.packages || {};
 		var busy = job.status === 'starting' || job.status === 'running';
-		var checked = !!data.checked_at;
-		var compatible = !!data.compatible_release;
-		var actionLabel = data.available
-			? _('Download and install')
-			: (data.current_ahead ? _('Ahead of published release') : (checked && !compatible ? _('No compatible update') : _('Up to date')));
-		var statusLabel = data.available
-			? _('Update available')
-			: (data.current_ahead ? _('Ahead of release') : (checked && !compatible ? _('Legacy release only') : _('Up to date')));
+		var currentIsCandidate = data.current_channel === 'candidate' || /(?:-rc\.\d+|RC\d+|-test\d+)$/.test(data.current || '');
 		var checkedNote = data.checked_at
 			? _('Last checked: %s').format(data.checked_at.replace('T', ' ').replace('Z', ' UTC'))
 			: _('Not checked yet');
@@ -183,25 +175,27 @@ return view.extend({
 				]),
 				E('div', { 'class': 'update-actions' }, [
 					E('a', {
+						'data-control-id': 'update-check',
 						'class': 'cbi-button cbi-button-action',
 						'href': '#',
-						'aria-disabled': busy ? 'true' : 'false',
+						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy)
+							if (!busy && !isReadonlyView)
 								return this.refresh();
 						}, this)
 					}, _('Check again')),
 					E('a', {
+						'data-control-id': 'update-apply',
 						'class': 'cbi-button cbi-button-positive',
 						'href': '#',
-						'aria-disabled': busy || !data.available ? 'true' : 'false',
+						'aria-disabled': busy || !data.available || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy && data.available)
+							if (!busy && data.available && !isReadonlyView)
 								return this.install();
 						}, this)
-					}, actionLabel)
+					}, data.available ? _('Download and install') : _('Up to date'))
 				])
 			]),
 			busy || job.message ? E('div', { 'class': 'update-job' }, [
@@ -213,7 +207,10 @@ return view.extend({
 				E('div', { 'class': 'update-card' }, [
 					E('span', { 'class': 'update-card-label' }, _('Installed')),
 					E('span', { 'class': 'update-card-value' }, data.current || '-'),
-					E('span', { 'class': 'update-card-note' }, _('Currently running on this router'))
+					currentIsCandidate ? E('span', { 'class': 'release-badge' }, _('Release candidate')) : '',
+					E('span', { 'class': 'update-card-note' }, currentIsCandidate
+						? _('Pre-release software. A newer stable release will still be offered here.')
+						: _('Currently running on this router'))
 				]),
 				E('div', { 'class': 'update-card' }, [
 					E('span', { 'class': 'update-card-label' }, _('Latest release')),
@@ -222,44 +219,25 @@ return view.extend({
 				]),
 				E('div', { 'class': 'update-card' }, [
 					E('span', { 'class': 'update-card-label' }, _('Status')),
-					E('span', { 'class': 'update-card-value' }, statusLabel),
-					E('span', { 'class': 'update-card-note' }, data.current_ahead
-						? _('Installed %s is a local/custom package-first build; published latest is %s.').format(data.current || '-', data.latest || '-')
-						: checked && !compatible
-						? _('The server is reachable, but the published release does not contain package-first update metadata.')
+					E('span', { 'class': 'update-card-value' }, data.available
+						? _('Update available')
+						: (currentIsCandidate ? _('Release candidate') : _('Up to date'))),
+					E('span', { 'class': 'update-card-note' }, currentIsCandidate && !data.available
+						? _('No newer stable release is published yet.')
 						: checkedNote)
-				])
-			]),
-			E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Installed build')),
-				E('p', { 'class': 'update-subtitle' }, _('Local package and provenance metadata. Missing values are shown as unknown rather than inferred.')),
-				E('dl', { 'class': 'build-table' }, [
-					E('dt', {}, _('Router Scripts version')), E('dd', {}, shown(build.version)),
-					E('dt', {}, _('Package build version')), E('dd', {}, shown(build.package_version)),
-					E('dt', {}, _('premier-router-core')), E('dd', {}, shown(packages['premier-router-core'])),
-					E('dt', {}, _('luci-app-premier-router')), E('dd', {}, shown(packages['luci-app-premier-router'])),
-					E('dt', {}, _('premier-router-setup')), E('dd', {}, shown(packages['premier-router-setup'])),
-					E('dt', {}, _('Install method')), E('dd', {}, shown(build.install_method)),
-					E('dt', {}, _('Install source')), E('dd', {}, shown(build.install_source)),
-					E('dt', {}, _('Source commit')), E('dd', {}, shown(build.source_commit_short) + (build.source_dirty === true ? ' (' + _('dirty source') + ')' : '')),
-					E('dt', {}, _('Build / staging date')), E('dd', {}, shownDate(build.build_date)),
-					E('dt', {}, _('Installed at')), E('dd', {}, shownDate(build.installed_at)),
-					E('dt', {}, _('OpenWrt')), E('dd', {}, shown(build.openwrt_version) + ' / ' + shown(build.openwrt_target)),
-					E('dt', {}, _('Hardware profile')), E('dd', {}, shown(build.hardware_profile)),
-					E('dt', {}, _('Manifest')), E('dd', {}, build.manifest_present ? _('Recorded locally') : _('Not recorded locally')),
-					E('dt', {}, _('Package verification')), E('dd', {}, shown(build.verification_state))
 				])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Automatic updates')),
 				E('div', { 'class': 'update-setting' }, [
 					E('a', {
+						'data-control-id': 'update-auto',
 						'class': 'cbi-button ' + (data.auto_update ? 'cbi-button-positive' : 'cbi-button-neutral'),
 						'href': '#',
-						'aria-disabled': busy ? 'true' : 'false',
+						'aria-disabled': busy || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy)
+							if (!busy && !isReadonlyView)
 								return this.setAutoUpdate(!data.auto_update);
 						}, this)
 					}, data.auto_update ? _('Weekly updates enabled') : _('Enable weekly updates')),
@@ -278,11 +256,8 @@ return view.extend({
 	},
 
 	render: function(data) {
-		this.metadata = data.metadata || {};
-		this.installedBuild = data.installedBuild || {};
 		this.data = data;
-		routerFooter.apply(data.metadata);
-		if (!data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
+		if (!isReadonlyView && !data.checked_at && !(data.job && (data.job.status === 'starting' || data.job.status === 'running')))
 			window.setTimeout(L.bind(function() { this.refresh(); }, this), 250);
 		return E('div', { 'class': 'cbi-map router-update' }, [
 			E('style', {}, css),

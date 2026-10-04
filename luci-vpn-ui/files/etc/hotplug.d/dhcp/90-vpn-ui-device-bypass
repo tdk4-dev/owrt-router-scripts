@@ -1,0 +1,8 @@
+#!/bin/sh
+# Rebuild saved MAC-to-IP bypasses after dnsmasq adds, renews or removes a lease.
+case "${ACTION:-}" in
+  add|old|update|remove)
+    /usr/sbin/vpn-ui device-bypass-sync >/dev/null 2>&1 ||
+      logger -t vpn-ui 'Could not restore device bypasses after DHCP change'
+    ;;
+esac

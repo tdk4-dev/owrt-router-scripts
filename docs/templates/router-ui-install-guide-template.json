@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "title": "Router UI {application_version}",
+  "subtitle": "Manifest-driven package installation checkpoint",
+  "fixture_banner": "NON-PRODUCTION FIXTURE — NOT FOR ROUTER INSTALLATION",
+  "canonical_banner": "SIGNED CANONICAL RELEASE COLLATERAL",
+  "summary": "Three hardware-independent Router UI packages are installed on an existing supported OpenWrt system. No firmware image, bootloader, partition layout, or hardware qualification is implied.",
+  "healthy_adopted": "The complete adopted panel is enabled only when the adopted overlay is healthy and mutation status is clear.",
+  "fail_closed": "Adoption-required, drift/recovery, reboot-pending, and read-only states keep persistent VPN mutations blocked. Read-only diagnostics remain separate.",
+  "steps": [
+    "Verify the signed manifest and every package fact.",
+    "Record platform, services, routes, storage, and a private off-router backup.",
+    "Use wired local management and validate the manifest-derived storage gates.",
+    "Install the exact three-package set transactionally; never mix candidate bytes.",
+    "Reboot, verify identity and service/route invariants, then restore the fixture.",
+    "Adopt a manual Xray configuration only through a fresh hash-bound preview."
+  ],
+  "stops": [
+    "Signature, manifest, package hash, package size, version, target, or storage mismatch.",
+    "Recent out-of-memory kills, reboot loop, management-path loss, or daemon instability.",
+    "Unknown Xray path, unsupported layout, drift, recovery lock, or pending reboot validation."
+  ]
+}
