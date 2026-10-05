@@ -513,7 +513,7 @@ set -eu
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
 STATE_DIR=/etc/firstboot-wizard
-COMPLETE_FILE="$STATE_DIR/complete"
+PACKAGE_GUARD="$STATE_DIR/package-install"
 
 [ ! -L "$STATE_DIR" ] || {
   printf '%s\n' 'refusing symlinked first-boot state directory' >&2
@@ -526,23 +526,23 @@ fi
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
-[ ! -L "$COMPLETE_FILE" ] || {
-  printf '%s\n' 'refusing symlinked first-boot completion marker' >&2
+[ ! -L "$PACKAGE_GUARD" ] || {
+  printf '%s\n' 'refusing symlinked package-setup guard marker' >&2
   exit 1
 }
-if [ -e "$COMPLETE_FILE" ] && [ ! -f "$COMPLETE_FILE" ]; then
-  printf '%s\n' 'refusing non-file first-boot completion marker' >&2
+if [ -e "$PACKAGE_GUARD" ] && [ ! -f "$PACKAGE_GUARD" ]; then
+  printf '%s\n' 'refusing non-file package-setup guard marker' >&2
   exit 1
 fi
-if [ ! -f "$COMPLETE_FILE" ]; then
-  temporary="$STATE_DIR/.complete.$$"
+if [ ! -f "$PACKAGE_GUARD" ]; then
+  temporary="$STATE_DIR/.package-install.$$"
   rm -f "$temporary"
   umask 077
   : > "$temporary"
   chmod 600 "$temporary"
-  mv "$temporary" "$COMPLETE_FILE"
+  mv "$temporary" "$PACKAGE_GUARD"
 fi
-chmod 600 "$COMPLETE_FILE"
+chmod 600 "$PACKAGE_GUARD"
 exit 0
 EOF
   cat > "$control_dir/postinst" <<'EOF'
@@ -550,6 +550,10 @@ EOF
 set -eu
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
+EOF
+  cat "$ROOT_DIR/scripts/package-native-init.sh" >> "$control_dir/postinst"
+  cat >> "$control_dir/postinst" <<'EOF'
+pr_initialize_clean_native_xray
 chmod 755 /etc/uci-defaults/99-openwrt-fin0-firstboot 2>/dev/null || true
 if [ "${PREMIER_ROUTER_KEEP_UCI_DEFAULTS:-0}" != "1" ]; then
   rm -f /etc/uci-defaults/99-openwrt-fin0-firstboot

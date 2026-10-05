@@ -1,3 +1,26 @@
+# Router UI 0.7.11 RC22 — clean package provisioning
+
+Application `0.7.11-rc.22`, package `0.7.11~rc22-1`, candidate channel.
+On supported clean OpenWrt, the setup package initializes only untouched,
+disabled upstream Xray defaults to the native managed path. Authenticated
+LuCI can then create the first profile, select it and enable VPN. Existing
+manual/adopted/native state is preserved. No historical Router UI is required.
+
+Online installation guards the public image wizard without falsely marking
+first provisioning complete. Package provisioning uses Network > VPN Panel;
+the public image wizard cannot change an existing administrator's account or
+network. Existing completion markers remain untouched.
+
+This is a focused provisional source/one-VM checkpoint only. No double build,
+production signing, full release matrix, hardware or publication is authorized.
+[RC22 decision](../docs/decisions/2026-10-05-router-ui-0.7.11-rc22-clean-provisioning.md).
+
+RC21 remains immutable, valid evidence for its separate legacy-upgrade path.
+It does not qualify clean provisioning. Updater, migration, Tailscale and LuCI
+runtime behavior otherwise remain unchanged.
+
+---
+
 # Router UI 0.7.11 RC21 — signed dependency-feed recovery
 
 Application identity is `0.7.11-rc.21`, package identity is `0.7.11~rc21-1`,

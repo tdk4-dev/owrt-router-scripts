@@ -150,7 +150,7 @@ assert.ok(gateMatch, 'preparation input gate must be extractable');
 const gate = gateMatch[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
 const gateEnvironment = {
 	PATH: process.env.PATH,
-	APP_VERSION: '0.7.11-rc.21', PACKAGE_VERSION: '0.7.11~rc21-1', RELEASE_CHANNEL: 'candidate',
+	APP_VERSION: '0.7.11-rc.22', PACKAGE_VERSION: '0.7.11~rc22-1', RELEASE_CHANNEL: 'candidate',
 	SOURCE_SHA: 'a'.repeat(40), WORKFLOW_SHA: 'a'.repeat(40),
 	CUSTODY_CONFIRMED: 'true', CUSTODY_RECORD_SHA256: 'b'.repeat(64)
 };

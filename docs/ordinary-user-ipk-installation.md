@@ -1,6 +1,6 @@
-> Current source: 0.7.11-rc.20 / 0.7.11~rc20-1 (release-tooling correction).
-> Signing custody is NOT SATISFIED. The stable guidance below is prospective;
-> no canonical signed stable package set is ready for installation.
+> Current source: 0.7.11-rc.22 / 0.7.11~rc22-1 (clean-provisioning repair).
+> RC22 is a focused provisional checkpoint, not a production-signed release.
+> The stable guidance below remains prospective.
 > Install only explicitly selected candidate assets. First publication does not
 > change GitHub Latest; normal automatic discovery remains a separate rollout.
 > An unsupported custom transparent-routing init is rejected before migration.
@@ -182,13 +182,22 @@ persistent storage before asking `opkg` to change packages. It then installs
 all three IPKs, validates the result, and preserves the exact IPK bytes as the
 rollback source for a later signed update.
 
-On an already configured OpenWrt router, the bootstrap seals the public
-first-boot endpoint before making its recovery backup, and the setup package
-independently locks that endpoint before its web files are installed. This
-prevents the image-only setup wizard from reopening access to root, LAN, VPN,
-or Tailscale configuration during an IPK installation. Offline image
-construction skips the package guard so a newly flashed image can still
-present its intended first-boot wizard.
+Online IPK installation writes a private `package-install` guard before its
+recovery backup and before the setup web files are installed. This keeps the
+public, image-only wizard from changing an existing administrator's root/LAN
+settings. It does not falsely mark clean first provisioning complete; existing
+completion state is preserved. Offline image construction retains its existing
+first-boot wizard behavior.
+
+On clean OpenWrt with untouched, disabled upstream Xray defaults and no existing
+Xray/profile/ownership state, the setup package initializes the native managed
+configuration path. Sign in to LuCI and open **Network > VPN Panel**: ownership
+must be healthy and unconfigured, and **Add Profile** must be available. Add a
+valid public-endpoint Reality profile, choose **Use**, then **Enable VPN**. The
+native renderer validates the new configuration before Xray starts. No earlier
+Router UI version or copied historical configuration is required. Existing
+manual/adopted/native configurations remain unchanged; ambiguous state keeps
+the existing adoption safeguards.
 
 The bootstrap refuses an already managed installation or any Router UI package
 with a different version. If power loss or an `opkg` interruption leaves only a
@@ -206,11 +215,11 @@ opkg status premier-router-core luci-app-premier-router premier-router-setup |
   sed -n '/^Package:/p;/^Version:/p;/^Status:/p'
 cat /usr/share/vpn-ui/version
 cat /usr/share/premier-router/build-info
-test -f /etc/firstboot-wizard/complete
-test ! -L /etc/firstboot-wizard/complete
-test "$(stat -c '%a' /etc/firstboot-wizard/complete)" = 600
+test -f /etc/firstboot-wizard/package-install
+test ! -L /etc/firstboot-wizard/package-install
+test "$(stat -c '%a' /etc/firstboot-wizard/package-install)" = 600
 QUERY_STRING='action=apply' CONTENT_LENGTH=0 /www/cgi-bin/firstboot-setup |
-  grep -F 'Initial setup is already complete'
+  grep -F 'Package installations use authenticated LuCI'
 /usr/sbin/vpn-ui vpn-summary
 /usr/sbin/vpn-ui tailscale-status
 /usr/sbin/vpn-ui update-status

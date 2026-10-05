@@ -383,6 +383,9 @@ verify_tailscale_registration() {
 apply_setup() {
   local login password confirm keys vpn_enabled vless adguard_enabled selected tailscale_enabled tailscale_url tailscale_key now
 
+  if [ -e "$STATE_DIR/package-install" ] || [ -L "$STATE_DIR/package-install" ]; then
+    fail "Package installations use authenticated LuCI: Network > VPN Panel."
+  fi
   mkdir -p "$STATE_DIR" || fail "Could not initialize first-boot setup state."
   [ ! -f "$COMPLETE_FILE" ] ||
     fail "Initial setup is already complete. Sign in to LuCI to make changes."

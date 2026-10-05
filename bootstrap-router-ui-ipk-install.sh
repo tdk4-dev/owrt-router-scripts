@@ -23,7 +23,7 @@ SIGNATURE="$ASSET_DIR/installed-manifest.json.sig"
 VALIDATOR="$ASSET_DIR/router-candidate-validator"
 INSTALLED_DIR="$ROOT_PREFIX/etc/premier-router"
 FIRSTBOOT_STATE_DIR="$ROOT_PREFIX/etc/firstboot-wizard"
-FIRSTBOOT_COMPLETE_FILE="$FIRSTBOOT_STATE_DIR/complete"
+FIRSTBOOT_PACKAGE_GUARD="$FIRSTBOOT_STATE_DIR/package-install"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 cleanup() {
@@ -51,7 +51,7 @@ safe_name() {
   LC_ALL=C printf '%s' "$1" | grep -q '[[:cntrl:]]' && return 1
   return 0
 }
-seal_existing_router_setup() {
+guard_package_setup() {
   [ ! -L "$FIRSTBOOT_STATE_DIR" ] ||
     die 'refusing symlinked first-boot state directory'
   if [ -e "$FIRSTBOOT_STATE_DIR" ] && [ ! -d "$FIRSTBOOT_STATE_DIR" ]; then
@@ -60,19 +60,19 @@ seal_existing_router_setup() {
   mkdir -p "$FIRSTBOOT_STATE_DIR"
   chmod 700 "$FIRSTBOOT_STATE_DIR"
 
-  [ ! -L "$FIRSTBOOT_COMPLETE_FILE" ] ||
-    die 'refusing symlinked first-boot completion marker'
-  if [ -e "$FIRSTBOOT_COMPLETE_FILE" ] && [ ! -f "$FIRSTBOOT_COMPLETE_FILE" ]; then
-    die 'refusing non-file first-boot completion marker'
+  [ ! -L "$FIRSTBOOT_PACKAGE_GUARD" ] ||
+    die 'refusing symlinked package-setup guard marker'
+  if [ -e "$FIRSTBOOT_PACKAGE_GUARD" ] && [ ! -f "$FIRSTBOOT_PACKAGE_GUARD" ]; then
+    die 'refusing non-file package-setup guard marker'
   fi
-  if [ ! -f "$FIRSTBOOT_COMPLETE_FILE" ]; then
-    firstboot_temporary="$FIRSTBOOT_STATE_DIR/.complete.$$"
+  if [ ! -f "$FIRSTBOOT_PACKAGE_GUARD" ]; then
+    firstboot_temporary="$FIRSTBOOT_STATE_DIR/.package-install.$$"
     rm -f "$firstboot_temporary"
     : > "$firstboot_temporary"
     chmod 600 "$firstboot_temporary"
-    mv "$firstboot_temporary" "$FIRSTBOOT_COMPLETE_FILE"
+    mv "$firstboot_temporary" "$FIRSTBOOT_PACKAGE_GUARD"
   fi
-  chmod 600 "$FIRSTBOOT_COMPLETE_FILE"
+  chmod 600 "$FIRSTBOOT_PACKAGE_GUARD"
 }
 
 case "$ROOT_PREFIX" in ''|/*) ;; *) die 'ROUTER_UI_ROOT_PREFIX must be empty or absolute' ;; esac
@@ -200,7 +200,7 @@ if [ "${ROUTER_UI_TEST_VALIDATE_ASSETS_ONLY:-0}" = 1 ]; then
   exit 0
 fi
 
-seal_existing_router_setup
+guard_package_setup
 
 BACKUP_DIR="$ROOT_PREFIX/root/premier-router-updates/initial-ipk-install-$TARGET_APP_VERSION"
 BACKUP="$BACKUP_DIR/openwrt-configuration-recovery.tar.gz"

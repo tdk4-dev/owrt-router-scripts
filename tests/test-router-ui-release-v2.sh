@@ -64,7 +64,7 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.21" and .package_version == "0.7.11~rc21-1" and
+  .app_version == "0.7.11-rc.22" and .package_version == "0.7.11~rc22-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.6" and
@@ -139,7 +139,7 @@ cat > "$TMP_ROOT/bootstrap-bin/sysupgrade" <<'EOF'
 set -eu
 if [ "${BOOTSTRAP_TEST_SYSUPGRADE_MODE:-fail}" = backup ]; then
   [ "${1:-}" = -b ] && [ -n "${2:-}" ]
-  tar -czf "$2" -C "$BOOTSTRAP_TEST_ROOT" etc/firstboot-wizard/complete
+  tar -czf "$2" -C "$BOOTSTRAP_TEST_ROOT" etc/firstboot-wizard/package-install
   exit 0
 fi
 exit 2
@@ -180,16 +180,16 @@ if run_bootstrap_until_update_failure > "$TMP_ROOT/bootstrap-update-failure.log"
   exit 1
 fi
 grep -q 'package index update failed' "$TMP_ROOT/bootstrap-update-failure.log"
-[ -f "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete" ]
+[ -f "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/package-install" ]
 bootstrap_state_mode="$(stat -c '%a' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" \
   2>/dev/null || stat -f '%Lp' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard")"
-bootstrap_complete_mode="$(stat -c '%a' \
-  "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete" 2>/dev/null ||
-  stat -f '%Lp' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/complete")"
+bootstrap_guard_mode="$(stat -c '%a' \
+  "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/package-install" 2>/dev/null ||
+  stat -f '%Lp' "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard/package-install")"
 [ "$bootstrap_state_mode" = 700 ]
-[ "$bootstrap_complete_mode" = 600 ]
+[ "$bootstrap_guard_mode" = 600 ]
 bootstrap_backup="$TMP_ROOT/bootstrap-root/root/premier-router-updates/initial-ipk-install-$APP_VERSION/openwrt-configuration-recovery.tar.gz"
-tar -tzf "$bootstrap_backup" | grep -Fqx 'etc/firstboot-wizard/complete'
+tar -tzf "$bootstrap_backup" | grep -Fqx 'etc/firstboot-wizard/package-install'
 known_good_dir="$TMP_ROOT/bootstrap-root/root/premier-router-updates/known-good/$(sha256sum \
   "$TMP_ROOT/release/installed-manifest.json" | awk '{print $1}')"
 [ -f "$known_good_dir/bootstrap-incomplete" ]

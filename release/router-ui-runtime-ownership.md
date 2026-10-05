@@ -1,11 +1,13 @@
 # Router UI runtime ownership census
 
-Current source: `0.7.11-rc.21` (`0.7.11~rc21-1`, candidate) preserves RC18
+Current source: `0.7.11-rc.22` (`0.7.11~rc22-1`, candidate) preserves RC18
 installed functionality, including legacy-init migration, persistent device
 bypass, Tailscale cold start and error-state refresh. The RC21 rescue correction
 retains signed dependency feeds for reapply after rollback/reboot. Earlier
 custody verification and RC20 qualification are historical; current private
-assertions must pass before signing, and RC21 requires fresh exact-byte gates.
+assertions must pass before signing, and RC22 requires its own exact-byte gates.
+RC22 additionally initializes untouched clean-install Xray defaults; online
+setup uses authenticated LuCI while the public image wizard remains guarded.
 The machine-readable source of truth is
 `release/router-ui-runtime-ownership.json`.
 

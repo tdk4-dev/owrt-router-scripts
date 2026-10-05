@@ -204,7 +204,7 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
   ' "$MANIFEST" >/dev/null || fail "stable release must authorize RC5, RC6, RC14, RC15, and RC16 and refuse RC7"
 else
   case "$EXPECTED_CANDIDATE_APP_VERSION:$EXPECTED_CANDIDATE_PACKAGE_VERSION" in
-    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.21:0.7.11~rc21-1) ;;
+    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.22:0.7.11~rc22-1) ;;
     *) fail "unsupported expected candidate identity" ;;
   esac
   [ "$APP_VERSION" = "$EXPECTED_CANDIDATE_APP_VERSION" ] &&
