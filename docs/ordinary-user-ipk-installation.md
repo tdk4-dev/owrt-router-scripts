@@ -1,5 +1,5 @@
-> Current source: 0.7.11-rc.22 / 0.7.11~rc22-1 (clean-provisioning repair).
-> RC22 is a focused provisional checkpoint, not a production-signed release.
+> Current source: 0.7.11-rc.23 / 0.7.11~rc23-1 (Tailscale restoration repair).
+> RC23 candidate signing and focused native qualification are separate from publication.
 > The stable guidance below remains prospective.
 > Install only explicitly selected candidate assets. First publication does not
 > change GitHub Latest; normal automatic discovery remains a separate rollout.

@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
   "audited_at": "2026-10-04",
-  "target": "0.7.11-rc.22",
-  "package_version": "0.7.11~rc22-1",
+  "target": "0.7.11-rc.23",
+  "package_version": "0.7.11~rc23-1",
   "release_channel": "candidate",
   "baselines": [
     {"version":"0.7.0","tag_commit":"067b4eb8a399e96a8bd071f802cdbcd066a4ba61","published_release":true,"support":"supported-directly","adapter":"none","evidence":"vm-pending"},

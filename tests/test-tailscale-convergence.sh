@@ -37,12 +37,23 @@ case "${1:-}" in
     rm -f "$state/enabled"
     ;;
   start)
+    echo start >> "$state/calls"
+    [ ! -f "$state/fail-start" ] || exit 1
+    if [ -f "$state/fail-start-once" ]; then rm "$state/fail-start-once"; exit 1; fi
+    if [ -f "$state/delayed-start" ]; then
+      rm "$state/delayed-start"
+      echo 2 > "$state/restart-pending"
+      exit 0
+    fi
     : > "$state/running"
     printf '%s\n' "${RESTORE_PID:-900}" > "$state/pid"
     printf '%s\n' "${RESTORE_START:-9000}" > "$state/start"
     load_identity
+    [ ! -f "$state/start-timeout" ] || echo Starting > "$state/backend"
     ;;
   stop)
+    echo stop >> "$state/calls"
+    [ ! -f "$state/fail-stop" ] || exit 1
     case "$(sed -n '1p' "$state/mode" 2>/dev/null || true)" in
       stop-stuck) ;;
       stop-delayed) printf '%s\n' 2 > "$state/stop-pending" ;;
@@ -50,6 +61,8 @@ case "${1:-}" in
     esac
     ;;
   restart)
+    echo restart >> "$state/calls"
+    [ ! -f "$state/drift-on-restart" ] || echo drift > "$state/route"
     case "$(sed -n '1p' "$state/mode" 2>/dev/null || true)" in
       restart-old) ;;
       restart-delayed)
@@ -91,7 +104,9 @@ export PREMIER_ROUTER_HOST_TEST VPN_UI_ROOT_PREFIX VPN_UI_SOURCE_ONLY
 export VPN_UI_TAILSCALE_ACTION_TIMEOUT VPN_UI_TAILSCALE_RESTORE_TIMEOUT
 . "$HELPER"
 
-sleep() { :; }
+sleep() { advance_mock_state; }
+tailscale_daemon_pids() { [ ! -f "$STATE_DIR/running" ] || cat "$STATE_DIR/pid"; }
+tailscale_restart_baseline_healthy() { [ ! -f "$STATE_DIR/damaged-baseline" ]; }
 
 advance_mock_state() {
   local n
@@ -164,7 +179,7 @@ tailscale_invariant_snapshot() {
     printf 'pid=%s\nprocess_start_id=%s\nenabled=%s\nbackend=%s\nip4=%s\n' \
       "$pid" "$start" "$enabled" "$backend" "$ip"
     printf 'control_url=%s\ntailnet=%s\n' "$control" "$tailnet"
-    printf 'route_hash=route\n'
+    printf 'route_hash=%s\n' "$(cat "$STATE_DIR/route" 2>/dev/null || echo route)"
     if [ "${FIXTURE_RULES_FOLLOW_DAEMON:-0}" = 1 ] && [ -n "$pid" ]; then
       printf 'rule_hash=with-tailscale-rules\n'
     else
@@ -212,7 +227,8 @@ tailscale() {
 }
 
 reset_registered() {
-  rm -f "$STATE_DIR"/* "$FAKE_ROOT/tmp"/vpn-ui-tailscale-action.*
+  rm -f "$STATE_DIR"/*
+  rm -rf "$FAKE_ROOT/tmp"/vpn-ui-tailscale-action.*
   : > "$STATE_DIR/running"
   : > "$STATE_DIR/enabled"
   printf '%s\n' 100 > "$STATE_DIR/pid"
@@ -342,3 +358,128 @@ grep -Fq 'tailscale_wait_state' "$HELPER"
 grep -Fq 'fwmark 0x80000/0xff0000' "$HELPER"
 ! sed -n '/^cmd_tailscale_stop()/,/^}/p' "$HELPER" | grep -Fq '|| true'
 printf '%s\n' 'Tailscale bounded convergence, delayed success, timeout, and exact restoration checks passed'
+
+# Restoration must survive invariant rejection AND a real pending stop lifecycle.
+for mode in normal stop-delayed; do
+  reset_registered
+  echo "$mode" > "$STATE_DIR/mode"
+  touch "$STATE_DIR/drift-on-restart"
+  ( cmd_tailscale_restart ) > "$TMP_ROOT/restore-$mode.json"
+  jq -e '.ok == false' "$TMP_ROOT/restore-$mode.json" >/dev/null
+  test -f "$STATE_DIR/running"
+  test ! -f "$STATE_DIR/stop-pending"
+  grep -qx start "$STATE_DIR/calls"
+  jq -e '.error | contains("final_invariant_route_failure")' "$TMP_ROOT/restore-$mode.json" >/dev/null
+  test -f "$STATE_DIR/enabled"
+done
+printf '%s\n' 'RC23 invariant rejection and asynchronous restoration checks passed'
+
+# Direct restoration fault injection isolates each failure stage.
+for fault in fail-stop stop-stuck fail-start start-timeout copy-failure; do
+  reset_registered
+  transaction="$FAKE_ROOT/tmp/direct"
+  rm -rf "$transaction"
+  tailscale_action_begin "$transaction/before.txt" "$transaction"
+  echo drift > "$STATE_DIR/route"
+  case "$fault" in
+    stop-stuck) echo stop-stuck > "$STATE_DIR/mode"; expected=stop_convergence_timeout ;;
+    fail-stop) touch "$STATE_DIR/$fault"; expected=stop_request_failure ;;
+    fail-start) touch "$STATE_DIR/$fault"; expected=start_request_failure ;;
+    start-timeout) touch "$STATE_DIR/$fault"; expected=start_convergence_failure ;;
+    copy-failure) touch "$STATE_DIR/$fault"; expected=state_restore_failure ;;
+  esac
+  cp() {
+    case "$*" in *restore.*) [ ! -f "$STATE_DIR/copy-failure" ] || return 1 ;; esac
+    command cp "$@"
+  }
+  ! tailscale_restore_prestate "$transaction/before.txt" "$transaction"
+  test "$TAILSCALE_RESTORE_FAILURE" = "$expected"
+  cmp "$transaction/state.preimage" "$FAKE_ROOT/var/lib/tailscale/tailscaled.state"
+  test -f "$STATE_DIR/enabled"
+  if [ "$fault" = copy-failure ]; then
+    test "$TAILSCALE_RESTORE_RECOVERY" = running_intent_restored
+    test -f "$STATE_DIR/running"
+  fi
+  unset -f cp
+  echo "PASS $fault ($expected)"
+done
+
+# A one-shot start failure must still be reported after successful final recovery.
+reset_registered
+rm -rf "$transaction"
+tailscale_action_begin "$transaction/before.txt" "$transaction"
+echo drift > "$STATE_DIR/route"
+touch "$STATE_DIR/fail-start-once" "$STATE_DIR/delayed-start"
+! tailscale_restore_prestate "$transaction/before.txt" "$transaction"
+test "$TAILSCALE_RESTORE_FAILURE" = start_request_failure
+test "$TAILSCALE_RESTORE_RECOVERY" = running_intent_restored
+test "$(grep -c '^start$' "$STATE_DIR/calls")" = 2
+
+# Pre-stopped restoration never starts a daemon; both enabled intents survive.
+for enabled in true false; do
+  reset_registered
+  [ "$enabled" = true ] || rm "$STATE_DIR/enabled"
+  rm "$STATE_DIR/running" "$STATE_DIR/pid" "$STATE_DIR/start"
+  rm -rf "$transaction"
+  tailscale_action_begin "$transaction/before.txt" "$transaction"
+  echo changed >> "$FAKE_ROOT/var/lib/tailscale/tailscaled.state"
+  tailscale_restore_prestate "$transaction/before.txt" "$transaction"
+  test ! -f "$STATE_DIR/running"
+  cmp "$transaction/state.preimage" "$FAKE_ROOT/var/lib/tailscale/tailscaled.state"
+  assert_restored "$transaction/before.txt"
+done
+
+# Disabled-at-boot but running remains disabled through failed restoration.
+reset_registered
+rm "$STATE_DIR/enabled"
+echo stop-delayed > "$STATE_DIR/mode"
+touch "$STATE_DIR/drift-on-restart"
+( cmd_tailscale_restart ) > "$TMP_ROOT/disabled-rejection.json"
+test -f "$STATE_DIR/running"
+test ! -f "$STATE_DIR/enabled"
+
+# Detectable damaged baseline is rejected before a restart/stop request.
+reset_registered
+touch "$STATE_DIR/damaged-baseline"
+( cmd_tailscale_restart ) > "$TMP_ROOT/damaged.json"
+jq -e '.ok == false and (.error | contains("before mutation"))' "$TMP_ROOT/damaged.json" >/dev/null
+test ! -f "$STATE_DIR/calls"
+printf '%s\n' 'RC23 restoration failure stages, running/boot intent and exact state preservation checks passed'
+
+# Exercise the actual pre-restart kernel health guard with observation fixtures.
+eval "$(sed -n '/^tailscale_restart_baseline_healthy() {/,/^}/p' "$HELPER")"
+ip() {
+  case "$*" in
+    '-o -4 addr show dev tailscale0')
+      [ "${HEALTH_ADDRESS:-yes}" = yes ] && echo '1: tailscale0 inet 100.64.0.10/32 scope global tailscale0'
+      ;;
+    '-4 route get '* )
+      if [ "${HEALTH_ROUTE:-yes}" = yes ]; then echo "$4 dev tailscale0 table 52"
+      else echo "$4 via 192.0.2.1 dev eth0"; fi
+      ;;
+    *) return 1 ;;
+  esac
+}
+jsonfilter() {
+  case "$*" in *BackendState*) echo Running ;; *)
+    [ "${HEALTH_PEERS:-yes}" = yes ] || return 1
+    echo 100.64.0.55 ;;
+  esac
+}
+tailscale() { echo '{"Peer":{}}'; }
+reset_registered
+tailscale_invariant_snapshot "$TMP_ROOT/health-before"
+tailscale_restart_baseline_healthy "$TMP_ROOT/health-before"
+HEALTH_ADDRESS=no
+! tailscale_restart_baseline_healthy "$TMP_ROOT/health-before"
+HEALTH_ADDRESS=yes HEALTH_ROUTE=no
+! tailscale_restart_baseline_healthy "$TMP_ROOT/health-before"
+HEALTH_ROUTE=yes
+SSH_CONNECTION='100.64.0.55 12345 100.64.0.10 22'
+tailscale_restart_baseline_healthy "$TMP_ROOT/health-before"
+echo 'PASS actual baseline guard rejects missing TUN address and WAN peer return route'
+
+HEALTH_PEERS=no
+unset SSH_CONNECTION
+tailscale_restart_baseline_healthy "$TMP_ROOT/health-before"
+echo "PASS healthy sole-node baseline with empty peer map"
