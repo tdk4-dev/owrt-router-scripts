@@ -7,15 +7,6 @@ HOSTNAME="openwrt-fin0"
 uci set system.@system[0].hostname="$HOSTNAME" 2>/dev/null || true
 uci commit system 2>/dev/null || true
 
-# Package installs default to manual-ipk-install. A first boot through this
-# image-only uci-defaults script is the positive signal for self-managed-image.
-if [ -x /usr/sbin/vpn-ui ]; then
-  /usr/sbin/vpn-ui metadata-set self-managed-image self-managed local-only 0 0 \
-    >/tmp/premier-router-image-metadata.log 2>&1 || true
-  /usr/sbin/vpn-ui metadata-installed custom-image \
-    >>/tmp/premier-router-image-metadata.log 2>&1 || true
-fi
-
 uci set network.lan.ipaddr="$LAN_IP"
 uci set network.lan.netmask="255.255.255.0"
 uci set network.lan.proto="static"
@@ -26,7 +17,7 @@ uci set dhcp.lan.limit="150"
 uci set dhcp.lan.leasetime="12h"
 uci commit dhcp
 
-uci -q delete firewall.lan_wan_forward || true
+uci -q delete firewall.lan_wan_forward
 uci set firewall.lan_wan_forward="forwarding"
 uci set firewall.lan_wan_forward.src="lan"
 uci set firewall.lan_wan_forward.dest="wan"
@@ -43,7 +34,19 @@ chmod 0755 /www/cgi-bin/firstboot-setup /usr/sbin/vpn-ui /usr/sbin/vpn-ui-update
 /etc/init.d/uhttpd enable >/dev/null 2>&1 || true
 /etc/init.d/cron enable >/dev/null 2>&1 || true
 /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
-/etc/init.d/xray disable >/dev/null 2>&1 || true
+[ -x /etc/init.d/xray ] && [ -x /etc/init.d/xray-transparent ]
+/etc/init.d/xray-transparent stop >/dev/null 2>&1
+! /etc/init.d/xray-transparent running >/dev/null 2>&1
+/etc/init.d/xray stop >/dev/null 2>&1 || true
+! /etc/init.d/xray running >/dev/null 2>&1
+/etc/init.d/xray-transparent disable >/dev/null 2>&1
+! /etc/init.d/xray-transparent enabled >/dev/null 2>&1
+/etc/init.d/xray disable >/dev/null 2>&1
+! /etc/init.d/xray enabled >/dev/null 2>&1
+uci set xray.enabled=xray
+uci set xray.enabled.enabled='0'
+uci commit xray
+[ "$(uci -q get xray.enabled.enabled)" = 0 ]
 /etc/init.d/tailscale disable >/dev/null 2>&1 || true
 rm -f /tmp/luci-indexcache.*.json 2>/dev/null || true
 

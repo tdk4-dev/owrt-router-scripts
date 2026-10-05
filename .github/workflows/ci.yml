@@ -2,90 +2,20 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-      - "hotfix/**"
-      - "docs/**"
-      - "test/**"
-      - "chore/**"
-      - "codex/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  static:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install release-test tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq cmake
-          USIGN_INSTALL_DIR="$RUNNER_TEMP/bin" ./scripts/install-ci-usign.sh
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: Validate shell scripts
-        run: |
-          sh -n \
-            luci-vpn-ui/install.sh \
-            luci-vpn-ui/files/usr/sbin/vpn-ui \
-            luci-vpn-ui/files/usr/sbin/vpn-ui-update \
-            install-router-ui-release.sh \
-            install-openwrt-vpn-ui.sh \
-            install-friend-vpn-panel.sh \
-            make-vpn-ui-release-bundle.sh \
-            scripts/build-openwrt-ipks.sh \
-            scripts/derive-rd23-storage-layout.sh \
-            scripts/patch-openwrt-x86-writable-extent.sh \
-            scripts/stage-installed-package-set.sh \
-            scripts/stage-router-release.sh \
-            scripts/validate-staged-release.sh \
-            tests/vm/build-synthetic-next.sh \
-            tests/vm/baseline-contract-digest.sh \
-            tests/vm/router-ui-vm-guest.sh \
-            tests/vm/write-candidate-content-descriptor.sh
-          bash -n \
-            publish-vpn-panel-release.sh \
-            tests/vm/download-immutable-actions-artifact.sh \
-            tests/vm/fail-closed-runner.sh \
-            tests/vm/router-ui-vm-gate.sh
-
-      - name: Validate JavaScript
-        run: |
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/vpn.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/tailscale.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/network/adguard.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/tools/router_footer.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/update.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/system/reset.js
-          node --check luci-vpn-ui/files/www/luci-static/resources/view/status/include/35_vpn.js
-          node --check firstboot-wizard/server.mjs
-          node --check firstboot-wizard/www/app.js
-          node --check tests/vm/check-status-card.cjs
-
-      - name: Run local tests
-        run: |
-          sh tests/test-vpn-hotfixes.sh
-          sh tests/test-luci-stable-assets.sh
-          sh tests/test-release-publisher.sh
-          sh tests/test-openwrt-ipk-packages.sh
-          sh tests/test-release-staging.sh
-          sh tests/test-version-variable-names.sh
-          sh tests/test-luci-status-include.sh
-          sh tests/test-router-reset-ui.sh
-          sh tests/test-firstboot-root-only.sh
-          sh tests/test-firstboot-install-options.sh
-          sh tests/test-firstboot-vless-import.sh
-          sh tests/test-firstboot-wifi.sh
-          sh tests/test-router-prep-policy.sh
-          sh tests/test-router-metadata.sh
-          sh tests/test-adguard-panel.sh
-          sh tests/test-rd23-profile.sh
-          sh tests/test-tailscale-registration.sh
-          sh tests/test-update-release-compat.sh
-          sh tests/test-vm-architecture.sh
-          node tests/test-tailscale-ping-ui.mjs
+  source-preflight:
+    uses: ./.github/workflows/router-ui-source-preflight.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
