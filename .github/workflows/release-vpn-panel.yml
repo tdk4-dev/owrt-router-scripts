@@ -10,12 +10,12 @@ on:
       app_version:
         description: Expected application version
         required: true
-        default: 0.7.11-rc.22
+        default: 0.7.11-rc.23
         type: string
       package_version:
         description: Expected opkg version
         required: true
-        default: 0.7.11~rc22-1
+        default: 0.7.11~rc23-1
         type: string
       channel:
         description: Expected channel
@@ -56,7 +56,7 @@ jobs:
           printf '%s' "$ARTIFACT_ID" | grep -Eq '^[1-9][0-9]*$'
           printf '%s' "$ARTIFACT_ZIP_SHA256" | grep -Eq '^[0-9a-f]{64}$'
           case "$APP_VERSION:$PACKAGE_VERSION:$RELEASE_CHANNEL" in
-            0.7.11-rc.22:0.7.11~rc22-1:candidate|0.7.11:0.7.11-1:stable) ;;
+            0.7.11-rc.23:0.7.11~rc23-1:candidate|0.7.11:0.7.11-1:stable) ;;
             *) echo 'Unsupported expected package-candidate identity' >&2; exit 1 ;;
           esac
 

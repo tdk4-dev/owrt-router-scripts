@@ -23,9 +23,9 @@ class PackageContractTests(unittest.TestCase):
         self.root = Path(self.temp.name) / 'source'
         self.root.mkdir()
         for path, text in {
-            'luci-vpn-ui/VERSION': '0.7.11-rc.22\n',
-            'luci-vpn-ui/PACKAGE_VERSION': '0.7.11~rc22-1\n',
-            'luci-vpn-ui/files/usr/share/vpn-ui/version': '0.7.11-rc.22\n',
+            'luci-vpn-ui/VERSION': '0.7.11-rc.23\n',
+            'luci-vpn-ui/PACKAGE_VERSION': '0.7.11~rc23-1\n',
+            'luci-vpn-ui/files/usr/share/vpn-ui/version': '0.7.11-rc.23\n',
             'release/keys/trusted-keys.json': json.dumps({
                 'active_key_id': contract.KEY_ID, 'keys': [{
                     'key_id': contract.KEY_ID, 'fingerprint': contract.FINGERPRINT,
@@ -48,7 +48,7 @@ class PackageContractTests(unittest.TestCase):
         self.sha = self.git('rev-parse', 'HEAD')
         self.tree = self.git('rev-parse', 'HEAD^{tree}')
 
-    def verify(self, app='0.7.11-rc.22', package='0.7.11~rc22-1', channel='candidate', **overrides):
+    def verify(self, app='0.7.11-rc.23', package='0.7.11~rc23-1', channel='candidate', **overrides):
         return contract.verify_source(self.root, overrides.get('sha', self.sha),
                                       overrides.get('tree', self.tree), app, package, channel)
 
@@ -65,8 +65,8 @@ class PackageContractTests(unittest.TestCase):
 
     def test_mismatched_historical_and_mixed_tuples(self):
         for args in [('0.7.11-rc.15', '0.7.11~rc15-1', 'candidate'),
-                     ('0.7.11-rc.22', '0.7.11-1', 'candidate'),
-                     ('0.7.11-rc.22', '0.7.11~rc22-1', 'stable'),
+                     ('0.7.11-rc.23', '0.7.11-1', 'candidate'),
+                     ('0.7.11-rc.23', '0.7.11~rc23-1', 'stable'),
                      ('0.7.11', '0.7.11-1', 'stable')]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 self.verify(*args)
@@ -85,7 +85,7 @@ class PackageContractTests(unittest.TestCase):
         self.commit()
         with self.assertRaisesRegex(ValueError, 'version mismatch'):
             self.verify()
-        marker.write_text('0.7.11-rc.22\n')
+        marker.write_text('0.7.11-rc.23\n')
         registry_file = self.root / 'release/keys/trusted-keys.json'
         registry = json.loads(registry_file.read_text())
         for status, fingerprint in [('previous', contract.FINGERPRINT),
@@ -110,7 +110,7 @@ class PackageContractTests(unittest.TestCase):
         manifest = dict(app_version=identity['app_version'], package_version=identity['package_version'],
                         signing_key_id=contract.KEY_ID, signing_key_fingerprint=contract.FINGERPRINT,
                         source_commit=self.sha, source_dirty=False, channel='candidate', images=[],
-                        release_tag='vpn-panel-v0.7.11-rc.22', packages=packages)
+                        release_tag='vpn-panel-v0.7.11-rc.23', packages=packages)
         provenance = dict(manifest, derived_images=[])
         (release / 'router-release-manifest.json').write_text(json.dumps(manifest))
         (release / 'release-provenance.json').write_text(json.dumps(provenance))

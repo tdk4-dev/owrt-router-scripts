@@ -2281,6 +2281,16 @@ set_service_enabled_state() {
 
 set_service_running_state() {
   local service="$1" expected="$2"
+  if [ "$service:$expected" = tailscale:false ]; then
+    TAILSCALE_STOP_ACCEPTED=false
+    if service_running tailscale || [ -n "$(tailscale_daemon_pids)" ]; then
+      "${ROOT_PREFIX}/etc/init.d/tailscale" stop >/dev/null 2>&1 || return 1
+      TAILSCALE_STOP_ACCEPTED=true
+    fi
+    # procd's successful delete reply only acknowledges an asynchronous stop.
+    tailscale_wait_stopped "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" || return 2
+    return 0
+  fi
   if [ "$expected" = true ]; then
     service_running "$service" ||
       "${ROOT_PREFIX}/etc/init.d/$service" start >/dev/null 2>&1 || return 1
@@ -2508,7 +2518,7 @@ tailscale_wait_state() {
 
 tailscale_snapshot_matches_restored() {
   local before="$1" after="$2" key
-  for key in enabled backend ip4 control_url tailnet route_hash rule_hash \
+  for key in enabled backend ip4 control_url tailnet state_hash route_hash rule_hash \
     management_route_hash management_rule_hash; do
     [ "$(tailscale_snapshot_value "$before" "$key")" = \
       "$(tailscale_snapshot_value "$after" "$key")" ] || return 1
@@ -2542,9 +2552,45 @@ tailscale_wait_invariants() {
   return 1
 }
 
-tailscale_restore_prestate() {
+# Observe both procd and the daemon: neither an accepted request nor one
+# observer alone establishes that it is safe to replace persistent state.
+tailscale_wait_stopped() {
+  local timeout="$1" attempt=0
+  case "$timeout" in ''|*[!0-9]*) return 1 ;; esac
+  while [ "$attempt" -lt "$timeout" ]; do
+    if ! service_running tailscale && [ -z "$(tailscale_daemon_pids)" ]; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge "$timeout" ] || sleep 1
+  done
+  return 1
+}
+
+tailscale_restore_state_file() {
+  local transaction="$1" state_file="$2" staging
+  [ ! -L "$state_file" ] || return 1
+  if [ -f "$transaction/state.absent" ]; then
+    rm -f "$state_file" && [ ! -e "$state_file" ]
+  else
+    mkdir -p "$(dirname "$state_file")" || return 1
+    staging="$(mktemp "${state_file}.restore.XXXXXX")" || return 1
+    # Keep the current file intact on copy failure, including disk-full errors.
+    if cp -p "$transaction/state.preimage" "$staging" &&
+      cmp -s "$transaction/state.preimage" "$staging" &&
+      [ ! -L "$state_file" ] && mv -f "$staging" "$state_file"; then
+      cmp -s "$transaction/state.preimage" "$state_file"
+      return $?
+    fi
+    rm -f "$staging"
+    return 1
+  fi
+}
+
+tailscale_restore_steps() {
   local before="$1" transaction="$2" state_file pre_running pre_enabled pre_backend pre_ip
-  local after="$transaction/restored.txt" early="$transaction/restored-early.txt" attempt=0 state_same=false
+  local after="$transaction/restored.txt" early="$transaction/restored-early.txt" attempt=0 state_same=false rc
+  TAILSCALE_RESTORE_FAILURE=state_restore_failure
   state_file="$(sed -n '1p' "$transaction/state.path" 2>/dev/null)"
   case "$state_file" in /*) ;; *) return 1 ;; esac
   case "$state_file" in *'/../'*|*/..|../*|*'/./'*|*/.) return 1 ;; esac
@@ -2554,11 +2600,9 @@ tailscale_restore_prestate() {
   pre_enabled="$(tailscale_snapshot_value "$before" enabled)"
   pre_backend="$(tailscale_snapshot_value "$before" backend)"
   pre_ip="$(tailscale_snapshot_value "$before" ip4)"
-  if [ "$pre_enabled" = true ]; then
-    "${ROOT_PREFIX}/etc/init.d/tailscale" enable >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
-  else
-    "${ROOT_PREFIX}/etc/init.d/tailscale" disable >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
-  fi
+  TAILSCALE_RESTORE_FAILURE=boot_intent_restore_failure
+  set_service_enabled_state tailscale "$pre_enabled" || return 1
+  TAILSCALE_RESTORE_FAILURE=state_restore_failure
   if [ -f "$transaction/state.absent" ]; then
     [ ! -e "$state_file" ] && state_same=true
   else
@@ -2569,19 +2613,23 @@ tailscale_restore_prestate() {
     tailscale_invariant_snapshot "$early" || return 1
     tailscale_snapshot_matches_restored "$before" "$early" && return 0
   fi
-  set_service_running_state tailscale false || return 1
-  if [ -f "$transaction/state.absent" ]; then
-    rm -f "$state_file"
-  else
-    mkdir -p "$(dirname "$state_file")" || return 1
-    cp -p "$transaction/state.preimage" "$state_file" || return 1
-    cmp -s "$transaction/state.preimage" "$state_file" || return 1
-  fi
+  rc=0
+  set_service_running_state tailscale false || rc=$?
+  case "$rc" in
+    0) ;;
+    2) TAILSCALE_RESTORE_FAILURE=stop_convergence_timeout; return 1 ;;
+    *) TAILSCALE_RESTORE_FAILURE=stop_request_failure; return 1 ;;
+  esac
+  TAILSCALE_RESTORE_FAILURE=state_restore_failure
+  tailscale_restore_state_file "$transaction" "$state_file" || return 1
   if [ "$pre_running" = true ]; then
+    TAILSCALE_RESTORE_FAILURE=start_request_failure
     "${ROOT_PREFIX}/etc/init.d/tailscale" start >/tmp/vpn-ui-tailscale-restore.log 2>&1 || return 1
   fi
+  TAILSCALE_RESTORE_FAILURE=start_convergence_failure
   tailscale_wait_state "$pre_running" "$pre_enabled" "$pre_backend" "$pre_ip" \
     "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" || return 1
+  TAILSCALE_RESTORE_FAILURE=final_invariant_route_failure
   while [ "$attempt" -lt "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}" ]; do
     tailscale_invariant_snapshot "$after" || return 1
     tailscale_snapshot_matches_restored "$before" "$after" && return 0
@@ -2591,13 +2639,68 @@ tailscale_restore_prestate() {
   return 1
 }
 
+tailscale_restore_prestate() {
+  local before="$1" transaction="$2" failure enabled backend ip
+  TAILSCALE_STOP_ACCEPTED=false
+  TAILSCALE_RESTORE_FAILURE=''
+  TAILSCALE_RESTORE_RECOVERY=not_needed
+  if tailscale_restore_steps "$before" "$transaction"; then
+    TAILSCALE_RESTORE_FAILURE=''
+    return 0
+  fi
+  failure="$TAILSCALE_RESTORE_FAILURE"
+  if [ "$TAILSCALE_STOP_ACCEPTED" = true ] && [ -n "$(tailscale_snapshot_value "$before" pid)" ]; then
+    enabled="$(tailscale_snapshot_value "$before" enabled)"
+    backend="$(tailscale_snapshot_value "$before" backend)"
+    ip="$(tailscale_snapshot_value "$before" ip4)"
+    TAILSCALE_RESTORE_RECOVERY=failed
+    # A timed-out stop may still be pending. Never acknowledge an old dying
+    # process as recovery or start on top of it; give termination one final bound.
+    if [ "$failure" != stop_convergence_timeout ] ||
+      tailscale_wait_stopped "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}"; then
+      if set_service_enabled_state tailscale "$enabled" &&
+        { service_running tailscale ||
+          "${ROOT_PREFIX}/etc/init.d/tailscale" start >>/tmp/vpn-ui-tailscale-restore.log 2>&1; } &&
+        tailscale_wait_state true "$enabled" "$backend" "$ip" "${VPN_UI_TAILSCALE_RESTORE_TIMEOUT:-20}"; then
+        TAILSCALE_RESTORE_RECOVERY=running_intent_restored
+      fi
+    fi
+  fi
+  # A recovered running intent never converts a failed copy/invariant into success.
+  printf 'failure=%s\nrecovery=%s\n' "$failure" "$TAILSCALE_RESTORE_RECOVERY" > "$transaction/restore-result.txt"
+  return 1
+}
+
 tailscale_action_failed() {
   local action="$1" before="$2" transaction="$3" reason="$4"
   if tailscale_restore_prestate "$before" "$transaction"; then
     rm -rf "$transaction"
     die_json "$action failed; exact pre-action Tailscale state was restored: $reason"
   fi
-  die_json "$action failed and exact pre-action Tailscale state restoration could not be proven: $reason"
+  die_json "$action failed and exact pre-action Tailscale state restoration could not be proven: $reason; restore=$TAILSCALE_RESTORE_FAILURE; recovery=$TAILSCALE_RESTORE_RECOVERY; saved identity alone cannot reconstruct kernel routing"
+}
+
+# Reject detectable damage before restart. A saved identity does not encode
+# kernel addresses/routes; restarting it cannot promise to reproduce missing ones.
+tailscale_restart_baseline_healthy() {
+  local before="$1" ip peer ssh_connection="${SSH_CONNECTION:-}" status="${ROOT_PREFIX}/tmp/vpn-ui-tailscale-health.$$" peers result=0
+  [ -n "$(tailscale_snapshot_value "$before" pid)" ] || return 0
+  [ "$(tailscale_snapshot_value "$before" backend)" = Running ] || return 0
+  ip="$(tailscale_snapshot_value "$before" ip4)"
+  [ -n "$ip" ] || return 1
+  ip -o -4 addr show dev tailscale0 2>/dev/null | awk '{print $4}' | grep -Fxq "$ip/32" || return 1
+  tailscale status --json > "$status" 2>/dev/null || { rm -f "$status"; return 1; }
+  [ "$(jsonfilter -i "$status" -e '@.BackendState' 2>/dev/null)" = Running ] || result=1
+  # jsonfilter exits nonzero for a valid empty peer map as well as no match.
+  peers="$(jsonfilter -i "$status" -e '@.Peer.*.TailscaleIPs[0]' 2>/dev/null || true)"
+  rm -f "$status"
+  # Check all known IPv4 peer routes, including the SSH source when in CGNAT.
+  case "${ssh_connection%% *}" in 100.*) peers="$peers ${ssh_connection%% *}" ;; esac
+  for peer in $peers; do
+    case "$peer" in *:*) continue ;; esac
+    ip -4 route get "$peer" 2>/dev/null | grep -Eq 'dev tailscale0( |$)' || result=1
+  done
+  [ "$result" = 0 ]
 }
 
 restore_transparent_state() {
@@ -4448,6 +4551,10 @@ cmd_tailscale_restart() {
   before="$transaction/before.txt"
   after="$transaction/after.txt"
   tailscale_action_begin "$before" "$transaction" || die_json "could not capture the pre-action Tailscale state"
+  if ! tailscale_restart_baseline_healthy "$before"; then
+    rm -rf "$transaction"
+    die_json "Tailscale restart refused before mutation: unhealthy kernel address or peer/management route baseline; saved identity alone cannot reconstruct kernel routing"
+  fi
   enabled="$(tailscale_snapshot_value "$before" enabled)"
   backend="$(tailscale_snapshot_value "$before" backend)"
   ip="$(tailscale_snapshot_value "$before" ip4)"

@@ -49,7 +49,7 @@ class TransitionAuthorization(unittest.TestCase):
     def identity(self, channel):
         # Exercise both supported target tuples even after a metadata-only
         # stable promotion; these are JSON contracts, never package fixtures.
-        app, package = "0.7.11-rc.22", "0.7.11~rc22-1"
+        app, package = "0.7.11-rc.23", "0.7.11~rc23-1"
         if channel == "stable":
             app, package = "0.7.11", "0.7.11-1"
         return {"ROOT_DIR": str(ROOT), "APP_VERSION": app, "PKG_VERSION": package,
