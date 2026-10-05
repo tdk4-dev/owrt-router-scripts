@@ -95,7 +95,7 @@ for (const [source, label] of [[candidate, 'prepare'], [release, 'verify']]) {
 	assert.match(source, /contents: read/);
 	assert.doesNotMatch(source, /contents: write|gh release|publish-vpn-panel-release\.sh|git tag|git push/);
 	assert.doesNotMatch(source, /build-openwrt-custom-image|stage-factory|build-synthetic-next|validate-rc15|router-ui-vm-gate|REQUIRE_IMAGES: ['"]1['"]/);
-	assert.match(source, /0\.7\.11-rc\.21:0\.7\.11~rc21-1:candidate\|0\.7\.11:0\.7\.11-1:stable/);
+	assert.match(source, /0\.7\.11-rc\.22:0\.7\.11~rc22-1:candidate\|0\.7\.11:0\.7\.11-1:stable/);
 	assert.match(source, /verify-router-ui-package-candidate\.py artifacts/);
 	assert.match(source, /--source-sha "\$SOURCE_SHA" --source-tree "\$SOURCE_TREE"/);
 	assertDangerousJobsGated(source, label);
@@ -132,7 +132,7 @@ assert.match(release, /python3 -I - <<'PY'/);
 assert.match(release, /build_inputs_sha256\[\$side\] == \$digest/);
 assert.match(release, /\.run_attempt == \(\$run\[0\]\.run_attempt \| tostring\)/);
 assert.doesNotMatch(release, /ROUTER_UI_USIGN_SECRET_KEY|environment: router-ui-production-signing|build-openwrt-ipks|sign-opkg-feed|stage-router-release/);
-assert.match(publisher, /0\.7\.11-rc\.21\|0\.7\.11\)/);
+assert.match(publisher, /0\.7\.11-rc\.22\|0\.7\.11\)/);
 assert.match(publisher, /verify-router-ui-package-candidate\.py" artifacts/);
 assert.match(publisher, /--source-sha "\$TAG_COMMIT" --source-tree/);
 assert.match(publisher, /validate_release "\$RELEASE_DIR"/);
