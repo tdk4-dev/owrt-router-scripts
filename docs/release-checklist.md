@@ -2,7 +2,7 @@
 
 Authority: [package-only amendment](decisions/2026-10-04-router-ui-0.7.11-package-only-amendment.md)
 and [RC20 transition amendment](decisions/2026-10-04-router-ui-0.7.11-rc20-rc7-contract.md).
-Current source is RC20; the future stable tuple is app `0.7.11`, package
+Current source is RC24; the future stable tuple is app `0.7.11`, package
 `0.7.11-1`, channel `stable`. Production key ID is `production-2026-07`,
 derived public fingerprint `d055711acf1d9a5b`.
 

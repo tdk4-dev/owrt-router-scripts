@@ -1,6 +1,6 @@
 # Router UI runtime ownership census
 
-Current source: `0.7.11-rc.23` (`0.7.11~rc23-1`, candidate) preserves RC18
+Current source: `0.7.11-rc.24` (`0.7.11~rc24-1`, candidate) preserves RC18
 installed functionality, including legacy-init migration, persistent device
 bypass, Tailscale cold start and error-state refresh. The RC21 rescue correction
 retains signed dependency feeds for reapply after rollback/reboot. Earlier

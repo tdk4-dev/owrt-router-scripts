@@ -1,4 +1,4 @@
-> Current source: 0.7.11-rc.23 / 0.7.11~rc23-1 (Tailscale restoration repair).
+> Current source: 0.7.11-rc.24 / 0.7.11~rc24-1 (RC22 transition repair; qualification pending).
 > RC23 candidate signing and focused native qualification are separate from publication.
 > The stable guidance below remains prospective.
 > Install only explicitly selected candidate assets. First publication does not
