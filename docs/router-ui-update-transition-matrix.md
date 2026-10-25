@@ -13,7 +13,8 @@ installer, and standalone installer stored at each tag.
 | 0.7.8 | yes | not claimed | implemented; VM pending | tar plus standalone |
 | 0.7.9 | yes | host tested; VM pending | implemented; VM pending | the live old worker requires both `35_vpn.js` and `_35_vpn.js` |
 | 0.7.10 | yes | host tested; VM pending | implemented; VM pending | the live old worker requires `35_vpn.js` and forbids `_35_vpn.js` |
-| unknown, development, RC | n/a | refused | refused | fail closed |
+| signed 0.7.11-rc.22, protocol 2 | private immutable artifact | authorized for RC24/future stable; runtime pending | same signed transition required | exact RC22 source/tree/manifest recorded in the machine-readable matrix |
+| unknown, development, unsupported RC | n/a | refused | refused | fail closed |
 
 “Implemented” is not a physical-validation claim. The rescue source parser and
 host transaction are tested, but every published baseline still requires the

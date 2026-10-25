@@ -1,3 +1,19 @@
+# Router UI 0.7.11 RC24 — RC22 update transition
+
+Application `0.7.11-rc.24`, package `0.7.11~rc24-1`, candidate channel.
+
+- Authorize the installed immutable RC22 source only with updater protocol 2.
+- Reject candidate and future stable manifests that omit this required path.
+- Preserve RC23's Tailscale lifecycle repair and all package/runtime behavior.
+
+RC23 remains immutable: its signed manifest omitted RC22, so its physical
+canary stopped before mutation. RC24 requires new source, artifact and runtime
+evidence. Hardware qualification and stable publication remain pending.
+
+Scope: [RC24 decision](../docs/decisions/2026-10-25-router-ui-0.7.11-rc24-transition.md).
+
+---
+
 # Router UI 0.7.11 RC23 — Tailscale restoration lifecycle
 
 Application `0.7.11-rc.23`, package `0.7.11~rc23-1`, candidate channel.

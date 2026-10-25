@@ -10,7 +10,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SUPPORTED_RCS = (5, 6, 14, 15, 16)
+SUPPORTED_RCS = (5, 6, 14, 15, 16, 22)
 
 
 def block(path, expression):
@@ -49,7 +49,7 @@ class TransitionAuthorization(unittest.TestCase):
     def identity(self, channel):
         # Exercise both supported target tuples even after a metadata-only
         # stable promotion; these are JSON contracts, never package fixtures.
-        app, package = "0.7.11-rc.23", "0.7.11~rc23-1"
+        app, package = "0.7.11-rc.24", "0.7.11~rc24-1"
         if channel == "stable":
             app, package = "0.7.11", "0.7.11-1"
         return {"ROOT_DIR": str(ROOT), "APP_VERSION": app, "PKG_VERSION": package,
@@ -106,6 +106,38 @@ class TransitionAuthorization(unittest.TestCase):
                                                 "source_protocol": 2, "mode": "package-v2-rc"})
                 self.manifest.write_text(json.dumps(document))
                 self.validate(env, expected=1)
+
+    def test_rc22_hardware_source_requires_protocol2(self):
+        runtime = '. "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh"\n'
+        for channel in ("candidate", "stable"):
+            with self.subTest(channel=channel):
+                _, env = self.make_manifest(channel)
+                for protocol in (1, 3):
+                    self.run_shell(
+                        runtime + 'pr_transition_supported "$MANIFEST" 0.7.11-rc.22 "$PROTOCOL"',
+                        dict(env, PROTOCOL=str(protocol)), expected=1)
+                self.run_shell(
+                    runtime + 'pr_transition_supported "$MANIFEST" 0.7.11-rc.22 2', env)
+
+    def test_validator_rejects_missing_rc22_transition(self):
+        for channel in ("candidate", "stable"):
+            with self.subTest(channel=channel):
+                document, env = self.make_manifest(channel)
+                document["transitions"] = [row for row in document["transitions"]
+                                           if row["source_version"] != "0.7.11-rc.22"]
+                self.manifest.write_text(json.dumps(document))
+                self.validate(env, expected=1)
+
+    def test_validator_rejects_wrong_rc22_protocol(self):
+        for channel in ("candidate", "stable"):
+            for protocol in (1, 3):
+                with self.subTest(channel=channel, protocol=protocol):
+                    document, env = self.make_manifest(channel)
+                    for row in document["transitions"]:
+                        if row["source_version"] == "0.7.11-rc.22":
+                            row["source_protocol"] = protocol
+                    self.manifest.write_text(json.dumps(document))
+                    self.validate(env, expected=1)
 
     def test_validator_preserves_every_real_protocol2_baseline(self):
         for channel in ("candidate", "stable"):

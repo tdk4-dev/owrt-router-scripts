@@ -200,11 +200,14 @@ if [ "$RELEASE_CHANNEL" = stable ]; then
       .mode == "package-v2-rc") and
     any(.transitions[];
       .source_version == "0.7.11-rc.16" and .source_protocol == 2 and
+      .mode == "package-v2-rc") and
+    any(.transitions[];
+      .source_version == "0.7.11-rc.22" and .source_protocol == 2 and
       .mode == "package-v2-rc")
-  ' "$MANIFEST" >/dev/null || fail "stable release must authorize RC5, RC6, RC14, RC15, and RC16 and refuse RC7"
+  ' "$MANIFEST" >/dev/null || fail "stable release must authorize RC5, RC6, RC14, RC15, RC16, and RC22 and refuse RC7"
 else
   case "$EXPECTED_CANDIDATE_APP_VERSION:$EXPECTED_CANDIDATE_PACKAGE_VERSION" in
-    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.23:0.7.11~rc23-1) ;;
+    0.7.11-rc.18:0.7.11~rc18-1|0.7.11-rc.24:0.7.11~rc24-1) ;;
     *) fail "unsupported expected candidate identity" ;;
   esac
   [ "$APP_VERSION" = "$EXPECTED_CANDIDATE_APP_VERSION" ] &&
@@ -230,6 +233,9 @@ else
   jq -e 'any(.transitions[]; .source_version == "0.7.11-rc.16" and
     .source_protocol == 2 and .mode == "package-v2-rc")' "$MANIFEST" >/dev/null ||
     fail "candidate release does not authorize the RC16 protocol-2 transition"
+  jq -e 'any(.transitions[]; .source_version == "0.7.11-rc.22" and
+    .source_protocol == 2 and .mode == "package-v2-rc")' "$MANIFEST" >/dev/null ||
+    fail "candidate release does not authorize the RC22 protocol-2 transition"
 fi
 [ "$(jq -r '.rd23_storage_geometry.sha256' "$MANIFEST")" = \
   "$(sha256sum "$RELEASE_DIR/rd23-storage-geometry.json" | awk '{print $1}')" ] ||
