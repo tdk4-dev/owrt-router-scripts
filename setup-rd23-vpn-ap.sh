@@ -323,6 +323,9 @@ generate_transparent_init() {
 START=95
 STOP=10
 
+EXTRA_COMMANDS="running"
+EXTRA_HELP="running Check whether complete transparent-proxy kernel state is present"
+
 TABLE='xray_transparent'
 LAN_IF='br-lan'
 LAN_IP='$LAN_IP'
@@ -330,11 +333,43 @@ TPROXY_PORT='12345'
 MARK='1'
 RT_TABLE='100'
 
-start() {
-  ip route replace local default dev lo table "\$RT_TABLE"
-  ip rule show | grep -q "fwmark 0x1.*lookup \$RT_TABLE" || ip rule add fwmark "\$MARK" table "\$RT_TABLE"
+kernel_state_present() {
+  nft list table inet "\$TABLE" >/dev/null 2>&1 &&
+    nft list set inet "\$TABLE" bypass4 >/dev/null 2>&1 &&
+    nft list chain inet "\$TABLE" dns_redirect 2>/dev/null |
+      grep -q 'dport 53' &&
+    [ "\$(nft list chain inet "\$TABLE" prerouting 2>/dev/null |
+      grep -c "tproxy.*:\$TPROXY_PORT")" -ge 2 ] &&
+    ip -4 rule show 2>/dev/null | grep -Eq "fwmark (0x0*1|1)(/0xffffffff)? .*lookup \$RT_TABLE" &&
+    ip -4 route show table "\$RT_TABLE" 2>/dev/null |
+      grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |\$)'
+}
+
+stop() {
+  local failed=0
+
   nft delete table inet "\$TABLE" 2>/dev/null || true
-  nft -f - <<NFT
+  while ip -4 rule del fwmark "\$MARK" table "\$RT_TABLE" 2>/dev/null; do :; done
+  ip -4 route flush table "\$RT_TABLE" 2>/dev/null || true
+  nft list table inet "\$TABLE" >/dev/null 2>&1 && failed=1
+  ip -4 rule show 2>/dev/null |
+    grep -Eq "fwmark (0x0*1|1)(/0xffffffff)? .*lookup \$RT_TABLE" && failed=1
+  ip -4 route show table "\$RT_TABLE" 2>/dev/null |
+    grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |\$)' && failed=1
+  return "\$failed"
+}
+
+start() {
+  stop || return 1
+  ip -4 route add local default dev lo table "\$RT_TABLE" || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
+  ip -4 rule add fwmark "\$MARK" table "\$RT_TABLE" || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
+  nft -f - <<NFT || {
 table inet \$TABLE {
   set bypass4 {
     type ipv4_addr
@@ -357,12 +392,21 @@ table inet \$TABLE {
   }
 }
 NFT
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
+  kernel_state_present || {
+    stop >/dev/null 2>&1 || true
+    return 1
+  }
 }
 
-stop() {
-  nft delete table inet "\$TABLE" 2>/dev/null || true
-  while ip rule del fwmark "\$MARK" table "\$RT_TABLE" 2>/dev/null; do :; done
-  ip route flush table "\$RT_TABLE" 2>/dev/null || true
+running() {
+  kernel_state_present
+}
+
+restart() {
+  stop && start
 }
 EOF
 }
@@ -498,6 +542,13 @@ sh -n /etc/init.d/xray-transparent
 /etc/init.d/xray restart
 /etc/init.d/xray-transparent enable
 /etc/init.d/xray-transparent restart
+/etc/init.d/xray enabled
+/etc/init.d/xray running
+/etc/init.d/xray-transparent enabled
+/etc/init.d/xray-transparent running
+nft list table inet xray_transparent >/dev/null
+ip -4 rule show | grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100'
+ip -4 route show table 100 | grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
 EOF
   rm -rf "$tmpdir"
 }
@@ -570,7 +621,11 @@ echo
 echo xray
 /etc/init.d/xray status
 echo transparent
-/etc/init.d/xray-transparent enabled && echo enabled || echo disabled
+/etc/init.d/xray-transparent enabled
+nft list table inet xray_transparent >/dev/null
+ip -4 rule show | grep -Eq 'fwmark (0x0*1|1)(/0xffffffff)? .*lookup 100'
+ip -4 route show table 100 | grep -Eq '^local (default|0\.0\.0\.0/0) dev lo( |$)'
+echo enabled
 echo tailscale
 tailscale ip -4 || true
 tailscale status | sed -n '1,5p' || true

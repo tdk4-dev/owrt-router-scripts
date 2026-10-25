@@ -1,0 +1,89 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/tmp/xray-access.log"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "port": 11808,
+      "protocol": "socks"
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "vpn.example.invalid",
+            "port": 443,
+            "users": [
+              {
+                "id": "00000000-0000-4000-8000-000000000006",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "cdn.example.invalid",
+          "publicKey": "dummy-public-key",
+          "shortId": "deadbeef"
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["transparent-in"],
+        "ip": ["10.0.0.0/8", "100.64.0.0/10", "192.168.0.0/16", "203.0.113.10/32"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "port": "8080",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": ["full:one.example", "domain:two.example", "regexp:^three\\.example$"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": ["198.51.100.0/24", "2001:db8::/32"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["socks-in", "transparent-in"],
+        "outboundTag": "proxy"
+      }
+    ]
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 4
+      }
+    }
+  }
+}

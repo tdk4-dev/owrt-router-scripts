@@ -80,6 +80,14 @@ vm_phase_child_cleanup() {
     vm_candidate_mutation_began > "$EVIDENCE_DIR/.phase-candidate-mutation" 2>/dev/null || true
   fi
   if [[ -n "${CURRENT_PID:-}" ]]; then
+    if [[ "$exit_code" = 124 ]]; then
+      jq -n --arg phase "$VM_PHASE" --argjson qemu_pid "$CURRENT_PID" \
+        --argjson alive_before_timeout_cleanup "$(kill -0 "$CURRENT_PID" 2>/dev/null && printf true || printf false)" \
+        --argjson observed_at_epoch "$(date +%s)" \
+        '{schema_version:1,phase:$phase,qemu_pid:$qemu_pid,
+          alive_before_timeout_cleanup:$alive_before_timeout_cleanup,
+          observed_at_epoch:$observed_at_epoch}' > "$EVIDENCE_DIR/qemu-timeout.json"
+    fi
     if kill -0 "$CURRENT_PID" 2>/dev/null && declare -F capture_guest_state >/dev/null; then
       capture_guest_state "timeout-or-phase-failure-$VM_PHASE" >/dev/null 2>&1 || true
     fi
@@ -96,14 +104,21 @@ vm_write_phase_state() {
   : > "$VM_PHASE_STATE"
   for variable in \
     ROOT_DIR VM_MODE RELEASE_DIR X86_IMAGE_ARCHIVE SYNTHETIC_DIR EVIDENCE_DIR \
-    VM_CASE DIAGNOSTIC_CASE DIAGNOSTIC_RUN HARNESS_SOURCE_SHA VM_SOURCE_VERSION \
+    VM_CASE DIAGNOSTIC_CASE DIAGNOSTIC_RUN VM_ONLY ALLOW_LEGACY_CONTRACT \
+    HARNESS_SOURCE_SHA VM_SOURCE_VERSION \
     VM_ACTIVE_VERSION VM_PHASE_SELECTOR VM_FAULT_BOUNDARY BASELINE_PACK_DIR \
-    BASELINE_OUTPUT_DIR BASELINE_PACK_DIGEST BASELINE_SELECTOR BASELINE_LOCK \
+    BASELINE_OUTPUT_DIR BASELINE_PACK_DIGEST BASELINE_SELECTOR \
+    BASELINE_ASSET_CACHE_DIR BASELINE_LOCK \
     BASELINE_CONTRACT_DIGEST_SCRIPT BASELINE_CONTRACT_DIGEST FIXTURE_DIR \
     OPENWRT_VERSION SERVER_PORT SSH_PORT HTTP_PORT SERIAL_PORT WORK ORIGIN HOST_ORIGIN \
     STOCK_WRITABLE_KIB STOCK_UBIFS_DF_KIB UBOOTMOD_WRITABLE_KIB UBOOTMOD_UBIFS_DF_KIB \
-    CURRENT_PID SERVER_PID BASELINE_VERSIONS FAULT_BOUNDARIES ssh_base \
+    CURRENT_PID SERVER_PID BASELINE_VERSIONS FLEET_BASELINE_VERSIONS \
+    CANDIDATE_APP_VERSION CANDIDATE_PACKAGE_VERSION CANDIDATE_RELEASE_TAG \
+    CANDIDATE_KEY_ID CANDIDATE_KEY_FINGERPRINT SUCCESSOR_APP_VERSION \
+    SUCCESSOR_PACKAGE_VERSION SUCCESSOR_RELEASE_TAG DUAL_DAEMON_SAMPLES \
+    DUAL_DAEMON_INTERVAL_SECONDS CANDIDATE_CONTRACT_MODE FAULT_BOUNDARIES ssh_base \
     VM_PHASE VM_PHASE_COMMAND VM_PHASE_TIMEOUT_SECONDS VM_PHASE_STATE \
+    VM_RECOVERY_TIMEOUT_SECONDS \
     CANDIDATE_SOURCE_SHA NODE_PATH PATH; do
     declaration="$(declare -p "$variable" 2>/dev/null)" || continue
     declaration="${declaration#declare -- }"

@@ -1,0 +1,227 @@
+#!/bin/sh
+set -u
+
+LIB="${PREMIER_ROUTER_UPDATE_LIB:-/usr/libexec/premier-router/update-lib.sh}"
+[ -r "$LIB" ] || {
+  printf '{"ok":false,"fatal":["trusted update library is missing"],"warnings":[]}\n'
+  exit 1
+}
+. "$LIB"
+
+MANIFEST=""
+SOURCE_VERSION=""
+PHASE="candidate"
+PROTECTED_HASHES=""
+ROOT="${PREMIER_ROUTER_ROOT:-}"
+OPKG_BIN="${PREMIER_ROUTER_OPKG_BIN:-opkg}"
+VPN_UI_BIN="${PREMIER_ROUTER_VPN_UI_BIN:-${ROOT}/usr/sbin/vpn-ui}"
+INSTALLED_MANIFEST="${PREMIER_ROUTER_INSTALLED_MANIFEST:-${ROOT}/etc/premier-router/installed-manifest.json}"
+BUILD_INFO="${PREMIER_ROUTER_BUILD_INFO:-${ROOT}/usr/share/premier-router/build-info}"
+OWNERSHIP_STATE="${PREMIER_ROUTER_XRAY_OWNERSHIP_STATE:-${ROOT}/etc/premier-router/xray-ownership.json}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --manifest) MANIFEST="$2"; shift 2 ;;
+    --source-version) SOURCE_VERSION="$2"; shift 2 ;;
+    --phase) PHASE="$2"; shift 2 ;;
+    --protected-hashes) PROTECTED_HASHES="$2"; shift 2 ;;
+    *) printf '{"ok":false,"fatal":["unknown validator argument"],"warnings":[]}\n'; exit 2 ;;
+  esac
+done
+
+TMP="${TMPDIR:-/tmp}/premier-router-validator.$$"
+FATAL="$TMP.fatal"
+WARN="$TMP.warn"
+mkdir -p "$(dirname "$FATAL")"
+: > "$FATAL"
+: > "$WARN"
+trap 'rm -f "$FATAL" "$WARN" "$TMP".*' EXIT INT TERM
+
+fatal() { printf '%s\n' "$*" >> "$FATAL"; }
+warn() { printf '%s\n' "$*" >> "$WARN"; }
+
+[ -s "$MANIFEST" ] || fatal "candidate manifest is missing"
+case "$PHASE" in candidate|post-reboot|installed) ;; *) fatal "unsupported validation phase" ;; esac
+pr_version_valid "$SOURCE_VERSION" || fatal "source version is malformed"
+
+APP_VERSION="$(pr_json_get "$MANIFEST" '@.app_version' '.app_version // empty')"
+PACKAGE_VERSION="$(pr_json_get "$MANIFEST" '@.package_version' '.package_version // empty')"
+SOURCE_COMMIT="$(pr_json_get "$MANIFEST" '@.source_commit' '.source_commit // empty')"
+INSTALLED_VERSION="$(pr_read_first "${ROOT}/usr/share/vpn-ui/version")"
+[ "$INSTALLED_VERSION" = "$APP_VERSION" ] ||
+  fatal "installed app version is $INSTALLED_VERSION, expected $APP_VERSION"
+
+if command -v "$OPKG_BIN" >/dev/null 2>&1; then
+  for package in $PR_PROJECT_PACKAGES; do
+    actual="$("$OPKG_BIN" status "$package" 2>/dev/null |
+      sed -n 's/^Version: //p' | sed -n '1p')"
+    [ "$actual" = "$PACKAGE_VERSION" ] ||
+      fatal "$package version is ${actual:-missing}, expected $PACKAGE_VERSION"
+  done
+else
+  fatal "opkg is unavailable"
+fi
+
+[ -s "$INSTALLED_MANIFEST" ] || fatal "installed manifest is missing"
+if [ -s "$INSTALLED_MANIFEST" ] &&
+  ! cmp -s "$MANIFEST" "$INSTALLED_MANIFEST"; then
+  fatal "installed manifest does not match the verified candidate"
+fi
+
+[ -s "$BUILD_INFO" ] || fatal "installed build provenance is missing"
+if [ -s "$BUILD_INFO" ]; then
+  grep -qx "APP_VERSION=$APP_VERSION" "$BUILD_INFO" ||
+    fatal "build provenance app version mismatch"
+  grep -qx "PACKAGE_VERSION=$PACKAGE_VERSION" "$BUILD_INFO" ||
+    fatal "build provenance package version mismatch"
+  grep -qx "SOURCE_COMMIT=$SOURCE_COMMIT" "$BUILD_INFO" ||
+    fatal "build provenance source commit mismatch"
+  grep -qx 'SOURCE_DIRTY=false' "$BUILD_INFO" ||
+    fatal "build provenance is dirty"
+  grep -qx 'UPDATER_PROTOCOL=2' "$BUILD_INFO" ||
+    fatal "updater protocol v2 is not installed"
+fi
+
+MENU="${ROOT}/usr/share/luci/menu.d/luci-app-vpn-ui.json"
+ACL="${ROOT}/usr/share/rpcd/acl.d/luci-app-vpn-ui.json"
+READONLY_BIN="${ROOT}/usr/sbin/vpn-ui-readonly"
+[ -s "$MENU" ] || fatal "LuCI menu is missing"
+[ -s "$ACL" ] || fatal "RPC ACL is missing"
+for route in network/vpn network/tailscale system/update; do
+  grep -q "\"path\":[[:space:]]*\"$route\"" "$MENU" ||
+    fatal "LuCI route is missing: $route"
+done
+if [ -s "$ACL" ]; then
+  READ_ACL="$TMP.read-acl"
+  WRITE_ACL="$TMP.write-acl"
+  sed -n '/"read"[[:space:]]*:[[:space:]]*{/,/"write"[[:space:]]*:[[:space:]]*{/p' \
+    "$ACL" > "$READ_ACL"
+  sed -n '/"write"[[:space:]]*:[[:space:]]*{/,/^[[:space:]]*}[[:space:]]*$/p' \
+    "$ACL" > "$WRITE_ACL"
+  grep -Fq '"/usr/sbin/vpn-ui-readonly"' "$READ_ACL" ||
+    fatal "RPC read ACL does not authorize the read-only backend"
+  ! grep -Fq '"/usr/sbin/vpn-ui"' "$READ_ACL" ||
+    fatal "RPC read ACL authorizes the mutating backend"
+  grep -Fq '"/usr/sbin/vpn-ui"' "$WRITE_ACL" ||
+    fatal "RPC write ACL does not authorize the mutating backend"
+fi
+[ -x "$READONLY_BIN" ] || fatal "read-only VPN backend is not executable"
+
+for path in \
+  "${ROOT}/www/luci-static/resources/view/network/vpn.js" \
+  "${ROOT}/www/luci-static/resources/view/network/tailscale.js" \
+  "${ROOT}/www/luci-static/resources/view/system/update.js" \
+  "${ROOT}/www/luci-static/resources/view/status/include/35_vpn.js"
+do
+  [ -s "$path" ] || fatal "required LuCI asset is missing: ${path#${ROOT}}"
+done
+
+COMPAT="${ROOT}/www/luci-static/resources/view/status/include/_35_vpn.js"
+if [ "$SOURCE_VERSION" = "0.7.9" ] && [ "$PHASE" = "candidate" ]; then
+  [ -s "$COMPAT" ] || fatal "0.7.9 compatibility include is missing"
+  if [ -s "$COMPAT" ]; then
+    grep -q 'PREMIER_ROUTER_079_COMPAT_NOOP' "$COMPAT" ||
+      fatal "0.7.9 compatibility include is not the verified no-op module"
+    grep -q 'return null' "$COMPAT" ||
+      fatal "0.7.9 compatibility include may render a duplicate card"
+  fi
+else
+  [ ! -e "$COMPAT" ] || fatal "obsolete status include remains installed"
+fi
+
+INCLUDE_DIR="${ROOT}/www/luci-static/resources/view/status/include"
+if [ -d "$INCLUDE_DIR" ]; then
+  count="$(find "$INCLUDE_DIR" -maxdepth 1 -type f \
+    \( -name '35_vpn*.js' -o -name '_35_vpn*.js' \) | wc -l | tr -d ' ')"
+  expected=1
+  [ "$SOURCE_VERSION" = "0.7.9" ] && [ "$PHASE" = "candidate" ] && expected=2
+  [ "$count" = "$expected" ] ||
+    fatal "status include set is inconsistent: found $count, expected $expected"
+fi
+
+if [ -x "$VPN_UI_BIN" ]; then
+  if [ "$PHASE" = installed ]; then
+    SUMMARY_JSON="$TMP.vpn-summary.json"
+    if "$VPN_UI_BIN" vpn-summary > "$SUMMARY_JSON" 2>/dev/null; then
+      summary_ok="$(pr_json_get "$SUMMARY_JSON" '@.ok' '.ok // false')"
+      [ "$summary_ok" = "true" ] || fatal "read-only VPN runtime summary returned false"
+    else
+      fatal "read-only VPN runtime summary failed"
+    fi
+  else
+    CHECK_JSON="$TMP.check.json"
+    if "$VPN_UI_BIN" check > "$CHECK_JSON" 2>/dev/null; then
+      check_ok="$(pr_json_get "$CHECK_JSON" '@.ok' '.ok // false')"
+      if [ "$check_ok" != "true" ]; then
+        check_error="$(pr_json_get "$CHECK_JSON" '@.error' '.error // empty')"
+        case "$check_error" in
+          'active Xray configuration requires explicit adoption before mutation:'*)
+            if [ -e "$OWNERSHIP_STATE" ] || [ -L "$OWNERSHIP_STATE" ]; then
+              fatal "manual Xray configuration has unexpected ownership metadata"
+            else
+              PREVIEW_JSON="$TMP.adoption-preview.json"
+              if "$VPN_UI_BIN" adoption-preview > "$PREVIEW_JSON" 2>/dev/null &&
+                [ "$(pr_json_get "$PREVIEW_JSON" '@.ok' '.ok // false')" = true ] &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.path' '.adoption.path // empty')" |
+                  grep -Eq '^/etc/xray/[A-Za-z0-9._-]+\.json$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.config_sha256' '.adoption.config_sha256 // empty')" |
+                  grep -Eq '^[0-9a-f]{64}$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.analysis.domain_rule_index' '.adoption.analysis.domain_rule_index // empty')" |
+                  grep -Eq '^[0-9]+$' &&
+                printf '%s' "$(pr_json_get "$PREVIEW_JSON" '@.adoption.analysis.ip_rule_index' '.adoption.analysis.ip_rule_index // empty')" |
+                  grep -Eq '^[0-9]+$'; then
+                warn "compatible manual Xray configuration awaits explicit post-commit adoption"
+              else
+                fatal "manual Xray configuration is not compatible with read-only adoption preview"
+              fi
+            fi
+            ;;
+          *) fatal "local VPN configuration check returned false" ;;
+        esac
+      fi
+    else
+      fatal "local VPN configuration check failed"
+    fi
+  fi
+else
+  fatal "vpn-ui backend is not executable"
+fi
+
+if [ -n "$PROTECTED_HASHES" ] && [ -s "$PROTECTED_HASHES" ]; then
+  if ! (cd "${ROOT:-/}" && sha256sum -c "$PROTECTED_HASHES" >/dev/null 2>&1); then
+    fatal "protected configuration hashes changed"
+  fi
+fi
+
+emit_array() {
+  local file="$1" first=1 line
+  printf '['
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "$first" = "1" ] || printf ','
+    first=0
+    pr_json_string "$line"
+  done < "$file"
+  printf ']'
+}
+
+if [ -s "$FATAL" ]; then
+  printf '{"ok":false,"protocol":1,"phase":'
+  pr_json_string "$PHASE"
+  printf ',"app_version":'
+  pr_json_string "$APP_VERSION"
+  printf ',"fatal":'
+  emit_array "$FATAL"
+  printf ',"warnings":'
+  emit_array "$WARN"
+  printf '}\n'
+  exit 1
+fi
+
+printf '{"ok":true,"protocol":1,"phase":'
+pr_json_string "$PHASE"
+printf ',"app_version":'
+pr_json_string "$APP_VERSION"
+printf ',"fatal":[],"warnings":'
+emit_array "$WARN"
+printf '}\n'
