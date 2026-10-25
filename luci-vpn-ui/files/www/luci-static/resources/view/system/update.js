@@ -74,7 +74,9 @@ return view.extend({
 						return;
 					}
 					if (job.status === 'failed') {
-						reject(new Error(job.message || _('The update task failed safely.')));
+						var error = new Error(job.message || _('The update task failed safely.'));
+						error.updateJobFailed = true;
+						reject(error);
 						return;
 					}
 					if (job.status === 'succeeded' || (kind === 'apply' && job.status === 'pending_reboot')) {
@@ -83,6 +85,12 @@ return view.extend({
 					}
 					reject(new Error(_('The update helper returned an invalid operation state.')));
 				}, this)).catch(L.bind(function(err) {
+					// LuCI has already displayed its login modal. Retrying cannot
+					// restore authentication and must not later hide that modal.
+					if (err.name === 'SessionError') {
+						reject(err);
+						return;
+					}
 					if (err.code === 'malformed_job_id' || err.code === 'invalid_job_kind' ||
 						err.code === 'unknown_job_id' || err.code === 'wrong_job_kind') {
 						reject(err);
@@ -131,10 +139,15 @@ return view.extend({
 					ui.addNotification(null, E('p', {}, _('Update installed. Reboot is required before it is committed.')));
 			}, this))
 			.catch(function(err) {
+				if (err.name === 'SessionError')
+					return;
 				ui.hideModal();
-				ui.addNotification(null, E('p', {}, isInstall
-					? _('Update failed safely: %s').format(err.message || err)
-					: (err.message || err)));
+				var message = err.message || err;
+				if (isInstall)
+					message = err.updateJobFailed
+						? _('Update failed safely: %s').format(message)
+						: _('Update result could not be confirmed. Reload this page to check the status before trying another installation: %s').format(message);
+				ui.addNotification(null, E('p', {}, message));
 			});
 	},
 
@@ -162,6 +175,8 @@ return view.extend({
 	renderBody: function(data) {
 		var job = data.job || {};
 		var busy = job.status === 'starting' || job.status === 'running';
+		var needsReboot = job.status === 'pending_reboot' || job.needs_reboot_validation === true ||
+			job.stage === 'committed_pending_reboot_validation';
 		var currentIsCandidate = data.current_channel === 'candidate' || /(?:-rc\.\d+|RC\d+|-test\d+)$/.test(data.current || '');
 		var checkedNote = data.checked_at
 			? _('Last checked: %s').format(data.checked_at.replace('T', ' ').replace('Z', ' UTC'))
@@ -189,15 +204,19 @@ return view.extend({
 						'data-control-id': 'update-apply',
 						'class': 'cbi-button cbi-button-positive',
 						'href': '#',
-						'aria-disabled': busy || !data.available || isReadonlyView ? 'true' : 'false',
+						'aria-disabled': busy || needsReboot || !data.available || isReadonlyView ? 'true' : 'false',
 						'click': L.bind(function(ev) {
 							ev.preventDefault();
-							if (!busy && data.available && !isReadonlyView)
+							if (!busy && !needsReboot && data.available && !isReadonlyView)
 								return this.install();
 						}, this)
 					}, data.available ? _('Download and install') : _('Up to date'))
 				])
 			]),
+			needsReboot ? E('div', { 'class': 'update-job warning', 'role': 'status', 'data-status-id': 'update-reboot-required' }, [
+				E('strong', {}, _('Reboot required')),
+				E('div', {}, _('Update installed. Reboot is required before it is committed.'))
+			]) : '',
 			busy || job.message ? E('div', { 'class': 'update-job' }, [
 				E('strong', {}, busy ? _('Update task in progress') : (job.status === 'failed' ? _('Last update task failed safely') : _('Last update task'))),
 				E('div', {}, job.message || '-'),

@@ -23,9 +23,10 @@ const element = (tag, attrs, children) => ({
 function makePage(responder) {
 	const calls = [];
 	const notifications = [];
+	const modalEvents = [];
 	const ui = {
-		showModal() {},
-		hideModal() {},
+		showModal() { modalEvents.push('show'); },
+		hideModal() { modalEvents.push('hide'); },
 		addNotification(_title, body) { notifications.push(body); }
 	};
 	const page = new Function(
@@ -46,7 +47,7 @@ function makePage(responder) {
 		() => true,
 		{ setTimeout(fn) { fn(); }, location: { reload() {} } }
 	);
-	return { page, calls, notifications };
+	return { page, calls, notifications, modalEvents };
 }
 
 const idA = 'a'.repeat(64);
@@ -166,3 +167,61 @@ const oldId = 'c'.repeat(64);
 }
 
 console.log('Update browser exact-operation correlation and stale-journal isolation checks passed');
+
+// Native hardware reproducer: rpcd restarts after an accepted Apply and LuCI
+// raises SessionError after displaying its own Log in modal. That is loss of
+// observation, not proof that the transaction failed or rolled back.
+{
+	const { page, calls, notifications, modalEvents } = makePage(async (_command, args) => {
+		if (args[0] === 'update-apply-start')
+			return { ok: true, job: { id: idA, kind: 'apply', status: 'running' } };
+		throw Object.assign(new Error('Login session is expired'), { name: 'SessionError' });
+	});
+	await page.startJob('apply');
+	assert.equal(calls.length, 2, 'session expiry must stop exact-job polling immediately');
+	assert.deepEqual(modalEvents, ['show'], 'preserve the LuCI Log in modal after session expiry');
+	assert.doesNotMatch(JSON.stringify(notifications), /failed safely|installed and validated/,
+		'lost authentication cannot establish a transaction outcome');
+}
+{
+	const { page, notifications } = makePage(async (_command, args) => {
+		if (args[0] === 'update-apply-start')
+			return { ok: true, job: { id: idA, kind: 'apply', status: 'running' } };
+		throw new Error('Network connection lost');
+	});
+	await page.startJob('apply');
+	assert.doesNotMatch(JSON.stringify(notifications), /failed safely|installed and validated/);
+	assert.match(JSON.stringify(notifications), /not be confirmed|not confirmed/,
+		'unknown observation result must instruct the user to check the result');
+}
+{
+	const { page, notifications } = makePage(async (_command, args) => {
+		if (args[0] === 'update-apply-start')
+			return { ok: true, job: { id: idA, kind: 'apply', status: 'running' } };
+		return { ok: true, job: { id: idA, kind: 'apply', status: 'failed', message: 'signature rejected' } };
+	});
+	await page.startJob('apply');
+	assert.match(JSON.stringify(notifications), /failed safely.*signature rejected/,
+		'an authoritative failed exact job must remain an explicit failure');
+}
+{
+	const { page } = makePage(async () => { throw new Error('render must not invoke a mutation'); });
+	const body = page.renderBody({
+		current: '0.7.11-rc.24', latest: '0.7.11-rc.25', available: true,
+		job: { status: 'pending_reboot', stage: 'committed_pending_reboot_validation', needs_reboot_validation: true }
+	});
+	const text = JSON.stringify(body);
+	assert.match(text, /Reboot required/, 'a fresh authenticated load must retain reboot guidance');
+	function find(node) {
+		if (!node || typeof node !== 'object') return;
+		if (node.attrs?.['data-control-id'] === 'update-apply') return node;
+		for (const child of node.children || []) { const found = find(child); if (found) return found; }
+	}
+	const apply = body.map(find).find(Boolean);
+	assert.equal(apply.attrs['aria-disabled'], 'true', 'pending reboot blocks another Apply');
+	let installs = 0;
+	page.install = () => { installs++; };
+	apply.attrs.click({ preventDefault() {} });
+	assert.equal(installs, 0, 'a pending-reboot Apply handler must not dispatch a mutation');
+}
+console.log('Update session-loss and restored pending-reboot regression checks passed');
