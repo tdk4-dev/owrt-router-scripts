@@ -43,6 +43,54 @@ warn() {
   printf 'WARN: %s\n' "$*" >&2
 }
 
+service_enabled() {
+  local service="$1"
+  [ -x "/etc/init.d/$service" ] && /etc/init.d/"$service" enabled >/dev/null 2>&1
+}
+
+service_running() {
+  local service="$1"
+  [ -x "/etc/init.d/$service" ] && /etc/init.d/"$service" running >/dev/null 2>&1
+}
+
+capture_xray_runtime_state() {
+  XRAY_WAS_ENABLED=false
+  XRAY_WAS_RUNNING=false
+  TRANSPARENT_WAS_ENABLED=false
+  TRANSPARENT_WAS_RUNNING=false
+  service_enabled "$XRAY_SERVICE" && XRAY_WAS_ENABLED=true
+  service_running "$XRAY_SERVICE" && XRAY_WAS_RUNNING=true
+  service_enabled xray-transparent && TRANSPARENT_WAS_ENABLED=true
+  service_running xray-transparent && TRANSPARENT_WAS_RUNNING=true
+}
+
+verify_captured_xray_runtime_state() {
+  if [ "$XRAY_WAS_ENABLED" = true ]; then service_enabled "$XRAY_SERVICE" || return 1
+  elif service_enabled "$XRAY_SERVICE"; then return 1; fi
+  if [ "$XRAY_WAS_RUNNING" = true ]; then service_running "$XRAY_SERVICE" || return 1
+  elif service_running "$XRAY_SERVICE"; then return 1; fi
+  if [ "$TRANSPARENT_WAS_ENABLED" = true ]; then service_enabled xray-transparent || return 1
+  elif service_enabled xray-transparent; then return 1; fi
+  if [ "$TRANSPARENT_WAS_RUNNING" = true ]; then service_running xray-transparent || return 1
+  elif service_running xray-transparent; then return 1; fi
+}
+
+restore_captured_xray_runtime_state() {
+  local failed=0
+  if [ "$XRAY_WAS_RUNNING" = true ]; then
+    /etc/init.d/"$XRAY_SERVICE" restart >/tmp/vpn-routes-xray-restore.log 2>&1 || failed=1
+  else
+    /etc/init.d/"$XRAY_SERVICE" stop >/tmp/vpn-routes-xray-restore.log 2>&1 || true
+  fi
+  if [ "$TRANSPARENT_WAS_RUNNING" = true ]; then
+    /etc/init.d/xray-transparent restart >/tmp/vpn-routes-transparent-restore.log 2>&1 || failed=1
+  else
+    /etc/init.d/xray-transparent stop >/tmp/vpn-routes-transparent-restore.log 2>&1 || true
+  fi
+  verify_captured_xray_runtime_state || failed=1
+  [ "$failed" = 0 ]
+}
+
 usage() {
   cat <<EOF
 Usage:
@@ -431,6 +479,16 @@ backup_current_files() {
   [ -e "$DOMAINS_FILE" ] || touch "$dir/root/$name/no-direct-domains-before"
   [ -e "$IPS_FILE" ] || touch "$dir/root/$name/no-direct-ips-before"
   [ -e "$VARS_FILE" ] || touch "$dir/root/$name/no-vpn-routes-vars-before"
+  {
+    for svc in xray xray-exit-st xray-transparent tailscale adguardhome network firewall dnsmasq; do
+      [ -x "/etc/init.d/$svc" ] || continue
+      enabled=0
+      running=0
+      service_enabled "$svc" && enabled=1
+      service_running "$svc" && running=1
+      printf '%s\t%s\t%s\n' "$svc" "$enabled" "$running"
+    done
+  } > "$dir/root/$name/service-state.tsv"
   if command -v sysupgrade >/dev/null 2>&1; then
     sysupgrade -b "$dir/root/$name/openwrt-sysupgrade-config-backup.tar.gz" >/dev/null 2>&1 || true
   fi
@@ -535,23 +593,44 @@ chmod 755 /etc/init.d/adguardhome 2>/dev/null || true
 chmod 755 /usr/sbin/vpn-routes 2>/dev/null || true
 chmod 700 /usr/libexec/openwrt-vpn-routes-renderer.sh 2>/dev/null || true
 
-/etc/init.d/network reload 2>/dev/null || true
-/etc/init.d/firewall restart 2>/dev/null || true
-/etc/init.d/dnsmasq restart 2>/dev/null || true
+STATE="$MARKERS/service-state.tsv"
+[ -f "$STATE" ] || {
+  echo "ERROR: exact pre-migration service state is missing" >&2
+  exit 1
+}
 
-if [ -x /etc/init.d/xray-exit-st ] && /etc/init.d/xray-exit-st enabled >/dev/null 2>&1; then
-  /etc/init.d/xray-exit-st restart 2>/dev/null || true
-elif [ -x /etc/init.d/xray ]; then
-  /etc/init.d/xray restart 2>/dev/null || true
-fi
-[ -x /etc/init.d/xray-transparent ] && /etc/init.d/xray-transparent restart 2>/dev/null || true
-[ -x /etc/init.d/tailscale ] && /etc/init.d/tailscale restart 2>/dev/null || true
-[ -x /etc/init.d/adguardhome ] && /etc/init.d/adguardhome restart 2>/dev/null || true
+restore_service() {
+  service="$1"
+  expected_enabled="$2"
+  expected_running="$3"
+  [ -x "/etc/init.d/$service" ] || return 1
+  if [ "$expected_running" = 1 ]; then
+    /etc/init.d/"$service" restart >/dev/null 2>&1 || /etc/init.d/"$service" start >/dev/null 2>&1 || return 1
+    /etc/init.d/"$service" running >/dev/null 2>&1 || return 1
+  else
+    /etc/init.d/"$service" stop >/dev/null 2>&1 || true
+    ! /etc/init.d/"$service" running >/dev/null 2>&1 || return 1
+  fi
+  if [ "$expected_enabled" = 1 ]; then
+    /etc/init.d/"$service" enable >/dev/null 2>&1 || return 1
+    /etc/init.d/"$service" enabled >/dev/null 2>&1 || return 1
+  else
+    /etc/init.d/"$service" disable >/dev/null 2>&1 || true
+    ! /etc/init.d/"$service" enabled >/dev/null 2>&1 || return 1
+  fi
+}
 
-echo "Rollback applied. Check:"
-echo "  /etc/init.d/xray status 2>/dev/null || /etc/init.d/xray-exit-st status"
-echo "  nft list table inet xray_transparent"
-echo "  curl -4 -x socks5h://10.20.0.1:11808 http://api.ipify.org"
+failed=0
+while IFS="$(printf '\t')" read -r service enabled running; do
+  [ -n "$service" ] || continue
+  restore_service "$service" "$enabled" "$running" || failed=1
+done < "$STATE"
+[ "$failed" = 0 ] || {
+  echo "ERROR: files were restored but exact service pre-state could not be recovered" >&2
+  exit 1
+}
+
+echo "Rollback applied; archived configuration and exact service runtime/reboot state restored."
 EOF
   chmod 700 /root/rollback-vpn-routes-migration.sh
 }
@@ -739,33 +818,16 @@ EOF
 }
 
 restart_xray_services() {
-  if [ "$XRAY_SERVICE" = "xray" ] && [ -x /etc/init.d/xray ]; then
-    uci set xray.enabled='xray'
-    uci set xray.enabled.enabled='1'
-    uci set xray.config='xray'
-    uci set xray.config.conffiles="$XRAY_CONFIG"
-    uci set xray.config.datadir="$XRAY_DATADIR"
-    uci set xray.config.format='json'
-    uci -q delete xray.config.confdir
-    uci commit xray
-    /etc/init.d/xray enable
-    /etc/init.d/xray restart
-  elif [ -x "/etc/init.d/$XRAY_SERVICE" ]; then
-    /etc/init.d/"$XRAY_SERVICE" enable 2>/dev/null || true
-    /etc/init.d/"$XRAY_SERVICE" restart
-  elif [ -x /etc/init.d/xray ]; then
-    /etc/init.d/xray restart
-  else
-    warn "could not restart Xray automatically; restart it manually"
+  [ -x "/etc/init.d/$XRAY_SERVICE" ] || return 1
+  [ -x /etc/init.d/xray-transparent ] || return 1
+  if [ "$XRAY_WAS_RUNNING" = true ]; then
+    /etc/init.d/"$XRAY_SERVICE" restart >/tmp/vpn-routes-xray-restart.log 2>&1 || return 1
   fi
-
-  if [ -x /etc/init.d/xray-transparent ]; then
-    /etc/init.d/xray-transparent restart || true
-  fi
+  verify_captured_xray_runtime_state
 }
 
 apply_routes() {
-  local tmp backup
+  local tmp backup transaction failure=""
 
   require_openwrt_root
   [ -f "$VARS_FILE" ] || die "missing $VARS_FILE; run full migration first"
@@ -776,12 +838,25 @@ apply_routes() {
 
   tmp="/tmp/xray-routes-new.$$"
   backup="$XRAY_CONFIG.bak.vpn-routes.$(date +%Y%m%d-%H%M%S)"
+  transaction="/tmp/vpn-routes-apply.$$"
+  mkdir "$transaction" && chmod 700 "$transaction" || die "could not preserve the route-apply pre-state"
+  cp -p "$XRAY_CONFIG" "$transaction/config.preimage" || die "could not preserve the Xray configuration preimage"
+  capture_xray_runtime_state
   write_xray_config "$tmp"
   "$XRAY_BIN" run -test -config "$tmp"
   cp "$XRAY_CONFIG" "$backup" 2>/dev/null || true
-  cp "$tmp" "$XRAY_CONFIG"
+  cp "$tmp" "$XRAY_CONFIG" || failure="could not install the validated Xray configuration"
   rm -f "$tmp"
-  restart_xray_services
+  [ -n "$failure" ] || restart_xray_services || failure="Xray restart returned without the exact daemon, transparent-proxy, and reboot pre-state"
+  if [ -n "$failure" ]; then
+    cp -p "$transaction/config.preimage" "$XRAY_CONFIG" || die "$failure; configuration rollback failed and recovery is required"
+    if restore_captured_xray_runtime_state && cmp -s "$transaction/config.preimage" "$XRAY_CONFIG"; then
+      rm -rf "$transaction"
+      die "$failure; exact configuration, daemon, transparent-proxy, and reboot pre-state restored"
+    fi
+    die "$failure; runtime rollback failed and recovery is required"
+  fi
+  rm -rf "$transaction"
   echo "VPN route rules applied. Backup: $backup"
 }
 

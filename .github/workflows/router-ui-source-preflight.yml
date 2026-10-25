@@ -1,0 +1,77 @@
+name: Router UI exact-SHA source preflight
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source commit to check without building artifacts
+        required: true
+        type: string
+    outputs:
+      verified_sha:
+        description: Exact source SHA that passed the preflight
+        value: ${{ jobs.preflight.outputs.verified_sha }}
+      verified_tree:
+        description: Exact source tree that passed the preflight
+        value: ${{ jobs.preflight.outputs.verified_tree }}
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      verified_sha: ${{ steps.identity.outputs.verified_sha }}
+      verified_tree: ${{ steps.identity.outputs.verified_tree }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Reject any source other than the requested SHA
+        id: identity
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          printf 'verified_sha=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+          printf 'verified_tree=%s\n' "$tree" >> "$GITHUB_OUTPUT"
+      - name: Verify the preinstalled source-test runtime
+        run: |
+          set -eu
+          for tool in git sh node python3 jq tar gzip sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+      - name: Run enforced Tier 0 source preflight
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_SOURCE_TREE: ${{ steps.identity.outputs.verified_tree }}
+          TIER0_REPORT_PATH: ${{ runner.temp }}/router-ui-tier0-report.json
+        run: tests/run-router-ui-source-preflight.sh
+      - name: Verify machine-readable zero-build result
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_SOURCE_TREE: ${{ steps.identity.outputs.verified_tree }}
+        run: |
+          jq -e --arg sha "$EXPECTED_SOURCE_SHA" --arg tree "$EXPECTED_SOURCE_TREE" '
+            .ok == true and .source_sha == $sha and .source_tree == $tree and
+            .product_build_invocations == 0 and .compiler_invocations == 0 and
+            .image_build_invocations == 0 and
+            .signing_or_staging_invocations == 0 and
+            .release_publication_invocations == 0 and
+            .tool_install_invocations == 0 and .vm_execution_invocations == 0 and
+            .forbidden_invocations == 0 and .guarded_entrypoint_count == 25 and
+            (.declared_temporary_and_output_roots | length) == 4 and
+            .package_image_release_artifacts_generated == 0
+          ' "$RUNNER_TEMP/router-ui-tier0-report.json" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: router-ui-tier0-report-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/router-ui-tier0-report.json
+          if-no-files-found: error
+          retention-days: 14
