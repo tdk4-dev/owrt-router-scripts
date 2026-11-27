@@ -1,0 +1,11 @@
+#!/bin/sh
+case "$1" in
+  list)
+    printf '%s\n' '{"enroll":{"server":"string","hostname":"string","key":"string","routes":"string","exit_node":"string"}}'
+    ;;
+  call)
+    [ "${2:-}" = enroll ] || exit 1
+    exec /usr/sbin/vpn-ui tailscale-enroll
+    ;;
+  *) exit 1 ;;
+esac

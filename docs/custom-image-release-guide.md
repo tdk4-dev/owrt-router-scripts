@@ -1,207 +1,70 @@
-# Package-First OpenWrt Release Guide
+# Custom Image and Package Release Guide
 
-This project now releases router software as OpenWrt packages first. Complete
-custom images are built from the exact same `.ipk` files that are staged as
-standalone update assets.
+This guide describes the package-first release model planned for v0.8.0 and
+later. It is a release contract, not evidence that a release has passed.
 
-## Release Gate
+## Build Order
 
-Do not create a GitHub release, push a tag, or publish artifacts until the user
-explicitly writes `PUBLISH RELEASE <version>` in the current task.
+1. Resolve `APP_VERSION` and `OPENWRT_VERSION`.
+2. Build project IPKs from the exact source commit:
+   - `premier-router-core`
+   - `luci-app-premier-router`
+   - `premier-router-setup`
+3. Validate package metadata, file ownership, conffiles, dependencies,
+   permissions, and absence of secrets/runtime state.
+4. Copy those exact IPKs into the OpenWrt ImageBuilder package source.
+5. Build every custom image from those exact IPKs.
+6. Record input IPK SHA-256 hashes in image metadata and
+   `router-release-manifest.json`.
+7. Stage release assets, `SHA256SUMS`, release notes, and local opkg feed files.
 
-Before publication:
+Do not copy package-owned application files directly into rootfs overlays when
+the same files are provided by IPKs.
 
-1. Work from a clean release commit contained in `origin/main`.
-2. Verify that the tag, release title, changelog, package versions, installed
-   UI version, image names, and release manifest all agree.
-3. Build packages from the exact release commit.
-4. Build images by installing those exact packages into ImageBuilder.
-5. Run package, image, migration, and release validation.
-6. Stage assets locally and show checksums before publishing.
+## Fresh Installation / Recovery
 
-## Package Split
+Fresh installation uses a complete image archive for the target:
 
-The v0.8.0 package split is intentionally small:
+- x86/64 OpenWrt image archive;
+- Xiaomi AX3000T/RD23 stock-layout archive when buildable;
+- Xiaomi AX3000T/RD23 ubootmod-layout archive when buildable.
 
-- `premier-router-core`: backend scripts, update installer, VPN generation,
-  health checks, reset control, cron hooks, and version marker.
-- `luci-app-premier-router`: LuCI views, menu entries, RPC ACLs, and UI assets.
-- `premier-router-setup`: first-boot setup assistant, owner preparation panel,
-  reset target files, and image defaults.
-
-All three are architecture-independent OpenWrt packages and currently use
-`Architecture: all`.
-
-## Local Dry Run
-
-Build IPKs and the local opkg feed:
-
-```sh
-./scripts/build-openwrt-ipks.sh
-```
-
-Stage a complete local release directory without publishing:
-
-```sh
-./scripts/stage-router-release.sh
-```
-
-The staged directory is:
-
-```text
-dist/release-v<APP_VERSION>/
-```
-
-It contains the package files, opkg feed index files, installer script,
-version/changelog/date metadata, `router-release-manifest.json`, and
-`SHA256SUMS`. Image archives are included when matching image archives already
-exist in `dist/`.
-
-## Fresh Installation and Recovery Images
-
-Build images on an x86_64 Linux host. First build the project IPKs with
-`./scripts/build-openwrt-ipks.sh`. The image scripts then add those already
-built IPKs to the local ImageBuilder package feed and install the package names
-into the image. Do not copy package-owned files directly into rootfs overlays,
-and do not rebuild packages inside the image step.
-
-### x86/64
-
-```sh
-OPENWRT_VERSION=24.10.5 \
-TARGET_DIR=x86/64 \
-PROFILE=generic \
-PACKAGE_FILE=image/openwrt-fin0-packages.txt \
-ARTIFACT_PREFIX=premier-router-0.8.0RC2-openwrt-24.10.5-x86-64 \
-./build-openwrt-custom-image-linux.sh
-```
-
-### Xiaomi AX3000T / RD23 Stock Layout
-
-```sh
-OPENWRT_VERSION=24.10.5 \
-TARGET_DIR=mediatek/filogic \
-PROFILE=xiaomi_mi-router-ax3000t \
-PACKAGE_FILE=image/openwrt-rd23-packages.txt \
-ARTIFACT_PREFIX=premier-router-0.8.0RC2-openwrt-24.10.5-mediatek-filogic-xiaomi-ax3000t-stock \
-./build-openwrt-custom-image-linux.sh
-```
-
-### Xiaomi AX3000T / RD23 U-Boot Layout
-
-```sh
-OPENWRT_VERSION=24.10.5 \
-TARGET_DIR=mediatek/filogic \
-PROFILE=xiaomi_mi-router-ax3000t-ubootmod \
-PACKAGE_FILE=image/openwrt-rd23-packages.txt \
-ARTIFACT_PREFIX=premier-router-0.8.0RC2-openwrt-24.10.5-mediatek-filogic-xiaomi-ax3000t-ubootmod \
-./build-openwrt-custom-image-linux.sh
-```
-
-Each image artifact archive includes `router-ui-packages.txt` and
-`project-ipk-sha256sums` so the package inputs can be matched to staged release
-assets.
+An image may be labeled `hardware-verified` only after booting and testing on
+the actual target hardware.
 
 ## Updating a Running Router
 
-Manual package-first update:
+Running-router updates use project IPKs installed through `opkg`. The updater
+must:
 
-```sh
-ROUTER_UI_VERSION=0.8.0RC2 sh install-router-ui-release.sh
-```
-
-The installer downloads `router-release-manifest.json`,
-`router-ui-packages.txt`, and the referenced IPKs. It verifies SHA-256 and size
-before calling `opkg install` in dependency order. It does not run global
-`opkg upgrade`.
-
-Future feed-based update can use the generated feed directory:
-
-```text
-dist/opkg-feed/Packages
-dist/opkg-feed/Packages.gz
-dist/opkg-feed/*.ipk
-```
-
-No package signing key is configured in this repository. Do not fake
-`Packages.sig`; enable signing only with a real private key kept outside the
-repo.
+- download a manifest;
+- verify file size and SHA-256;
+- install only this project's packages;
+- never run global `opkg upgrade`;
+- preserve user configuration and runtime identity;
+- run health checks after installation;
+- print backup and recovery instructions on failure.
 
 ## Legacy tar.gz Migration
 
-Routers that received v0.7.5 through `luci-vpn-ui.tar.gz` have unowned files on
-disk. The package-first installer detects this state, creates a full
-`sysupgrade -b` backup, backs up known legacy files to a migration snapshot,
-removes only the explicit legacy allowlist, installs IPKs, and validates the
-result.
+Routers installed from `luci-vpn-ui.tar.gz` must be migrated carefully:
 
-Preserved local state includes UCI configuration, Xray/VLESS profiles,
-subscription data, direct routing rules, device bypass lists, AdGuard state,
-Tailscale state, root password, and SSH keys. Logs, caches, generated backups,
-private keys, and local secrets are not packaged.
+- detect legacy unmanaged files;
+- create a backup before changes;
+- preserve UCI configuration, VPN profiles, subscriptions, selected profile,
+  direct rules, device bypasses, Tailscale identity, SSH keys, root password,
+  and AdGuard state;
+- remove only allowlisted obsolete legacy files;
+- install IPKs so future files are package-owned;
+- verify UI and services after migration.
 
-The deprecated tar.gz fallback exists only for older releases that do not
-publish package metadata. New v0.8.0+ releases must publish IPKs.
+Do not recursively delete broad directories to clean legacy installs.
 
-## Validation Checklist
+## Publication Gate
 
-Run static and package checks:
+Publication is allowed only when the user explicitly writes
+`PUBLISH RELEASE <version>` in the current task and the release commit is clean,
+contained in `origin/main`, fully staged, checksum-verified, and tested.
 
-```sh
-sh tests/test-openwrt-ipk-packages.sh
-sh tests/test-release-staging.sh
-sh tests/test-router-reset-ui.sh
-sh tests/test-luci-status-include.sh
-sh tests/test-firstboot-root-only.sh
-sh tests/test-firstboot-install-options.sh
-sh tests/test-firstboot-vless-import.sh
-sh tests/test-firstboot-wifi.sh
-sh tests/test-router-prep-policy.sh
-sh tests/test-router-metadata.sh
-sh tests/test-adguard-panel.sh
-sh tests/test-rd23-profile.sh
-sh tests/test-tailscale-registration.sh
-sh tests/test-update-release-compat.sh
-sh tests/test-vpn-hotfixes.sh
-node tests/test-tailscale-ping-ui.mjs
-```
-
-For x86 VirtualBox validation, reinstall from the staged image archive and
-verify:
-
-- `http://10.77.0.1/` and `http://10.77.0.1/setup/` from a disposable client
-  on an isolated router LAN, without an SSH tunnel;
-- an optional host-forwarded URL such as
-  `http://10.20.0.181:8787/setup/` only as a separate manual VM trial;
-- setup wizard end to end;
-- LuCI Status;
-- `Network > VPN Panel`;
-- `Network > Tailscale`;
-- `Update`;
-- `System > Reset`;
-- reset returns to setup;
-- `opkg status` reports the staged package versions.
-
-For RD23 targets, perform static ImageBuilder validation until hardware boot
-testing is available. Use `image/openwrt-rd23-packages.txt`; it intentionally
-excludes AdGuardHome, and the RD23 first-boot hardware policy hides and rejects
-AdGuard installation.
-
-## Rollback and Recovery
-
-Every running-router update creates a verified full OpenWrt backup under:
-
-```text
-/root/router-ui-backups/
-```
-
-Legacy migrations also create:
-
-```text
-/root/router-ui-backups/router-ui-migration-<version>-<timestamp>/
-```
-
-If a package install or validation step fails, the installer removes the
-project packages where possible, restores backed-up legacy files, restarts LuCI
-services, and exits with an actionable error. Full system recovery remains
-available through the `sysupgrade` backup.
+Without that approval, local release candidates, images, packages, manifests,
+and checksums may be built for testing only.

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "installed-package-set",
+  "collateral_status": "fixture",
+  "production": false,
+  "app_version": "0.7.11-rc.8",
+  "package_version": "0.7.11~rc8-1",
+  "channel": "candidate",
+  "future_tag": "vpn-panel-v0.7.11-rc.8",
+  "stable_successor": {
+    "app_version": "0.7.11",
+    "package_version": "0.7.11-1"
+  },
+  "source_commit": "ffffffffffffffffffffffffffffffffffffffff",
+  "source_tree": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "source_dirty": false,
+  "signing_key_id": "fixture-only-no-signing-key",
+  "signing_key_fingerprint": "fixture-only",
+  "packages": [
+    {
+      "name": "premier-router-core",
+      "filename": "premier-router-core_0.7.11~rc8-1_all.ipk",
+      "version": "0.7.11~rc8-1",
+      "architecture": "all",
+      "install_order": 1,
+      "size": 51200,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "name": "luci-app-premier-router",
+      "filename": "luci-app-premier-router_0.7.11~rc8-1_all.ipk",
+      "version": "0.7.11~rc8-1",
+      "architecture": "all",
+      "install_order": 2,
+      "size": 16384,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "name": "premier-router-setup",
+      "filename": "premier-router-setup_0.7.11~rc8-1_all.ipk",
+      "version": "0.7.11~rc8-1",
+      "architecture": "all",
+      "install_order": 3,
+      "size": 12288,
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ]
+}

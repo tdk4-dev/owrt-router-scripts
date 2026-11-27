@@ -4,6 +4,7 @@
 # Focus: prove the raw WAN upload path before optimizing VPN/Xray.
 
 set -u
+umask 077
 
 OWRT_HOST="${OWRT_HOST:-owrt}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -23,6 +24,7 @@ redact_stream() {
   /usr/bin/perl -pe '
     s/((?:option|list)\s+(?:password|passwd|secret|key|private_key|preshared_key|psk|token|username|identity|pin|ploam|loid)\s+)(["'\''][^"'\'']*["'\'']|\S+)/$1"<REDACTED>"/ig;
     s/((?:"?(?:password|passwd|secret|private[_-]?key|preshared[_-]?key|psk|token|auth[_-]?secret|ploam|loid|username|identity|pin)"?\s*[:=]\s*))(["'\''][^"'\'']*["'\'']|\S+)/$1<REDACTED>/ig;
+    s/(tskey-[A-Za-z0-9_-]+)/<REDACTED>/ig;
     s/((?:PLOAM|LOID|PPPoE password|PPPoE username)\s*[:=]\s*)\S+/$1<REDACTED>/ig;
   '
 }
@@ -288,20 +290,18 @@ else
   '
 
   capture_ssh_optional "owrt/resources-processes.txt" '
-    echo "==== top -bn1 ===="
-    top -bn1 2>/dev/null || top -n 1 2>/dev/null || true
-    echo
+    echo "==== load average ===="
+    cat /proc/loadavg
     echo "==== free -h ===="
     free -h 2>/dev/null || free 2>/dev/null || true
     echo
     echo "==== df -h ===="
     df -h
     echo
-    echo "==== filtered processes ===="
-    ps w 2>/dev/null | grep -Ei "xray|sing-box|adguard|dnsmasq|tailscale|tcpdump|irqbalance|speedtest|iperf" | grep -v grep || true
-    echo
-    echo "==== full process list ===="
-    ps w 2>/dev/null || ps 2>/dev/null || true
+    echo "==== process names (no arguments) ===="
+    for name in /proc/[0-9]*/comm; do
+      [ -r "$name" ] && cat "$name" 2>/dev/null || true
+    done | sort | uniq -c
   '
 
   capture_ssh_optional "owrt/services-packages.txt" '

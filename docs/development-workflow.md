@@ -69,8 +69,13 @@ Forbidden unless the user explicitly writes `PUBLISH RELEASE <version>`:
 - mark a draft release public;
 - claim release verification stronger than the evidence supports.
 
-The current legacy workflow `.github/workflows/release-vpn-panel.yml` publishes
-on `vpn-panel-v*` tag pushes. Treat tag pushes as production release actions.
+The current `.github/workflows/release-vpn-panel.yml` is a manual, read-only
+verification of an immutable package artifact. It never creates or publishes
+a GitHub Release and has no tag-push trigger. Package preparation and custody
+requirements are defined in [release-checklist.md](release-checklist.md).
+Historical image-inclusive RC workflows and `scripts/create-local-rc-bundle.sh`
+are not the current package-only release path. Tag pushes and the separately
+authorized manual publisher remain production operations.
 
 ## Verification Labels
 

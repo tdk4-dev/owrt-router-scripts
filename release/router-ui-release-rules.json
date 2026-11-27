@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "project_packages": [
+    "premier-router-core",
+    "luci-app-premier-router",
+    "premier-router-setup"
+  ],
+  "storage": {
+    "round_package_bytes_to_kib": true,
+    "persistent_base_kib": 32768,
+    "persistent_package_multiplier": 4,
+    "temporary_base_kib": 16384,
+    "temporary_package_multiplier": 2
+  },
+  "supported_openwrt": {
+    "release_pattern": "24.10.[0-9]",
+    "targets": ["mediatek/filogic", "x86/64"]
+  },
+  "stable_successor": {
+    "application_version": "0.7.11",
+    "package_version": "0.7.11-1"
+  }
+}

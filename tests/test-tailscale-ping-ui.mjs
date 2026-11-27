@@ -29,7 +29,7 @@ const element = (tag, attrs, children) => ({
 	children: Array.isArray(children) ? children : [children]
 });
 const page = new Function(
-	'view', 'fs', 'ui', 'dom', 'L', 'E', '_', 'document', 'confirm',
+	'view', 'fs', 'ui', 'dom', 'rpc', 'L', 'E', '_', 'document', 'confirm',
 	source
 )(
 	{ extend: value => value },
@@ -48,6 +48,7 @@ const page = new Function(
 	},
 	ui,
 	{ content() {} },
+	{ declare: () => () => Promise.reject(new Error("unused RPC fixture")) },
 	{
 		hasViewPermission: () => true,
 		bind: (fn, self, ...args) => fn.bind(self, ...args)
@@ -93,7 +94,7 @@ await pingLink.attrs.click({
 
 assert.equal(prevented, true, 'Ping action must prevent anchor navigation');
 assert.deepEqual(helperCalls, [{
-	command: '/usr/sbin/vpn-ui',
+	command: '/usr/sbin/vpn-ui-readonly',
 	args: ['tailscale-ping', '100.64.0.28']
 }]);
 assert.equal(modalCalls.length, 2, 'Ping must show progress and result modals');
