@@ -103,6 +103,7 @@ VPN_UI_TAILSCALE_RESTORE_TIMEOUT=4
 export PREMIER_ROUTER_HOST_TEST VPN_UI_ROOT_PREFIX VPN_UI_SOURCE_ONLY
 export VPN_UI_TAILSCALE_ACTION_TIMEOUT VPN_UI_TAILSCALE_RESTORE_TIMEOUT
 . "$HELPER"
+RUNTIME_WORK="$FAKE_ROOT/tmp"
 
 sleep() { advance_mock_state; }
 tailscale_daemon_pids() { [ ! -f "$STATE_DIR/running" ] || cat "$STATE_DIR/pid"; }
@@ -208,6 +209,16 @@ tailscale_json() {
 tailscale() {
   case "${1:-}" in
     up)
+      for option in "$@"; do
+        case "$option" in
+          --auth-key=file:*)
+            keyfile="${option#--auth-key=file:}"
+            [ "$(cat "$keyfile")" = tskey-secret-test ] || return 1
+            ;;
+          --auth-key=*) return 1 ;;
+        esac
+      done
+      [ -n "${keyfile:-}" ] || return 1
       printf '%s\n' 'backend=Running' 'ip=100.64.0.55' \
         'control=https://control.example.invalid' 'tailnet=fixture' > \
         "$FAKE_ROOT/var/lib/tailscale/tailscaled.state"
@@ -228,7 +239,7 @@ tailscale() {
 
 reset_registered() {
   rm -f "$STATE_DIR"/*
-  rm -rf "$FAKE_ROOT/tmp"/vpn-ui-tailscale-action.*
+  rm -rf "$RUNTIME_WORK"/tailscale-action.*
   : > "$STATE_DIR/running"
   : > "$STATE_DIR/enabled"
   printf '%s\n' 100 > "$STATE_DIR/pid"
