@@ -2,13 +2,12 @@
 
 Premier Router — пакетный продуктовый слой поверх OpenWrt: интерфейс LuCI,
 управление VPN и подключением, безопасные обновления, первичная настройка и
-проверяемые образы для поддерживаемых профилей. Это уже не просто набор
-скриптов установки.
+профили сборки образов. Публичный stable 0.7.11 поставляется в виде пакетов.
 
 > **English summary:** Premier Router is a package-first OpenWrt product layer
 > for VPN, connectivity, signed transactional updates, onboarding, and
-> support-safe diagnostics. The public stable, limited RC, and active
-> development states are intentionally documented separately.
+> support-safe diagnostics. Stable 0.7.11 is a package-only release for
+> existing OpenWrt 24.10.5 x86/64.
 
 ## Обзор
 
@@ -22,14 +21,11 @@ Premier Router — пакетный продуктовый слой поверх
 
 | Контур | Текущий статус |
 | --- | --- |
-| Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 | Stable-identity package candidate `0.7.11` / `0.7.11-1`. Includes RC24, the [session-recovery fix](docs/decisions/2026-10-26-router-ui-session-recovery.md) and the [security remediation](docs/router-ui-0.7.11-security.md). Public stable remains 0.7.10 until authorized publication. |
+| Опубликованный stable | [`Router UI 0.7.11`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.11) / `0.7.11-1` — подписанные пакеты для OpenWrt 24.10.5 x86/64. [Установка и миграция](docs/ordinary-user-ipk-installation.md). |
+| Предыдущий stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — исходная версия для перехода на пакетный релиз. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
-
-The 0.7.11 source is not a published release until its separately authorized
-merge, tag, and GitHub Release. Router UI 0.8 remains development-only.
 
 ## Основные возможности
 
@@ -76,29 +72,14 @@ merge, tag, and GitHub Release. Router UI 0.8 remains development-only.
 
 ### Доступность по release-каналам
 
-Метки ниже показывают, где функция существует или проверяется, и не превращают
-development-код в обещание stable-релиза.
-
-- **Stable 0.7.10:** интерфейс Premier Router в LuCI; управление профилями
-  VPN/VLESS Reality и direct-routing; поверхности статуса Tailscale/Headscale.
-- **0.7.11 RC16 pre-build:** RC15 прошёл candidate qualification, но первая
-  identity-only stable сборка выявила независимый rollback defect. Байты
-  исходных пакетов восстанавливались, однако удалённый `opkg` init-файл
-  `xray-transparent` не попадал в pre-state, а проверка service postcondition
-  выполнялась без bounded convergence. RC16 сохраняет exact source init до
-  мутации, восстанавливает его из подписанного known-good IPK при package-order
-  race и ждёт свежие service observations с ограниченным timeout. RC13, RC14,
-  RC15 и первая stable сборка остаются immutable rejected evidence; RC16 ещё
-  должен пройти production build и exact-byte qualification.
-- **0.7.11 RC / image workflow:** first-boot setup, owner preparation и
-  installation/support metadata. Реальное RD23-прохождение остаётся отдельным
-  аппаратным gate.
-- **0.8 development:** русско- и англоязычный UI там, где локализация уже
-  реализована; framework post-update onboarding; Support & Feedback phase 1 с
-  allowlist, предварительным просмотром и очищенным экспортом диагностики.
-- **0.7.11 RC и новее:** поверхность совместимости с подписанным Factory
-  release contract. Factory обязан проверить контракт, manifest, ключ, хеши и
-  точный hardware variant; одних GitHub-метаданных недостаточно.
+- **Stable 0.7.11** — интерфейс Premier Router в LuCI, управление VPN и
+  Tailscale/Headscale, подписанные обновления и точный откат. Проверены чистая
+  установка пакетов, миграция с 0.7.10, обновление и восстановление после
+  перезагрузки. [Результаты security remediation](docs/router-ui-0.7.11-security.md).
+- **0.8 development** — локализация RU/EN, post-update onboarding и
+  Support & Feedback.
+- **Image / Factory** — отдельные сценарии first-boot setup и подготовки
+  устройства владельцем. Для них требуется отдельная квалификация.
 
 ## Канонические пакеты
 
@@ -107,7 +88,7 @@ Package-first поставка состоит из трёх независимо
 - `premier-router-core` — backend-команды, VPN-конфигурация, metadata,
   protocol-2 updater, транзакции, recovery и точный rollback;
 - `luci-app-premier-router` — LuCI-страницы Premier Router, VPN, Tailscale,
-  Update и Support & Feedback, RPC ACL и статические UI-ресурсы;
+  Update, RPC ACL и статические UI-ресурсы; Support & Feedback относится к 0.8 development;
 - `premier-router-setup` — опциональный first-boot wizard и owner-preparation
   поверхности. Пакет не требуется для core или LuCI на существующем OpenWrt.
 
@@ -119,8 +100,8 @@ Package-first поставка состоит из трёх независимо
 | Режим | Состав и поведение | Уровень поддержки |
 | --- | --- | --- |
 | `factory-image` | Core + LuCI + setup и metadata образа. Применяет документированные сетевые defaults только в image-first сценарии. | Полный workflow после квалификации конкретного образа и железа; RD23 пока не квалифицирован физически. |
-| `vanilla-openwrt-panels` | Core + LuCI; setup опционален. Существующие LAN/WAN, firewall и Wi-Fi сохраняются. | Стандартный package-first путь для существующего OpenWrt. |
-| `headless-core` | Только core, без web-панели и first-boot wizard. | Ограниченный advanced/operator путь. |
+| `vanilla-openwrt-panels` | Core + LuCI; setup опционален. Существующие LAN/WAN, firewall и Wi-Fi сохраняются. | Пакетный релиз 0.7.11 квалифицирован для OpenWrt 24.10.5 x86/64. |
+| `headless-core` | Только core, без web-панели и first-boot wizard. | Отдельный advanced/operator путь, вне квалификации stable 0.7.11. |
 
 Установка `premier-router-setup` в `vanilla-openwrt-panels` не должна
 перехватывать сеть: мастер остаётся опциональным и может быть пропущен.
@@ -134,11 +115,11 @@ OpenWrt. Целевой профиль проверки — OpenWrt 24.10.5 x86/
 до открытия транзакции. Во время обновления и отката транзакция меняет только
 три пакета Premier Router и защищённое состояние приложения.
 
-[Границы поддержки и результаты проверки](docs/router-ui-0.7.11-security.md).
+[Инструкция по установке и восстановлению](docs/ordinary-user-ipk-installation.md).
 
 ## Образы и оборудование
 
-Поддерживаемые build targets:
+Профили сборки образов. Stable 0.7.11 распространяется только в виде пакетов.
 
 - **x86/64** — EFI/BIOS образы для router-PC и изолированной VM. В x86-профиле
   AdGuardHome доступен как опциональный компонент при прохождении проверки
@@ -172,8 +153,9 @@ pending.
 - **Development** — локальная или веточная сборка, не предназначенная для
   клиентского production-устройства.
 
-0.7.11 — migration bridge к package-first IPK и updater protocol 2. Разработка
-0.8 строится поверх этой основы, но остаётся отдельным development-потоком.
+Для 0.7.11 используется ручная установка из релиза с тегом
+`vpn-panel-v0.7.11`. Подписанный `stable-channel.json` доступен под этим тегом.
+GitHub Latest и автоматическое обнаружение остаются на прежнем канале.
 
 Release discovery не равен доверию. Установка должна проверить публичным
 release-ключом подписанные contract/manifest, согласованность версии и канала,
@@ -182,7 +164,7 @@ Draft Release и голый Git tag не являются устанавлива
 не подменяет stable по умолчанию и не устанавливается автоматически.
 
 Публичный ключ проверки хранится в
-[`release/keys/router-ui-production.pub`](release/keys/router-ui-production.pub).
+[`release/keys/production-2026-07.pub`](release/keys/production-2026-07.pub).
 Приватного signing key в роутере, release bundle или Factory быть не должно.
 
 ## Требования к ресурсам
@@ -215,17 +197,14 @@ Draft Release и голый Git tag не являются устанавлива
 При перезапуске LuCI во время обновления сессия может истечь: войдите снова
 и проверьте фактический статус перед повторной установкой. Исправленный Update
 view сохраняет действие входа и показывает «Reboot required», пока обновление
-не подтверждено после перезагрузки. Этот source fix ещё не выпущен; уже открытая
-вкладка RC22 продолжает выполнять старый JavaScript до повторного входа.
+не подтверждено после перезагрузки. Исправление входит в stable 0.7.11.
 
 ## Короткий roadmap
 
-1. Ограниченная дистрибуция 0.7.11 RC.
-2. Физический RD23 и Factory canary.
-3. Публикация stable 0.7.11 после отдельной авторизации.
-4. Завершение backend Support & Feedback и polish onboarding в 0.8.
-5. Проверка и публикация 0.8 после release gates.
-6. Позднее opt-in развитие Premier Edge.
+1. Физический RD23 и Factory canary.
+2. Завершение backend Support & Feedback и polish onboarding в 0.8.
+3. Проверка и публикация 0.8 после release gates.
+4. Позднее opt-in развитие Premier Edge.
 
 ## Разработка
 
