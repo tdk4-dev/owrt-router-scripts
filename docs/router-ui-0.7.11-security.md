@@ -6,8 +6,8 @@ That source retains RC24 identity `0.7.11-rc.24` / `0.7.11~rc24-1`.
 It contains RC24 `2226495d3e1777750ad106a7211a868ba6f55a46` and the
 LuCI session recovery change. The branch starts from canonical
 `origin/main` at `18562f49bcac914acf3b07749f5b8863d8016e00` and
-fast-forwards through the existing integration history. The latest published
-stable is `vpn-panel-v0.7.10` at `ce758c54ca37daa64bb1a738ae5dee20dcf8bddd`.
+fast-forwards through the existing integration history. At baseline capture,
+the published stable was `vpn-panel-v0.7.10` at `ce758c54ca37daa64bb1a738ae5dee20dcf8bddd`.
 The original local working tree is a separate 0.8 WIP at `582024c2`
 with two tracked edits and untracked working files. No WIP files entered
 the integration candidate.

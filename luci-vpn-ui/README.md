@@ -77,96 +77,19 @@ Tailscale-layer ping action. Stopping preserves the current login state.
 Preauth keys are passed directly to `tailscale up`, are not displayed again,
 and are not stored by the panel.
 
-## Updates
+## Install and update
 
-The top-level `Update` menu shows the installed version, latest release,
-release date, status, changelog, and update job progress. Checks and
-installations run in the background so LuCI requests do not time out while
-GitHub downloads or service restarts are in progress.
+[Premier Router 0.7.11](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.11)
+is the stable package release for existing OpenWrt 24.10.5 x86/64. Use the
+[installation and recovery guide](../docs/ordinary-user-ipk-installation.md)
+to verify and install the signed assets or migrate from 0.7.10.
 
-Before any update changes files, the updater creates a full
-`sysupgrade -b` archive under `/root/router-ui-backups/`, verifies that it can
-be read, and stores its SHA-256. The release bundle is then checksum-verified,
-checked for unsafe paths, installed transactionally, and validated. Any
-installer or post-install validation failure automatically runs the exact
-panel rollback created for that attempt.
-
-Weekly automatic stable updates are optional and disabled by default. When
-enabled from the Update page, they run Sunday at 04:17 router-local time and
-use the same backup, checksum, validation, and rollback path.
-
-Publishing a tag matching `vpn-panel-v<VERSION>` runs the repository release
-workflow and attaches the bundle, checksum, version, release date, and
-changelog files required by the updater. It also attaches the standalone
-router-terminal installer.
-
-## Install to a Running Router
-
-From the repo root:
-
-```sh
-./install-openwrt-vpn-ui.sh
-```
-
-The host-side installer uploads local checkout files by default, avoiding
-several separate raw GitHub downloads on the router.
-
-Use another SSH alias:
-
-```sh
-ROUTER_HOST=owrt-ts ./install-openwrt-vpn-ui.sh
-```
-
-The host-side installer uses `ssh` and avoids SFTP `scp`, because the target
-router may not have an SFTP server. It creates a full OpenWrt `sysupgrade -b`
-backup before installing unless `MAKE_SYSUPGRADE_BACKUP=0` is set.
-
-Geosite data is installed only when missing. To refresh an existing database:
-
-```sh
-UPDATE_GEOSITE=1 ./install-openwrt-vpn-ui.sh
-```
-
-The router-side installer can also bootstrap itself from the branch when run
-without a bundled `files/` directory:
-
-```sh
-wget -qO /tmp/install-vpn-ui.sh \
-  https://raw.githubusercontent.com/tdk4-dev/owrt-router-scripts/refs/heads/codex/vpn-panel-installer/luci-vpn-ui/install.sh
-sh /tmp/install-vpn-ui.sh
-```
-
-## Router-Side Installer
-
-`install.sh` is intended to run on the router either from an uploaded directory
-or as the raw branch bootstrap above. It creates a mandatory full OpenWrt
-backup unless the calling release updater has already created one, plus
-`/root/vpn-ui-preinstall-<timestamp>/` and:
-
-```sh
-/root/rollback-vpn-ui.sh
-```
-
-Rollback restores all touched files, clears LuCI menu cache, restarts
-`rpcd`/`uhttpd`, validates the restored Xray config, and restarts Xray.
-
-For users who only have a router terminal, copy
-`install-router-ui-release.sh` to the router and run:
-
-```sh
-sh install-router-ui-release.sh
-```
-
-It installs the latest stable GitHub release. A specific release can be
-installed for testing:
-
-```sh
-ROUTER_UI_VERSION=0.6.0 sh install-router-ui-release.sh
-```
-
-The standalone installer verifies release metadata and SHA-256, creates and
-validates a full OpenWrt backup, installs the bundle, validates VPN and
-Tailscale state, and invokes the per-install rollback on failure.
+The LuCI **Update** page shows installed identity, transaction progress,
+reboot status, and recovery actions. Signed package updates retain exact
+project package bytes and supported application state for rollback. OpenWrt
+dependency preparation is outside the package rollback transaction. The
+0.7.11 release is manual-first. GitHub Latest and automatic discovery have a
+separate rollout.
 
 ## Status Overview
 
