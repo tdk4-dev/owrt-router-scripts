@@ -1,4 +1,10 @@
 > Current source: 0.7.11-rc.24 / 0.7.11~rc24-1 (RC22 transition repair; qualification pending).
+
+For the 0.7.11 stable-identity package candidate, use the
+[security remediation and deployment scope](router-ui-0.7.11-security.md)
+and the install guide generated from the exact signed manifest. The RD23 and
+candidate-specific instructions below document earlier qualification work.
+
 > RC23 candidate signing and focused native qualification are separate from publication.
 > The stable guidance below remains prospective.
 > Install only explicitly selected candidate assets. First publication does not
@@ -314,7 +320,7 @@ explicitly managed fields and retain the admin and Tailscale route invariants.
 
 The panel fails closed when adoption is required, ownership or configuration
 has drifted, recovery is active, reboot validation is pending, or the current
-session is read-only. A read-only adoption preview or route diagnostic does
-not unlock persistent controls. On any validation, restart, or invariant
+session is read-only. A read-only adoption preview does not unlock persistent controls. The active
+route diagnostic requires an administrative LuCI session. On any validation, restart, or invariant
 failure, leave Xray stopped if instructed and retain the private transaction
 under `/etc/premier-router/xray-transactions` for recovery.

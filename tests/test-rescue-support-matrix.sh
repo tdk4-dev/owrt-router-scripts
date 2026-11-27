@@ -32,9 +32,9 @@ grep -q 'TARGET_TAG="vpn-panel-v\$TARGET_VERSION"' "$ROOT_DIR/rescue-router-ui.s
 grep -Fq 'embedded release public-key fingerprint mismatch' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'case "$TARGET_CHANNEL" in stable|candidate)' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'ROUTER_UI_RELEASE_CHANNEL="$TARGET_CHANNEL"' "$ROOT_DIR/rescue-router-ui.sh"
-grep -Fq 'command -v nohup >/dev/null 2>&1 && return 0' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq 'command -v nohup >/dev/null 2>&1 && command -v flock >/dev/null 2>&1' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'prepare_dependency_feeds' "$ROOT_DIR/rescue-router-ui.sh"
-grep -Fq '"$OPKG_BIN" install coreutils-nohup' "$ROOT_DIR/rescue-router-ui.sh"
+grep -Fq '"$OPKG_BIN" install "$package"' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'insufficient persistent space before prerequisite repair' "$ROOT_DIR/rescue-router-ui.sh"
 grep -Fq 'insufficient /tmp space before prerequisite repair' "$ROOT_DIR/rescue-router-ui.sh"
 
