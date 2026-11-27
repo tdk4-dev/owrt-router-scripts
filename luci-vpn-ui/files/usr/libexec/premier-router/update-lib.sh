@@ -270,8 +270,16 @@ pr_manifest_validate() {
       pr_fail "same-version offer has no installed manifest identity" || return 1
     installed_hash="$(pr_sha256 "$installed_manifest")"
     offered_hash="$(pr_sha256 "$manifest")"
-    pr_offer_identity_decision "$source_version" "$app" "$installed_hash" "$offered_hash" >/dev/null ||
-      pr_fail "same-version release identity collision" || return 1
+    if ! pr_offer_identity_decision "$source_version" "$app" "$installed_hash" "$offered_hash" >/dev/null; then
+      # Clean bootstrap persists the installed-package-set manifest. The
+      # authenticated release manifest binds those exact bytes as an asset.
+      [ "$(pr_json_get "$installed_manifest" '@.kind' '.kind // empty')" = installed-package-set ] &&
+        [ "$(pr_json_get "$manifest" '@.installed_package_manifest.filename' \
+          '.installed_package_manifest.filename // empty')" = installed-manifest.json ] &&
+        [ "$(pr_json_get "$manifest" '@.installed_package_manifest.sha256' \
+          '.installed_package_manifest.sha256 // empty')" = "$installed_hash" ] ||
+        pr_fail "same-version release identity collision" || return 1
+    fi
   else
     pr_version_newer "$app" "$source_version" ||
       pr_fail "release target is not newer than the installed version" || return 1

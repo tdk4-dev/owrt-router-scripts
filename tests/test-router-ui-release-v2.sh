@@ -160,6 +160,20 @@ run_bootstrap_assets() {
 }
 run_bootstrap_assets >/dev/null
 [ ! -e "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" ]
+(
+  export PREMIER_ROUTER_HOST_TEST=1
+  export PR_OPENWRT_RELEASE_FILE="$TMP_ROOT/bootstrap-root/etc/openwrt_release"
+  PR_INSTALLED_MANIFEST_FILE="$TMP_ROOT/release/installed-manifest.json"
+  . "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/premier-router/update-lib.sh"
+  pr_manifest_validate "$TMP_ROOT/release/router-release-manifest.json" "$KEY_ID" "$APP_VERSION" 2
+  cp "$PR_INSTALLED_MANIFEST_FILE" "$TMP_ROOT/other-installed-manifest.json"
+  PR_INSTALLED_MANIFEST_FILE="$TMP_ROOT/other-installed-manifest.json"
+  printf '\n' >> "$PR_INSTALLED_MANIFEST_FILE"
+  if pr_manifest_validate "$TMP_ROOT/release/router-release-manifest.json" "$KEY_ID" "$APP_VERSION" 2; then
+    printf '%s\n' 'different installed-package-set bytes were accepted' >&2
+    exit 1
+  fi
+)
 VALIDATOR="$TMP_ROOT/release/router-candidate-validator"
 cp "$VALIDATOR" "$TMP_ROOT/original-validator"
 printf '\n# wrong sidecar bytes\n' >> "$VALIDATOR"
