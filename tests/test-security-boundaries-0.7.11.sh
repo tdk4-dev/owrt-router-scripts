@@ -18,7 +18,9 @@ jq -e '
   .["luci-app-vpn-ui"] as $acl |
   ($acl.read.file["/usr/sbin/vpn-ui-readonly"] == ["exec"]) and
   (($acl.read.file | has("/usr/sbin/vpn-ui")) | not) and
-  ($acl.write.file["/usr/sbin/vpn-ui"] == ["exec"])
+  ($acl.write.file["/usr/sbin/vpn-ui"] == ["exec"]) and
+  (($acl.read.ubus | has("premier-router-tailscale")) | not) and
+  ($acl.write.ubus["premier-router-tailscale"] == ["enroll"])
 ' "$ACL" >/dev/null
 
 cp "$READONLY" "$TMP_ROOT/vpn-ui-readonly"
@@ -38,12 +40,10 @@ for command in status vpn-summary tailscale-status update-status adoption-previe
 done
 sh "$TMP_ROOT/vpn-ui-readonly" tailscale-ping 100.64.0.1 |
   grep -Fq '"ok":true'
-sh "$TMP_ROOT/vpn-ui-readonly" test-domain example.com |
-  grep -Fq '"ok":true'
 sh "$TMP_ROOT/vpn-ui-readonly" update-job-status \
   aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa check |
   grep -Fq '"ok":true'
-[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 8 ]
+[ "$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')" = 7 ]
 
 before="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
 sh "$TMP_ROOT/vpn-ui-readonly" update-job-status malformed check | grep -Fq '"ok":false'
@@ -52,7 +52,7 @@ after="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
 
 for command in init refresh-pings add select delete adoption-confirm overlay-recover apply-rules check device device-bypass-sync xray \
   subscription-add subscription-sync subscription-delete subscription-preview \
-  validate-vless auto-config auto-tick tailscale-up tailscale-logout \
+  validate-vless auto-config auto-tick test-domain tailscale-up tailscale-enroll tailscale-logout \
   tailscale-restart tailscale-stop update-check-start update-apply-start update-auto
 do
   before="$(wc -l < "$TMP_ROOT/invocations" | tr -d ' ')"
@@ -125,4 +125,20 @@ grep -Fq '"ok":false' "$TMP_ROOT/concurrent-response"
 grep -Fq 'another setup request is in progress' "$TMP_ROOT/concurrent-response"
 [ ! -e "$TMP_ROOT/state/MUTATION_REACHED" ]
 
-printf 'Router UI 0.7.11 setup and read-only ACL security checks passed\n'
+# Ordinary invalid identifiers and invalid failover state must leave the store alone.
+(
+  export VPN_UI_SOURCE_ONLY=1 VPN_UI_AUTO_STATE="$TMP_ROOT/auto.state"
+  . "$HELPER"
+  valid_config_id 'custom-profile_2'
+  valid_config_id '0123456789abcdef'
+  ! valid_config_id 'invalid profile'
+  ! valid_config_id 'nested/file'
+  printf '%s\n' 'not a saved state' > "$AUTO_STATE"
+  read_auto_state
+  [ "$fail_count:$last_optimize" = '0:0' ]
+  write_auto_state 3 1234567890
+  read_auto_state
+  [ "$fail_count:$last_optimize" = '3:1234567890' ]
+)
+
+printf 'Router UI 0.7.11 setup, runtime-state and read-only ACL security checks passed\n'

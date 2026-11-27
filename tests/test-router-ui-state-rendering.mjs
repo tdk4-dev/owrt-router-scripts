@@ -88,13 +88,14 @@ function makePage(viewName, permission, execImpl = async () => ({ stdout: '{"ok"
 		querySelectorAll: () => []
 	};
 	const page = new Function(
-		'view', 'fs', 'ui', 'dom', 'L', 'E', '_', 'document', 'confirm', 'window',
+		'view', 'fs', 'ui', 'dom', 'rpc', 'L', 'E', '_', 'document', 'confirm', 'window',
 		sources[viewName]
 	)(
 		{ extend: value => value },
 		{ exec: execImpl },
 		ui,
 		{ content() {} },
+		{ declare: () => () => Promise.reject(new Error("unused RPC fixture")) },
 		{ hasViewPermission: () => permission, bind: (fn, self, ...args) => fn.bind(self, ...args) },
 		element,
 		value => value,
@@ -195,7 +196,7 @@ for (const [state, ownership] of Object.entries(ownershipStates)) {
 		}
 	assert.equal(blocked(rendered.get('vpn-adoption-preview')), false, 'read-only preview remains read-only-safe');
 	assert.equal(blocked(rendered.get('vpn-adoption-confirm')), true, 'read-only adoption confirmation must block');
-	assert.equal(blocked(rendered.get('vpn-domain-test')), false, 'read-only domain test remains available');
+	assert.equal(rendered.has('vpn-domain-test'), false, 'the active route probe requires write access');
 }
 
 const tailscaleData = {

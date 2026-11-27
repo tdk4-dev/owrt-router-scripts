@@ -23,7 +23,7 @@ Premier Router — пакетный продуктовый слой поверх
 | Контур | Текущий статус |
 | --- | --- |
 | Опубликованный stable | [`Router UI 0.7.10`](https://github.com/tdk4-dev/owrt-router-scripts/releases/tag/vpn-panel-v0.7.10) — текущий публичный стабильный релиз. Он предшествует package-first переходу 0.7.11. |
-| Router UI 0.7.11 | Candidate `0.7.11-rc.24` / `0.7.11~rc24-1` authorizes the installed RC22 protocol-2 update path while preserving RC23's Tailscale lifecycle repair. The [RC24 decision](docs/decisions/2026-10-25-router-ui-0.7.11-rc24-transition.md) requires new exact-byte update/reboot/rollback evidence. Focused hardware native update/reboot/exact rollback passed, but the UI falsely reports failure after session expiry. The [session-recovery fix](docs/decisions/2026-10-26-router-ui-session-recovery.md) passed a focused provisional native-browser checkpoint; a new candidate and release qualification remain pending. |
+| Router UI 0.7.11 | Stable-identity package candidate `0.7.11` / `0.7.11-1`. Includes RC24, the [session-recovery fix](docs/decisions/2026-10-26-router-ui-session-recovery.md) and the [security remediation](docs/router-ui-0.7.11-security.md). Public stable remains 0.7.10 until authorized publication. |
 | Router UI 0.8.0 | Активная разработка на фундаменте 0.7.11. RU/EN, post-update onboarding и Support & Feedback относятся к development, а не к текущему stable. |
 | Xiaomi AX3000T / RD23 | Профили stock и ubootmod разделены; доступны source/static и VM-связанные проверки. Физическая прошивка, загрузка и Factory-canary ещё не подтверждены. |
 | Factory companion | Отдельный закрытый операторский инструмент в состоянии private RC: каталог релизов и симулятор проверены, реальный XMiR отключён, физическая квалификация RD23 ожидается. |
@@ -127,17 +127,14 @@ Package-first поставка состоит из трёх независимо
 
 ## Установка на существующий OpenWrt
 
-Текущий публичный stable 0.7.10 использует только свой опубликованный release
-workflow. Наличие RC16 identity в source не создаёт устанавливаемый или
-распространяемый bundle: production build, immutable hashes и qualification
-остаются обязательными отдельными gates.
+Пакетный релиз 0.7.11 предназначен для установки поверх существующего
+OpenWrt. Целевой профиль проверки — OpenWrt 24.10.5 x86/64. Установка идёт
+из подписанного пакета артефактов. Для 0.7.10 используется отдельно
+аутентифицированный rescue-скрипт, а зависимости OpenWrt устанавливаются
+до открытия транзакции. Во время обновления и отката транзакция меняет только
+три пакета Premier Router и защищённое состояние приложения.
 
-Черновой package-first путь RC16 описан в
-[`docs/ordinary-user-ipk-installation.md`](docs/ordinary-user-ipk-installation.md).
-Не используйте его до появления подписанного canonical manifest и финального,
-сгенерированного из этого manifest collateral с точными filenames, sizes,
-SHA-256 и storage gates. Никогда не устанавливайте из mutable-ветки и не
-выполняйте глобальный `opkg upgrade`.
+[Границы поддержки и результаты проверки](docs/router-ui-0.7.11-security.md).
 
 ## Образы и оборудование
 

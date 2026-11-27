@@ -15,7 +15,8 @@
 				"/usr/sbin/vpn-ui-readonly": [ "exec" ]
 			},
 			"ubus": {
-				"file": [ "exec" ]
+				"file": [ "exec" ],
+				"premier-router-tailscale": [ "enroll" ]
 			}
 		}
 	}

@@ -31,7 +31,7 @@ export VPN_UI_UPDATE_SOURCE_ONLY VPN_UI_RANDOM_SOURCE
 . "$UPDATER"
 
 # A historical committed install remains visible in generic page status.
-J_TRANSACTION_ID=historical-install
+J_TRANSACTION_ID=20261026T000000Z-0123456789abcdef
 TXN_DIR="$PERSIST_ROOT/$J_TRANSACTION_ID"
 JOURNAL="$TXN_DIR/state.json"
 mkdir -p "$TXN_DIR"
@@ -161,13 +161,16 @@ transaction_init "$TMP_ROOT/manifest.json" manual
 job_status_json "$apply_id" apply > "$TMP_ROOT/apply-bound.json"
 jq -e --arg id "$apply_id" '.job.id == $id and (.job.transaction_id | length) > 0 and
   .job.status == "running"' "$TMP_ROOT/apply-bound.json" >/dev/null
+J_MUTATION_STARTED=true
 set_state committed_pending_reboot_validation
 job_status_json "$apply_id" apply > "$TMP_ROOT/apply-pending.json"
 jq -e '.job.status == "pending_reboot" and (.job.transaction_id | length) > 0' \
   "$TMP_ROOT/apply-pending.json" >/dev/null
+LOCK_TOKEN=""
 printf '%s\n' changed-boot > "$FAKE_ROOT/proc/sys/kernel/random/boot_id"
 cleanup_compatibility() { return 0; }
 cleanup_package_conffile_artifacts() { return 0; }
+target_metadata_verify() { return 0; }
 target_state_validate() { return 0; }
 cleanup_successful_storage() { return 0; }
 recover_transaction

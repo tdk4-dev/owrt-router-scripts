@@ -1,3 +1,28 @@
+# Router UI 0.7.11
+
+Package-first transition for existing OpenWrt installations. Application
+`0.7.11`, opkg version `0.7.11-1`, stable channel.
+
+- Clean installation authenticates the validator against the signed core IPK.
+  The signed rescue path carries 0.7.10 into the transactional updater.
+- Update and recovery share one lock and retain the active journal until it
+  reaches a terminal state. Exact rollback covers the three Premier packages
+  and the documented protected configuration, with OpenWrt feed dependencies
+  installed before the transaction.
+- Failover uses private, structured runtime state. The LuCI route test
+  correlates results to its own connection and verifies TLS. Tailscale
+  enrollment sends its key through the authorized RPC method and a private
+  file.
+- The first-boot wizard stays sealed on live package installations. Firmware
+  images, Factory commissioning, and physical variant qualification are
+  separate deliverables.
+
+The intended qualification profile is vanilla OpenWrt 24.10.5 x86/64 on a
+disposable VM. See the [security remediation register](../docs/router-ui-0.7.11-security.md)
+for audit dispositions and the deployment boundary.
+
+---
+
 # Router UI 0.7.11 RC24 — RC22 update transition
 
 Application `0.7.11-rc.24`, package `0.7.11~rc24-1`, candidate channel.

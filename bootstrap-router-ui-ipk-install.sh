@@ -18,9 +18,9 @@ SYSUPGRADE_BIN="${ROUTER_UI_SYSUPGRADE_BIN:-sysupgrade}"
 WORK_DIR="$(mktemp -d /tmp/router-ui-ipk-bootstrap.XXXXXX)"
 PUBLIC_KEY="$WORK_DIR/release.pub"
 PROJECT_PACKAGES='premier-router-core luci-app-premier-router premier-router-setup'
-MANIFEST="$ASSET_DIR/installed-manifest.json"
-SIGNATURE="$ASSET_DIR/installed-manifest.json.sig"
-VALIDATOR="$ASSET_DIR/router-candidate-validator"
+MANIFEST="$WORK_DIR/installed-manifest.json"
+SIGNATURE="$WORK_DIR/installed-manifest.json.sig"
+VALIDATOR="$WORK_DIR/router-candidate-validator"
 INSTALLED_DIR="$ROOT_PREFIX/etc/premier-router"
 FIRSTBOOT_STATE_DIR="$ROOT_PREFIX/etc/firstboot-wizard"
 FIRSTBOOT_PACKAGE_GUARD="$FIRSTBOOT_STATE_DIR/package-install"
@@ -115,8 +115,10 @@ esac
 printf '%s\n%s\n' "$TRUSTED_KEY_COMMENT" "$TRUSTED_KEY_DATA" > "$PUBLIC_KEY"
 [ "$(usign -F -p "$PUBLIC_KEY")" = "$TRUSTED_KEY_FINGERPRINT" ] ||
   die 'embedded release public-key fingerprint mismatch'
-[ -s "$MANIFEST" ] && [ -s "$SIGNATURE" ] && [ -s "$VALIDATOR" ] ||
-  die 'signed installed-package-set assets are incomplete'
+head -c 262145 "$ASSET_DIR/installed-manifest.json" > "$MANIFEST"
+head -c 4097 "$ASSET_DIR/installed-manifest.json.sig" > "$SIGNATURE"
+[ "$(wc -c < "$MANIFEST")" -le 262144 ] &&
+  [ "$(wc -c < "$SIGNATURE")" -le 4096 ] || die 'installed package-set metadata is too large'
 usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
   die 'installed package manifest signature verification failed'
 
@@ -143,19 +145,30 @@ for expected_package in $PROJECT_PACKAGES; do
     [ "$architecture" = all ] && [ "$order" = "$((index + 1))" ] ||
     die "installed manifest package identity mismatch: $expected_package"
   safe_name "$filename" || die "unsafe package filename: $filename"
-  [ -s "$ASSET_DIR/$filename" ] || die "missing package asset: $filename"
-  [ "$(wc -c < "$ASSET_DIR/$filename" | tr -d ' ')" = "$size" ] &&
-    [ "$(sha256sum "$ASSET_DIR/$filename" | awk '{print $1}')" = "$sha" ] ||
+  [ -f "$ASSET_DIR/$filename" ] || die "missing package asset: $filename"
+  case "$size" in ''|0*|*[!0-9]*) die "invalid signed package size: $filename" ;; esac
+  [ "${#size}" -le 7 ] && [ "$size" -le 4194304 ] || die "package is too large: $filename"
+  head -c "$((size + 1))" "$ASSET_DIR/$filename" > "$WORK_DIR/$filename"
+  [ "$(wc -c < "$WORK_DIR/$filename" | tr -d ' ')" = "$size" ] &&
+    [ "$(sha256sum "$WORK_DIR/$filename" | awk '{print $1}')" = "$sha" ] ||
     die "package hash or size mismatch: $filename"
   case "$index" in
-    0) IPK_0="$ASSET_DIR/$filename" ;;
-    1) IPK_1="$ASSET_DIR/$filename" ;;
-    2) IPK_2="$ASSET_DIR/$filename" ;;
+    0) IPK_0="$WORK_DIR/$filename" ;;
+    1) IPK_1="$WORK_DIR/$filename" ;;
+    2) IPK_2="$WORK_DIR/$filename" ;;
   esac
   PACKAGE_BYTES=$((PACKAGE_BYTES + size))
   index=$((index + 1))
 done
 [ -z "$(jget "$MANIFEST" '@.packages[3].name')" ] || die 'installed manifest contains extra packages'
+
+# Execute and retain only the validator covered by the signed core package.
+tar -xzOf "$IPK_0" ./data.tar.gz > "$WORK_DIR/core-data.tar.gz"
+tar -xzOf "$WORK_DIR/core-data.tar.gz" ./usr/libexec/premier-router/candidate-validator > "$VALIDATOR"
+rm -f "$WORK_DIR/core-data.tar.gz"
+[ -s "$VALIDATOR" ] && sh -n "$VALIDATOR" || die 'signed core package has no valid validator'
+cmp -s "$VALIDATOR" "$ASSET_DIR/router-candidate-validator" ||
+  die 'validator sidecar does not match the authenticated core package'
 
 [ ! -s "$INSTALLED_DIR/installed-manifest.json" ] ||
   die 'an installed Router UI manifest already exists; use the transactional release installer'

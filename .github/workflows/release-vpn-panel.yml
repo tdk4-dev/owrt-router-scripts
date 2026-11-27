@@ -10,17 +10,17 @@ on:
       app_version:
         description: Expected application version
         required: true
-        default: 0.7.11-rc.24
+        default: 0.7.11
         type: string
       package_version:
         description: Expected opkg version
         required: true
-        default: 0.7.11~rc24-1
+        default: 0.7.11-1
         type: string
       channel:
         description: Expected channel
         required: true
-        default: candidate
+        default: stable
         type: choice
         options: [candidate, stable]
       artifact_id:

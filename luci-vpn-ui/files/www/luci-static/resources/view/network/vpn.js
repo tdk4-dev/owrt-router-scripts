@@ -105,7 +105,7 @@ return view.extend({
 		var command = args && args[0];
 		var readCommand = command === 'status' || command === 'vpn-summary' ||
 			command === 'tailscale-status' || command === 'tailscale-ping' ||
-			command === 'update-status' || command === 'test-domain' ||
+			command === 'update-status' ||
 			command === 'adoption-preview';
 
 		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
@@ -566,14 +566,13 @@ return view.extend({
 	},
 
 	renderDomainTestResult: function(test) {
-		var route, routeClass, publicIps, profile, services, httpResult, ips;
+		var route, routeClass, profile, services, httpResult, ips;
 
 		if (!test)
 			return [];
 
 		route = test.route || 'unknown';
 		routeClass = route == 'direct' ? 'notice' : (route == 'vpn' ? 'warning' : '');
-		publicIps = test.public_ips || {};
 		profile = test.profile || {};
 		services = test.services || {};
 		ips = (test.resolved_ips || []).join(', ');
@@ -609,18 +608,6 @@ return view.extend({
 					E('td', { 'class': 'td left' }, valueOrDash(ips))
 				]),
 				E('tr', { 'class': 'tr' }, [
-					E('td', { 'class': 'td left' }, _('Public IPv4')),
-					E('td', { 'class': 'td left' }, [
-						E('span', { 'class': 'label' }, 'Direct'),
-						' ',
-						valueOrDash(publicIps.direct),
-						' ',
-						E('span', { 'class': 'label' }, 'VPN'),
-						' ',
-						valueOrDash(publicIps.vpn)
-					])
-				]),
-				E('tr', { 'class': 'tr' }, [
 					E('td', { 'class': 'td left' }, _('Selected profile')),
 					E('td', { 'class': 'td left' }, '%s (%s, %s)'.format(
 						valueOrDash(profile.name),
@@ -634,16 +621,14 @@ return view.extend({
 						valueOrDash(services.xray),
 						valueOrDash(services.transparent)
 					))
-				]),
-				E('tr', { 'class': 'tr' }, [
-					E('td', { 'class': 'td left' }, _('Access log')),
-					E('td', { 'class': 'td left vpn-test-log' }, valueOrDash(test.access_log))
 				])
 			])
 		]);
 	},
 
 	renderDomainTester: function() {
+		if (isReadonlyView)
+			return [];
 		return E('div', { 'class': 'vpn-domain-test' }, [
 			E('div', { 'class': 'vpn-domain-test-row' }, [
 				E('input', {

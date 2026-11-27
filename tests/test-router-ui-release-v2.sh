@@ -64,7 +64,7 @@ OUT_ROOT="$TMP_ROOT/stage-root" IPK_DIR="$TMP_ROOT/ipk-a" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" USIGN_BIN="$USIGN_BIN" \
   "$ROOT_DIR/scripts/stage-router-release.sh" >/dev/null
 jq -e '
-  .app_version == "0.7.11-rc.24" and .package_version == "0.7.11~rc24-1" and
+  .app_version == "0.7.11" and .package_version == "0.7.11-1" and
   any(.transitions[]; .source_version == "0.7.11-rc.5" and
     .source_protocol == 2 and .mode == "package-v2-rc") and
   any(.transitions[]; .source_version == "0.7.11-rc.6" and
@@ -159,6 +159,16 @@ run_bootstrap_assets() {
     "$TMP_ROOT/release/bootstrap-router-ui-ipk-install.sh"
 }
 run_bootstrap_assets >/dev/null
+[ ! -e "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" ]
+VALIDATOR="$TMP_ROOT/release/router-candidate-validator"
+cp "$VALIDATOR" "$TMP_ROOT/original-validator"
+printf '\n# wrong sidecar bytes\n' >> "$VALIDATOR"
+if run_bootstrap_assets >"$TMP_ROOT/validator-rejected" 2>&1; then
+  printf 'bootstrap accepted a validator outside the signed core package\n' >&2
+  exit 1
+fi
+grep -Fq 'validator sidecar does not match' "$TMP_ROOT/validator-rejected"
+cp "$TMP_ROOT/original-validator" "$VALIDATOR"
 [ ! -e "$TMP_ROOT/bootstrap-root/etc/firstboot-wizard" ]
 
 run_bootstrap_until_update_failure() {
@@ -424,7 +434,7 @@ tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./control
   tar -xzOf - ./control > "$TMP_ROOT/core-control"
 grep -Fqx "Version: $PKG_VERSION" "$TMP_ROOT/core-control"
 grep -Fqx "X-Premier-App-Version: $APP_VERSION" "$TMP_ROOT/core-control"
-grep -Fqx 'X-Premier-Release-Channel: candidate' "$TMP_ROOT/core-control"
+grep -Fqx 'X-Premier-Release-Channel: stable' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*coreutils-nohup' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*kmod-nft-tproxy' "$TMP_ROOT/core-control"
 grep -Eq '^Depends: .*ip-full' "$TMP_ROOT/core-control"
@@ -455,18 +465,18 @@ grep -q 'refusing symlinked first-boot state directory' \
   "$TMP_ROOT/setup-preinst-symlink.log"
 rm -f "$TMP_ROOT/setup-state"
 sh "$TMP_ROOT/setup-preinst-test"
-[ -f "$TMP_ROOT/setup-state/complete" ]
+[ -f "$TMP_ROOT/setup-state/package-install" ]
 setup_state_mode="$(stat -c '%a' "$TMP_ROOT/setup-state" 2>/dev/null ||
   stat -f '%Lp' "$TMP_ROOT/setup-state")"
-setup_complete_mode="$(stat -c '%a' "$TMP_ROOT/setup-state/complete" 2>/dev/null ||
-  stat -f '%Lp' "$TMP_ROOT/setup-state/complete")"
+setup_complete_mode="$(stat -c '%a' "$TMP_ROOT/setup-state/package-install" 2>/dev/null ||
+  stat -f '%Lp' "$TMP_ROOT/setup-state/package-install")"
 [ "$setup_state_mode" = 700 ]
 [ "$setup_complete_mode" = 600 ]
 tar -xzOf "$TMP_ROOT/ipk-a/premier-router-core_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -xzOf - ./usr/share/premier-router/build-info > "$TMP_ROOT/build-info"
 grep -Fqx "APP_VERSION=$APP_VERSION" "$TMP_ROOT/build-info"
 grep -Fqx "PACKAGE_VERSION=$PKG_VERSION" "$TMP_ROOT/build-info"
-grep -Fqx 'RELEASE_CHANNEL=candidate' "$TMP_ROOT/build-info"
+grep -Fqx 'RELEASE_CHANNEL=stable' "$TMP_ROOT/build-info"
 ! tar -xzOf "$TMP_ROOT/ipk-a/luci-app-premier-router_${PKG_VERSION}_all.ipk" ./data.tar.gz |
   tar -tzf - | grep -q '/_35_vpn.js$'
 

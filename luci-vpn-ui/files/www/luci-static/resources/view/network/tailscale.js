@@ -1,12 +1,19 @@
 'use strict';
 'require view';
 'require fs';
+'require rpc';
 'require ui';
 'require dom';
 
 var helper = '/usr/sbin/vpn-ui';
 var readonlyHelper = '/usr/sbin/vpn-ui-readonly';
 var isReadonlyView = !L.hasViewPermission() || null;
+var enrollTailscale = rpc.declare({
+	object: 'premier-router-tailscale',
+	method: 'enroll',
+	params: [ 'server', 'hostname', 'key', 'routes', 'exit_node' ],
+	reject: true
+});
 
 var css = '\
 .tailscale-ui .ts-state { display:flex; gap:.5rem; flex-wrap:wrap; margin:.5rem 0 1rem; }\
@@ -46,6 +53,13 @@ return view.extend({
 	callHelper: function(args) {
 		var command = args && args[0];
 		var readCommand = command === 'tailscale-status' || command === 'tailscale-ping';
+
+		if (command === 'tailscale-enroll')
+			return enrollTailscale.apply(null, args.slice(1)).then(function(data) {
+				if (!data || !data.ok)
+					throw new Error((data && data.error) || _('The Tailscale helper rejected the request.'));
+				return data;
+			});
 
 		return fs.exec(readCommand ? readonlyHelper : helper, args).then(parseResponse);
 	},
@@ -114,11 +128,15 @@ return view.extend({
 		var routes = document.querySelector('#ts-routes');
 		var exitNode = document.querySelector('#ts-exit-node');
 
+		var enrollmentKey = key ? key.value.trim() : '';
+		if (key)
+			key.value = '';
+
 		return this.runAction([
-			'tailscale-up',
+			'tailscale-enroll',
 			server ? server.value.trim() : '',
 			hostname ? hostname.value.trim() : '',
-			key ? key.value.trim() : '',
+			enrollmentKey,
 			routes ? routes.value.trim() : '',
 			exitNode && exitNode.checked ? '1' : '0'
 		], _('Applying Tailscale settings'), function(state) {

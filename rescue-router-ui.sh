@@ -23,21 +23,29 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 fetch() {
-  local url="$1" dst="$2" attempt=1
+  local url="$1" dst="$2" maximum="${3:-262144}" attempt=1 blocks size
   case "$url" in https://*) ;; *) return 1 ;; esac
+  case "$maximum" in ''|0*|*[!0-9]*) return 1 ;; esac
+  [ "${#maximum}" -le 8 ] && [ "$maximum" -le 16777216 ] || return 1
+  blocks=$(((maximum + 511) / 512))
   while [ "$attempt" -le 3 ]; do
-    rm -f "$dst"
-    if command -v curl >/dev/null 2>&1; then
-      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 120 \
-        "$url" -o "$dst" && return 0
-    elif command -v wget >/dev/null 2>&1; then
-      wget -T 120 -qO "$dst" "$url" && return 0
-    elif command -v uclient-fetch >/dev/null 2>&1; then
-      uclient-fetch -T 120 -q -O "$dst" "$url" && return 0
-    else
-      die "curl, wget, or uclient-fetch is required"
+    rm -f "$dst" || return 1
+    if (
+      ulimit -f "$blocks" || exit 1
+      if command -v curl >/dev/null 2>&1; then
+        exec curl -4 -fsSL --proto '=https' --proto-redir '=https' --max-filesize "$maximum" \
+          --connect-timeout 10 --max-time 120 "$url" -o "$dst"
+      elif command -v wget >/dev/null 2>&1; then
+        exec wget -T 120 -qO "$dst" "$url"
+      else
+        exec uclient-fetch -T 120 -q -O "$dst" "$url"
+      fi
+    ); then
+      size="$(wc -c < "$dst" | tr -d ' ')"
+      [ "$size" -gt 0 ] && [ "$size" -le "$maximum" ] && return 0
     fi
-    sleep $((attempt * 2))
+    rm -f "$dst" || return 1
+    [ "$attempt" = 3 ] || sleep $((attempt * 2))
     attempt=$((attempt + 1))
   done
   return 1
@@ -96,9 +104,9 @@ prepare_dependency_feeds() {
       awk '{ print "src", $2, $3 }' "$FEED_STAGE/sources"
     } > "$FEED_STAGE/opkg.conf"
     while read -r kind name url extra; do
-      fetch "$url/Packages.gz" "$WORK_DIR/Packages.gz" &&
-        gzip -dc "$WORK_DIR/Packages.gz" > "$FEED_STAGE/lists/$name" &&
-        fetch "$url/Packages.sig" "$FEED_STAGE/lists/$name.sig" ||
+      fetch "$url/Packages.gz" "$WORK_DIR/Packages.gz" 4194304 &&
+        (ulimit -f 32768 && gzip -dc "$WORK_DIR/Packages.gz") > "$FEED_STAGE/lists/$name" &&
+        fetch "$url/Packages.sig" "$FEED_STAGE/lists/$name.sig" 4096 ||
         die "signed dependency feed download failed: $name"
       usign -q -V -P "$root/etc/opkg/keys" -m "$FEED_STAGE/lists/$name" \
         -x "$FEED_STAGE/lists/$name.sig" || die "dependency feed signature failed: $name"
@@ -161,11 +169,41 @@ ensure_worker_prerequisite() {
     die "insufficient /tmp space before prerequisite repair: need ${temporary_required} KiB, have ${temporary_free} KiB"
 
   prepare_dependency_feeds
-  command -v nohup >/dev/null 2>&1 && return 0
-  printf 'Installing the signed-feed coreutils-nohup prerequisite for legacy Router UI %s.\n' \
-    "$SOURCE_VERSION"
-  "$OPKG_BIN" install coreutils-nohup || die "coreutils-nohup prerequisite installation failed"
-  command -v nohup >/dev/null 2>&1 || die "coreutils-nohup did not provide nohup"
+  # Prepare ordinary OpenWrt prerequisites before the project transaction.
+  # The updater will refuse to install or change feed packages during rollback-capable apply.
+  local index filename size sha dependency_list package installed
+  dependency_list="$WORK_DIR/target-dependencies"
+  : > "$dependency_list"
+  for index in 0 1 2; do
+    filename="$(jget "$MANIFEST" "@.packages[$index].filename")"
+    size="$(jget "$MANIFEST" "@.packages[$index].size")"
+    sha="$(jget "$MANIFEST" "@.packages[$index].sha256")"
+    case "$filename" in ''|.*|*/*|*\\*) die "invalid signed package filename" ;; esac
+    case "$size" in ''|0*|*[!0-9]*) die "invalid signed package size" ;; esac
+    [ "${#size}" -le 7 ] && [ "$size" -le 4194304 ] || die "signed package is too large"
+    fetch "$RELEASE_BASE/$filename" "$WORK_DIR/$filename" "$size" ||
+      die "could not fetch $filename for dependency preflight"
+    [ "$(wc -c < "$WORK_DIR/$filename" | tr -d ' ')" = "$size" ] &&
+      [ "$(sha256sum "$WORK_DIR/$filename" | awk '{print $1}')" = "$sha" ] ||
+      die "package verification failed: $filename"
+    tar -xzOf "$WORK_DIR/$filename" ./control.tar.gz |
+      tar -xzOf - ./control |
+      sed -n 's/^Depends: //p' | tr ',' '\n' |
+      awk '{$1=$1; if (NF) print}' >> "$dependency_list"
+  done
+  LC_ALL=C sort -u "$dependency_list" > "$dependency_list.sorted"
+  while IFS= read -r package; do
+    case "$package" in
+      "premier-router-core (= $TARGET_PACKAGE_VERSION)") continue ;;
+      *[!a-zA-Z0-9+_.-]*) die "unsupported dependency constraint: $package" ;;
+    esac
+    installed="$("$OPKG_BIN" status "$package" 2>/dev/null || true)"
+    if ! printf '%s\n' "$installed" | grep -q '^Status:.* installed$'; then
+      "$OPKG_BIN" install "$package" || die "signed-feed prerequisite installation failed: $package"
+    fi
+  done < "$dependency_list.sorted"
+  command -v nohup >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 ||
+    die "worker prerequisites are missing after signed-feed preparation"
 }
 
 [ "${ROUTER_UI_TARGET_VERSION:-$TARGET_VERSION}" = "$TARGET_VERSION" ] ||
@@ -222,7 +260,7 @@ MANIFEST="$WORK_DIR/router-release-manifest.json"
 SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
 fetch "$RELEASE_BASE/router-release-manifest.json" "$MANIFEST" ||
   die "could not download the exact $TARGET_VERSION manifest"
-fetch "$RELEASE_BASE/router-release-manifest.json.sig" "$SIGNATURE" ||
+fetch "$RELEASE_BASE/router-release-manifest.json.sig" "$SIGNATURE" 4096 ||
   die "could not download the exact $TARGET_VERSION manifest signature"
 usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
   die "$TARGET_VERSION manifest signature verification failed"
@@ -253,7 +291,7 @@ INSTALLER_SHA="$(jget "$MANIFEST" '@.standalone_installer.sha256')"
   die "manifest names an unexpected standalone installer"
 printf '%s' "$INSTALLER_SHA" | grep -Eq '^[0-9a-f]{64}$' ||
   die "installer hash metadata is malformed"
-fetch "$RELEASE_BASE/$INSTALLER_NAME" "$WORK_DIR/$INSTALLER_NAME" ||
+fetch "$RELEASE_BASE/$INSTALLER_NAME" "$WORK_DIR/$INSTALLER_NAME" "$INSTALLER_SIZE" ||
   die "could not download the exact standalone installer"
 [ "$(wc -c < "$WORK_DIR/$INSTALLER_NAME" | tr -d ' ')" = "$INSTALLER_SIZE" ] &&
   [ "$(sha256sum "$WORK_DIR/$INSTALLER_NAME" | awk '{print $1}')" = "$INSTALLER_SHA" ] ||

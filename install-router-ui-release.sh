@@ -41,21 +41,29 @@ if [ "${PREMIER_ROUTER_HOST_TEST:-0}" = 1 ] &&
 fi
 
 fetch() {
-  local url="$1" dst="$2" attempt=1
+  local url="$1" dst="$2" maximum="${3:-262144}" attempt=1 blocks size
   case "$url" in https://*) ;; *) return 1 ;; esac
+  case "$maximum" in ''|0*|*[!0-9]*) return 1 ;; esac
+  [ "${#maximum}" -le 8 ] && [ "$maximum" -le 16777216 ] || return 1
+  blocks=$(((maximum + 511) / 512))
   while [ "$attempt" -le 3 ]; do
-    rm -f "$dst"
-    if command -v curl >/dev/null 2>&1; then
-      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 120 \
-        "$url" -o "$dst" && return 0
-    elif command -v wget >/dev/null 2>&1; then
-      wget -T 120 -qO "$dst" "$url" && return 0
-    elif command -v uclient-fetch >/dev/null 2>&1; then
-      uclient-fetch -T 120 -q -O "$dst" "$url" && return 0
-    else
-      die "curl, wget, or uclient-fetch is required"
+    rm -f "$dst" || return 1
+    if (
+      ulimit -f "$blocks" || exit 1
+      if command -v curl >/dev/null 2>&1; then
+        exec curl -4 -fsSL --proto '=https' --proto-redir '=https' --max-filesize "$maximum" \
+          --connect-timeout 10 --max-time 120 "$url" -o "$dst"
+      elif command -v wget >/dev/null 2>&1; then
+        exec wget -T 120 -qO "$dst" "$url"
+      else
+        exec uclient-fetch -T 120 -q -O "$dst" "$url"
+      fi
+    ); then
+      size="$(wc -c < "$dst" | tr -d ' ')"
+      [ "$size" -gt 0 ] && [ "$size" -le "$maximum" ] && return 0
     fi
-    sleep $((attempt * 2))
+    rm -f "$dst" || return 1
+    [ "$attempt" = 3 ] || sleep $((attempt * 2))
     attempt=$((attempt + 1))
   done
   return 1
@@ -81,7 +89,7 @@ download_manifest_asset() {
   size="$(jget "$manifest" "@.$object.size")"
   sha="$(jget "$manifest" "@.$object.sha256")"
   safe_name "$name" || die "unsafe asset name in $object"
-  fetch "$base/$name" "$WORK_DIR/assets/$name" ||
+  fetch "$base/$name" "$WORK_DIR/assets/$name" "$size" ||
     die "could not download $name"
   verify_file "$WORK_DIR/assets/$name" "$size" "$sha" ||
     die "asset verification failed: $name"
@@ -109,9 +117,31 @@ if [ -n "${ROUTER_UI_ASSET_DIR:-}" ]; then
   [ -s "${ROUTER_UI_VERIFIED_MANIFEST:-}" ] &&
     [ -s "${ROUTER_UI_VERIFIED_MANIFEST_SIGNATURE:-}" ] ||
     die "verified local mode requires a manifest and signature"
-  ASSET_DIR="$ROUTER_UI_ASSET_DIR"
-  MANIFEST="$ROUTER_UI_VERIFIED_MANIFEST"
-  SIGNATURE="$ROUTER_UI_VERIFIED_MANIFEST_SIGNATURE"
+  MANIFEST="$WORK_DIR/router-release-manifest.json"
+  SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
+  head -c 262145 "$ROUTER_UI_VERIFIED_MANIFEST" > "$MANIFEST"
+  head -c 4097 "$ROUTER_UI_VERIFIED_MANIFEST_SIGNATURE" > "$SIGNATURE"
+  [ "$(wc -c < "$MANIFEST")" -le 262144 ] &&
+    [ "$(wc -c < "$SIGNATURE")" -le 4096 ] &&
+    usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
+    die "local release manifest signature verification failed"
+  [ "$(jget "$MANIFEST" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] &&
+    [ "$(jget "$MANIFEST" '@.signing_key_fingerprint')" = "$TRUSTED_KEY_FINGERPRINT" ] &&
+    [ "$(jget "$MANIFEST" '@.channel')" = "$RELEASE_CHANNEL" ] ||
+    die "local release manifest trust or channel mismatch"
+  ASSET_DIR="$WORK_DIR/assets"
+  for object in 'packages[0]' 'packages[1]' 'packages[2]' candidate_validator \
+    transaction_supervisor update_library compatibility.status_0_7_9; do
+    name="$(jget "$MANIFEST" "@.$object.filename")"
+    size="$(jget "$MANIFEST" "@.$object.size")"
+    sha="$(jget "$MANIFEST" "@.$object.sha256")"
+    safe_name "$name" || die "unsafe asset name in $object"
+    case "$size" in ''|0*|*[!0-9]*) die "invalid signed size for $name" ;; esac
+    [ "${#size}" -le 8 ] && [ "$size" -le 16777216 ] || die "asset too large: $name"
+    [ -f "$ROUTER_UI_ASSET_DIR/$name" ] || die "missing local asset: $name"
+    head -c "$((size + 1))" "$ROUTER_UI_ASSET_DIR/$name" > "$ASSET_DIR/$name"
+    verify_file "$ASSET_DIR/$name" "$size" "$sha" || die "asset verification failed: $name"
+  done
   SUPERVISOR="$ASSET_DIR/$(jget "$MANIFEST" '@.transaction_supervisor.filename')"
   UPDATE_LIB="$ASSET_DIR/$(jget "$MANIFEST" '@.update_library.filename')"
 else
@@ -124,7 +154,7 @@ else
   else
     fetch "$DISCOVERY_BASE/$POINTER_NAME" "$POINTER" ||
       die "could not download the $RELEASE_CHANNEL-channel pointer"
-    fetch "$DISCOVERY_BASE/$POINTER_NAME.sig" "$POINTER_SIG" ||
+    fetch "$DISCOVERY_BASE/$POINTER_NAME.sig" "$POINTER_SIG" 4096 ||
       die "could not download the $RELEASE_CHANNEL-channel signature"
     usign -q -V -p "$PUBLIC_KEY" -m "$POINTER" -x "$POINTER_SIG" ||
       die "$RELEASE_CHANNEL-channel signature verification failed"
@@ -134,9 +164,12 @@ else
       die "$RELEASE_CHANNEL-channel metadata names another channel"
     [ "$(jget "$POINTER" '@.signing_key_id')" = "$TRUSTED_KEY_ID" ] ||
       die "$RELEASE_CHANNEL-channel signing key ID mismatch"
+    [ "$(jget "$POINTER" '@.signing_key_fingerprint')" = "$TRUSTED_KEY_FINGERPRINT" ] ||
+      die "$RELEASE_CHANNEL-channel fingerprint mismatch"
     TAG="$(jget "$POINTER" '@.release_tag')"
     REQUESTED_VERSION="$(jget "$POINTER" '@.target_version')"
-    [ "$TAG" = "vpn-panel-v$REQUESTED_VERSION" ] ||
+    version_valid "$REQUESTED_VERSION" &&
+      [ "$TAG" = "vpn-panel-v$REQUESTED_VERSION" ] ||
       die "$RELEASE_CHANNEL-channel tag/version mismatch"
   fi
 
@@ -145,10 +178,14 @@ else
   SIGNATURE="$WORK_DIR/router-release-manifest.json.sig"
   fetch "$RELEASE_BASE/router-release-manifest.json" "$MANIFEST" ||
     die "could not download the exact release manifest"
-  fetch "$RELEASE_BASE/router-release-manifest.json.sig" "$SIGNATURE" ||
+  fetch "$RELEASE_BASE/router-release-manifest.json.sig" "$SIGNATURE" 4096 ||
     die "could not download the exact release signature"
   usign -q -V -p "$PUBLIC_KEY" -m "$MANIFEST" -x "$SIGNATURE" ||
     die "release manifest signature verification failed"
+  if [ -s "$POINTER" ]; then
+    [ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = "$(jget "$POINTER" '@.manifest_sha256')" ] ||
+      die "channel pointer does not authenticate this manifest"
+  fi
   [ "$(jget "$MANIFEST" '@.release_tag')" = "$TAG" ] ||
     die "manifest release tag mismatch"
   [ "$(jget "$MANIFEST" '@.app_version')" = "$REQUESTED_VERSION" ] ||
@@ -167,7 +204,7 @@ else
     size="$(jget "$MANIFEST" "@.packages[$index].size")"
     sha="$(jget "$MANIFEST" "@.packages[$index].sha256")"
     safe_name "$name" || die "unsafe package filename"
-    fetch "$RELEASE_BASE/$name" "$WORK_DIR/assets/$name" ||
+    fetch "$RELEASE_BASE/$name" "$WORK_DIR/assets/$name" "$size" ||
       die "could not download package $name"
     verify_file "$WORK_DIR/assets/$name" "$size" "$sha" ||
       die "package verification failed: $name"
@@ -185,6 +222,9 @@ else
   UPDATE_LIB="$ASSET_DIR/$(jget "$MANIFEST" '@.update_library.filename')"
 fi
 
+[ "$(jget "$MANIFEST" '@.schema_version')" = 2 ] &&
+  [ "$(jget "$MANIFEST" '@.update_protocol')" = 2 ] &&
+  [ "$(jget "$MANIFEST" '@.source_dirty')" = false ] || die "unsupported signed release metadata"
 [ -s "$SUPERVISOR" ] && [ -s "$UPDATE_LIB" ] || die "verified supervisor assets are missing"
 VALIDATOR="$ASSET_DIR/$(jget "$MANIFEST" '@.candidate_validator.filename')"
 [ -s "$VALIDATOR" ] || die "verified candidate validator asset is missing"

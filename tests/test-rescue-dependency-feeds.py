@@ -2,10 +2,13 @@
 """Exercise the rescue prerequisite boundary without building or signing artifacts."""
 import gzip
 import hashlib
+import io
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -27,10 +30,32 @@ class DependencyFeeds(unittest.TestCase):
         self.write("archive/Packages", "Package: ip-full\n\nPackage: conntrack\n\n")
         (self.root / "archive/Packages.gz").write_bytes(gzip.compress((self.root / "archive/Packages").read_bytes()))
         self.write("archive/Packages.sig", hashlib.sha256((self.root / "archive/Packages").read_bytes()).hexdigest())
+        packages = []
+        for index, depends in enumerate(('coreutils-nohup, flock', 'premier-router-core (= 0.7.11-1)', '')):
+            control = b"Package: fixture\n" + f"Depends: {depends}\n".encode()
+            inner = io.BytesIO()
+            with tarfile.open(fileobj=inner, mode="w:gz") as archive:
+                member = tarfile.TarInfo("./control")
+                member.size = len(control)
+                archive.addfile(member, io.BytesIO(control))
+            filename = f"fixture-{index}.ipk"
+            path = self.root / "archive" / filename
+            with tarfile.open(path, mode="w:gz") as archive:
+                member = tarfile.TarInfo("./control.tar.gz")
+                member.size = len(inner.getvalue())
+                archive.addfile(member, io.BytesIO(inner.getvalue()))
+            packages.append({"filename": filename, "size": path.stat().st_size,
+                             "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        self.write("manifest", json.dumps({"packages": packages}))
         self.write("bin/usign", '#!/bin/sh\n[ "${FAIL_SIGNATURE:-0}" = 0 ] || exit 1\nwhile [ "$#" -gt 0 ]; do case "$1" in -m) m="$2"; shift;; -x) x="$2"; shift;; esac; shift; done\n[ "$(sha256sum "$m" | cut -d " " -f1)" = "$(cat "$x")" ]\n', True)
         self.write("bin/opkg-fixture", '''#!/usr/bin/env python3
 import os, pathlib, sys
 r=pathlib.Path(os.environ['FIXTURE_ROOT']); args=sys.argv[1:]
+if 'status' in args:
+    dep=args[-1]
+    if (r/'bin'/dep).exists() or dep == 'coreutils-nohup' and (r/'bin/nohup').exists():
+        print("Status: install user installed")
+    sys.exit(0)
 with (r/'calls').open('a') as f: f.write(' '.join(args)+'\\n')
 if '--download-only' in args or 'install' in args:
     assert '-l' in args and '-f' in args, 'opkg must use the pinned feed contract'
@@ -54,19 +79,24 @@ MANIFEST="$FIXTURE_ROOT/manifest"
 OPENWRT_RELEASE_FILE="$FIXTURE_ROOT/etc/openwrt_release"
 SOURCE_VERSION=0.7.10
 OPKG_BIN="$FIXTURE_ROOT/bin/opkg-fixture"
-jget() { case "$2" in *size*) echo 100;; esac; }
+TARGET_PACKAGE_VERSION=0.7.11-1
+RELEASE_BASE=https://archive.invalid/release
+jget() { jq -r "${2#@} // empty" "$1"; }
 bridge_state_kib() { echo 1; }
 filesystem_free_kib() { echo 999999; }
-fetch() { [ "${FAIL_DOWNLOAD:-0}" = 0 ] || return 1; cp "$FIXTURE_ROOT/archive/${1##*/}" "$2"; }
+fetch() {
+  case "$1" in */Packages*) [ "${FAIL_DOWNLOAD:-0}" = 0 ] || return 1 ;; esac
+  cp "$FIXTURE_ROOT/archive/${1##*/}" "$2"
+}
 ensure_worker_prerequisite
 if [ "${INSTALL_PROJECT:-0}" = 1 ]; then "$VPN_UI_OPKG_BIN" install project-fixture; fi
 ''', True)
-        self.write("manifest", "exact target manifest\n")
         self.env = dict(os.environ, FIXTURE_ROOT=str(self.root), ROUTER_UI_ROOT_PREFIX=str(self.root),
                         PATH=str(self.root / "bin"))
-        for tool in ("awk", "cat", "chmod", "cmp", "cp", "cut", "df", "du", "grep", "gzip", "mkdir", "mktemp", "mv", "python3", "rm", "sed", "sh", "sha256sum"):
+        for tool in ("awk", "cat", "chmod", "cmp", "cp", "cut", "df", "du", "grep", "gzip", "jq", "mkdir", "mktemp", "mv", "python3", "rm", "sed", "sh", "sha256sum", "sort", "tar", "tr", "wc"):
             (self.root / "bin" / tool).symlink_to(shutil.which(tool))
         self.write("bin/nohup", "#!/bin/sh\nexit 0\n", True)
+        self.write("bin/flock", "#!/bin/sh\nexit 0\n", True)
 
     def write(self, name, content, executable=False):
         p = self.root / name

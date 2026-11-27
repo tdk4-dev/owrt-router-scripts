@@ -30,7 +30,7 @@ function makePage(responder) {
 		createHandlerFn: (self, name, ...args) => self[name].bind(self, ...args)
 	};
 	const page = new Function(
-		'view', 'fs', 'ui', 'dom', 'L', 'E', '_', 'document', 'confirm', 'window',
+		'view', 'fs', 'ui', 'dom', 'rpc', 'L', 'E', '_', 'document', 'confirm', 'window',
 		source
 	)(
 		{ extend: value => value },
@@ -40,6 +40,12 @@ function makePage(responder) {
 		} },
 		ui,
 		{ content() {} },
+		{ declare: spec => async (...args) => {
+			assert.equal(spec.object, 'premier-router-tailscale');
+			assert.equal(spec.method, 'enroll');
+			calls.push({ command: spec.object, args: [ 'tailscale-enroll', ...args ] });
+			return responder(spec.object, [ 'tailscale-enroll', ...args ], calls, events);
+		} },
 		{ hasViewPermission: () => true, bind: (fn, self, ...args) => fn.bind(self, ...args) },
 		element,
 		value => value,
@@ -66,7 +72,7 @@ const cases = [
 		done: { running: true, boot_enabled: true, backend_state: 'Running', connected: true }
 	},
 	{
-		args: ['tailscale-up'],
+		args: ['tailscale-enroll', 'https://login.example', 'fixture', 'fixture-key', '', '0'],
 		message: 'Tailscale settings applied.',
 		predicate: state => state.running === true && state.boot_enabled === true &&
 			state.backend_state === 'Running' && state.connected === true,
@@ -92,7 +98,7 @@ for (const testCase of cases) {
 	});
 	await page.runAction(testCase.args, 'fixture', testCase.predicate, testCase.message);
 	assert.equal(reads, 3, `${testCase.args[0]} must wait for fresh read-only convergence`);
-	assert.deepEqual(calls[0], { command: '/usr/sbin/vpn-ui', args: testCase.args });
+	assert.deepEqual(calls[0], { command: testCase.args[0] === 'tailscale-enroll' ? 'premier-router-tailscale' : '/usr/sbin/vpn-ui', args: testCase.args });
 	for (const call of calls.slice(1))
 		assert.deepEqual(call, { command: '/usr/sbin/vpn-ui-readonly', args: ['tailscale-status'] });
 	assert.equal(events.at(-2), 'modal-hidden');

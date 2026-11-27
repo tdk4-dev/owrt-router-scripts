@@ -114,21 +114,22 @@ pr_offer_identity_decision() {
 }
 
 pr_download() {
-  local url="$1" dst="$2" attempt=1
+  local url="$1" dst="$2" maximum="${3:-262144}" attempt=1 blocks size
   case "$url" in https://*) ;; *) return 1 ;; esac
+  case "$maximum" in ''|0*|*[!0-9]*) return 1 ;; esac
+  [ "${#maximum}" -le 8 ] && [ "$maximum" -le 16777216 ] || return 1
+  # File-size rlimit also bounds chunked responses on older curl versions.
+  blocks=$(((maximum + 511) / 512))
   while [ "$attempt" -le 3 ]; do
-    rm -f "$dst"
-    if command -v curl >/dev/null 2>&1; then
-      curl -4 -fsSL --proto '=https' --connect-timeout 10 --max-time 120 \
-        "$url" -o "$dst" && return 0
-    elif command -v wget >/dev/null 2>&1; then
-      wget -T 120 -qO "$dst" "$url" && return 0
-    elif command -v uclient-fetch >/dev/null 2>&1; then
-      uclient-fetch -T 120 -q -O "$dst" "$url" && return 0
-    else
-      return 1
+    rm -f "$dst" || return 1
+    if (ulimit -f "$blocks" && exec curl -4 -fsSL --proto '=https' \
+      --proto-redir '=https' --max-filesize "$maximum" --connect-timeout 10 --max-time 120 \
+      "$url" -o "$dst"); then
+      size="$(pr_size "$dst")"
+      [ "$size" -gt 0 ] && [ "$size" -le "$maximum" ] && return 0
     fi
-    sleep $((attempt * 2))
+    rm -f "$dst" || return 1
+    [ "$attempt" = 3 ] || sleep $((attempt * 2))
     attempt=$((attempt + 1))
   done
   return 1

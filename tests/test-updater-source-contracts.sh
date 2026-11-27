@@ -128,22 +128,36 @@ grep -Fq 'cleanup_package_conffile_artifacts' "$UPDATER"
 grep -Fq 'first_install_protected_transition_validate' "$UPDATER"
 grep -Fq 'legacy-first-install:/etc/config/premier_router' "$UPDATER"
 
-# A live owner blocks a second updater. A mismatched boot identity is stale and recoverable.
+# Verify actual file-lock contention independently from the owner metadata.
 lock_acquire source-owner
-lock_assert source-owner
-if lock_acquire competing-owner; then
+[ "$(lock_owner_field token)" = source-owner ]
+if (exec 8>>"$LOCK_DIR.guard"; flock -n 8); then
   printf 'live update lock allowed a second owner\n' >&2
   exit 1
 fi
-sed 's/^boot_id=.*/boot_id=stale-boot/' "$LOCK_DIR/owner" > "$LOCK_DIR/owner.new"
-mv "$LOCK_DIR/owner.new" "$LOCK_DIR/owner"
+lock_release source-owner
+mkdir "$LOCK_DIR"
+printf 'boot_id=previous-boot\npid=1\nstart_id=old-start\n' > "$LOCK_DIR/owner"
 lock_acquire recovered-owner
-lock_assert recovered-owner
+[ "$(lock_owner_field token)" = recovered-owner ]
 lock_release recovered-owner
 [ ! -e "$LOCK_DIR" ]
 
+# A failure at the atomic rename must propagate to the state transition.
+(
+  JOURNAL="$TMP_ROOT/readonly-journal"
+  journal_write
+  before="$(cat "$JOURNAL")"
+  mv() { return 1; }
+  if set_state applying; then
+    printf 'failed persistence was reported as a durable transition\n' >&2
+    exit 1
+  fi
+  [ "$(cat "$JOURNAL")" = "$before" ]
+)
+
 # Recovery of an interrupted pre-mutation journal must fail closed without rollback mutation.
-J_TRANSACTION_ID=source-recovery-fixture
+J_TRANSACTION_ID=20261127T000000Z-1234567890abcdef
 TXN_DIR="$PERSIST_ROOT/$J_TRANSACTION_ID"
 JOURNAL="$TXN_DIR/state.json"
 mkdir -p "$TXN_DIR/rollback"
@@ -172,7 +186,12 @@ J_INVOCATION=manual
 J_NEEDS_REBOOT_VALIDATION=false
 journal_write
 printf '%s\n' "$J_TRANSACTION_ID" > "$ACTIVE_FILE"
+if new_transaction_allowed; then
+  printf 'an unresolved journal could be replaced\n' >&2
+  exit 1
+fi
 recover_transaction
+new_transaction_allowed
 journal_load "$JOURNAL"
 [ "$J_STATE" = failed_before_mutation ]
 [ "$J_MUTATION_STARTED" = false ]

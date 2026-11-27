@@ -694,7 +694,7 @@ chmod 600 "$CORE_ROOT/etc/vpn-ui-update.conf"
 write_legacy_manifest "$CORE_ROOT/usr/share/premier-router/legacy-files.list"
 write_control \
   "premier-router-core" \
-  "ca-bundle, curl, jsonfilter, usign, nftables-json, kmod-nft-tproxy, ip-full, conntrack, coreutils-base64, coreutils-nohup, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
+  "ca-bundle, curl, jsonfilter, usign, nftables-json, kmod-nft-tproxy, ip-full, conntrack, coreutils-base64, coreutils-nohup, flock, ucode, ucode-mod-fs, socat, tailscale, xray-core" \
   "Premier Router $APP_VERSION backend, signed updater, validator, rollback, and boot recovery." \
   "$CORE_CONTROL"
 write_core_scripts "$CORE_CONTROL"
@@ -704,6 +704,8 @@ LUCI_CONTROL="$BUILD_DIR/luci-app-premier-router/control"
 copy_tree_file_modes "$ROOT_DIR/luci-vpn-ui/files/www" "$LUCI_ROOT/www"
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/luci/menu.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/luci/menu.d/luci-app-vpn-ui.json" 644
 copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" "$LUCI_ROOT/usr/share/rpcd/acl.d/luci-app-vpn-ui.json" 644
+copy_file "$ROOT_DIR/luci-vpn-ui/files/usr/libexec/rpcd/premier-router-tailscale" \
+  "$LUCI_ROOT/usr/libexec/rpcd/premier-router-tailscale" 755
 write_control \
   "luci-app-premier-router" \
   "luci-base, rpcd, rpcd-mod-file, premier-router-core (= $PKG_VERSION)" \

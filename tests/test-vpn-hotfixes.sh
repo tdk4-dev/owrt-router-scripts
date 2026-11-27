@@ -16,8 +16,8 @@ VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/VERSION")"
 PACKAGE_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/PACKAGE_VERSION")"
 INSTALLED_VERSION="$(sed -n '1p' "$ROOT_DIR/luci-vpn-ui/files/usr/share/vpn-ui/version")"
 
-[ "$VERSION" = "0.7.11-rc.24" ]
-[ "$PACKAGE_VERSION" = "0.7.11~rc24-1" ]
+[ "$VERSION" = "0.7.11" ]
+[ "$PACKAGE_VERSION" = "0.7.11-1" ]
 [ "$INSTALLED_VERSION" = "$VERSION" ]
 
 . "$UPDATE_LIB"
@@ -65,7 +65,7 @@ STATUS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/router-ui-rc-status.XXXXXX")"
 trap 'rm -rf "$STATUS_ROOT"' EXIT INT TERM
 mkdir -p "$STATUS_ROOT/usr/share/vpn-ui" "$STATUS_ROOT/etc/premier-router/update-cache" \
   "$STATUS_ROOT/etc" "$STATUS_ROOT/root/premier-router-updates/quarantine"
-printf '%s\n' "$VERSION" > "$STATUS_ROOT/usr/share/vpn-ui/version"
+printf '%s\n' 0.7.11-rc.24 > "$STATUS_ROOT/usr/share/vpn-ui/version"
 printf "AUTO_UPDATE='0'\nAUTO_SCHEDULE='Sunday 04:17'\n" > "$STATUS_ROOT/etc/vpn-ui-update.conf"
 printf '%s\n' '{"target_version":"0.7.11"}' > \
   "$STATUS_ROOT/etc/premier-router/update-cache/stable-channel.json"
